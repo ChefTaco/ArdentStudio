@@ -1062,6 +1062,30 @@ export const applyResponseSchema = z.object({
    */
   restart: z.object({ available: z.boolean(), reason: z.string().nullable() }),
 });
+/**
+ * POST /agents/{agentRef}/skills/install: a HiveSkills catalog release (the slug and the version promoted on
+ * the channel) that Magnus fetches, checks against the catalog digest and installs onto the agent. With
+ * enable, revision is the agent's configuration revision and the skill is enabled in the same step.
+ */
+export const installSkillRequestSchema = z.object({
+  source: z.literal('hiveskills'),
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/),
+  version: z.string().max(64).regex(/^v?\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/i),
+  channel: z.enum(['stable', 'canary']).optional(),
+  enable: z.boolean().optional(),
+  revision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+}).strict().refine(value => !value.enable || value.revision !== undefined, { message: 'enable needs the configuration revision', path: ['revision'] });
+/**
+ * What Magnus installed. changed is false when the same release was installed already. When enabling was
+ * asked for and failed, the skill stays installed, enabled is false and enable_error says why. revision is
+ * the new configuration revision when the skill was enabled. The change applies once the profile restarts.
+ */
+export const installSkillResponseSchema = z.object({
+  source: z.literal('hiveskills'), name: z.string(), version: z.string(), sha256: z.string(), files: z.number().int(),
+  changed: z.boolean(), enabled: z.boolean(), revision: z.string().nullable(), enable_error: z.string().nullable(),
+  activation_required: z.boolean(), note: z.string().nullable(),
+  restart: z.object({ available: z.boolean(), reason: z.string().nullable() }),
+});
 export const developmentQuerySchema = z.object({
   after: z.string().regex(/^[A-Za-z0-9_-]{1,400}$/).optional(),
   limit: z.string().regex(/^\d{1,3}$/).optional(),
@@ -1299,6 +1323,7 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
     note: 'Streams a side-effect-free Ardent preview task (no memory writes, no mission tools, no identity changes, artifacts expire). Needs the agent\'s Magnus node agent at studio level 2: otherwise 409 PREVIEW_UNAVAILABLE. Sending x-idempotency-key again streams the same preview task.',
   },
   { method: 'POST', path: '/agents/{agentRef}/apply', requestBody: 'json', request: applyRequestSchema, response: applyResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, note: 'Applies parts of the calling person\'s draft through Magnus with the acting person, who must be a linked Magnus ADMIN: soul and identity with identity-save, skills with chained skill-set, the model with config-save of the agent\'s config.yaml changing only the model setting. Each part is checked against its base revision. Results are per part; skill and model changes report activation_required (a profile restart, which Studio cannot run). Running tasks keep their instructions.' },
+  { method: 'POST', path: '/agents/{agentRef}/skills/install', requestBody: 'json', request: installSkillRequestSchema, response: installSkillResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, note: 'Magnus skill-install with the acting person, who must be a linked Magnus ADMIN (403 ACTING_ADMIN_REQUIRED); the node agent needs studio 3 (409 AGENT_UPGRADE_REQUIRED). Magnus refusals keep their codes: 503 HIVESKILLS_UNCONFIGURED, 409 SKILL_VERSION_UNAVAILABLE, 409 SKILL_CONFLICT (a local skill of that name), 422 SKILL_ARCHIVE_INVALID; a Magnus without the action answers 409 MAGNUS_UPGRADE_REQUIRED.' },
   { method: 'GET', path: '/agents/{agentRef}/development', query: developmentQuerySchema, response: developmentResponseSchema, permissions: READ, idempotent: false },
   { method: 'POST', path: '/agents/{agentRef}/development/{recordId}/comments', requestBody: 'json', request: createDevelopmentCommentRequestSchema, response: createDevelopmentCommentResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201 },
 

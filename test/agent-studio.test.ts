@@ -254,3 +254,44 @@ describe('New Agent', () => {
     expect((await ctx.call('GET', '/agents/operations/unknown-operation')).status).toBe(404);
   });
 });
+
+describe('catalog skill install', () => {
+  const action = (call: { body?: unknown }) => (call.body as { action?: string } | undefined)?.action;
+  const release = { source: 'hiveskills', name: 'web-research', version: '1.2.0' };
+
+  it('installs a HiveSkills release through Magnus for the acting ADMIN and enables it with the revision', async () => {
+    ctx = await createTestContext();
+    ctx.magnus.studio.set('node1', 3);
+    ctx.magnus.skillReleases.set('web-research@1.2.0', 'f'.repeat(64));
+    const revision = ctx.magnus.configOf(REF).revision;
+    const installed = await json(await ctx.call('POST', `/agents/${REF}/skills/install`, { body: { ...release, enable: true, revision } }));
+    expect(installed).toMatchObject({ name: 'web-research', version: '1.2.0', sha256: 'f'.repeat(64), changed: true, enabled: true,
+      revision: ctx.magnus.configOf(REF).revision, enable_error: null, activation_required: true,
+      note: expect.stringContaining('restarts'), restart: { available: false } });
+    const call = ctx.magnus.calls.find(item => action(item) === 'skill-install')!;
+    expect(call).toMatchObject({ actingSubject: 'subject-operator', body: { action: 'skill-install', body: { ...release, enable: true, revision } } });
+    expect(ctx.magnus.skillMap.get(REF)).toContainEqual({ name: 'web-research', enabled: true });
+    const audit = ctx.store.db.prepare("SELECT detail_json FROM audit WHERE action = 'agent.skill.install'").get() as { detail_json: string } | undefined;
+    expect(JSON.parse(audit!.detail_json)).toMatchObject({ name: 'web-research', version: '1.2.0', changed: true, enabled: true });
+    // enable without the configuration revision is refused before Magnus sees it.
+    expect((await ctx.call('POST', `/agents/${REF}/skills/install`, { body: { ...release, enable: true } })).status).toBe(400);
+    expect((await ctx.call('POST', `/agents/${REF}/skills/install`, { body: { ...release, name: 'Web Research' } })).status).toBe(400);
+  });
+
+  it('keeps Magnus\'s refusal codes and says when Magnus or the node agent is too old', async () => {
+    ctx = await createTestContext();
+    const install = async (body: Record<string, unknown> = release) => {
+      const response = await ctx.call('POST', `/agents/${REF}/skills/install`, { body });
+      return { status: response.status, error: (await json(response)).error as { code: string; message: string } };
+    };
+    expect(await install()).toMatchObject({ status: 409, error: { code: 'AGENT_UPGRADE_REQUIRED' } });
+    ctx.magnus.studio.set('node1', 3);
+    expect(await install()).toMatchObject({ status: 503, error: { code: 'HIVESKILLS_UNCONFIGURED' } });
+    ctx.magnus.skillReleases.set('web-research@1.3.0', 'f'.repeat(64));
+    expect(await install()).toMatchObject({ status: 409, error: { code: 'SKILL_VERSION_UNAVAILABLE' } });
+    ctx.magnus.admins.clear();
+    expect(await install({ ...release, version: '1.3.0' })).toMatchObject({ status: 403, error: { code: 'ACTING_ADMIN_REQUIRED' } });
+    ctx.magnus.allowSkillInstall = false;
+    expect(await install()).toMatchObject({ status: 409, error: { code: 'MAGNUS_UPGRADE_REQUIRED' } });
+  });
+});
