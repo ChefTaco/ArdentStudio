@@ -806,12 +806,16 @@ export const decisionResponseSchema = decisionSchema;
 
 // ── Activity (derived from real records only) ──
 /**
- * offline/available come from the 30-second status probe only. queued, working, reviewing, asking,
- * waiting (behind another turn in its ordering group), paused and delivering come from Studio tasks
- * and Ardent journal events. Speaking is not stored: it is the live message.delta stream itself.
- * unknown: not probed yet.
+ * offline/available come from the 30-second status probe. queued, working (only after the journal
+ * shows model_started or tool_attempt), reviewing, asking, waiting (behind another turn in its
+ * ordering group, or on a role it handed work to), paused, blocked (the agent's newest task failed,
+ * ended in an unknown Ardent state or reported itself blocked) and delivering (shortly after a
+ * verified deliverable revision) come from Studio tasks and Ardent journal events. unknown: not
+ * probed yet. When several apply, the highest wins: offline, paused, blocked, asking, reviewing,
+ * working, queued, waiting, delivering, available, unknown. Speaking is not stored: it is the live
+ * message.delta stream itself.
  */
-export const activityStateSchema = z.enum(['offline', 'available', 'queued', 'working', 'reviewing', 'asking', 'waiting', 'paused', 'delivering', 'unknown']);
+export const activityStateSchema = z.enum(['offline', 'available', 'queued', 'working', 'reviewing', 'asking', 'waiting', 'paused', 'blocked', 'delivering', 'unknown']);
 export const activitySchema = z.object({
   binding_id: bindingIdSchema,
   agent_ref: agentRefSchema,

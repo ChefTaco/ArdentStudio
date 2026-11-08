@@ -127,6 +127,15 @@ export class ReviewRepository {
       ORDER BY c.created_at, c.id`).all(deliverableId) as Array<{ id: string }>).map(row => this.comment(row.id)!);
   }
 
+  /** The newest revision an agent binding delivered in a project, with its deliverable's name. */
+  latestDeliveredBy(projectId: string, bindingId: string): (DeliverableRevision & { deliverable_name: string }) | undefined {
+    const row = this.db.prepare(`SELECT r.*, d.name AS deliverable_name FROM deliverable_revisions r JOIN deliverables d ON d.id = r.deliverable_id
+      WHERE d.project_id = ? AND r.producer_binding_id = ? ORDER BY r.received_at DESC, r.revision DESC LIMIT 1`).get(projectId, bindingId) as (RevisionRow & { deliverable_name: string }) | undefined;
+    if (!row) return undefined;
+    const { deliverable_name, ...revision } = row;
+    return { ...toRevision(revision), deliverable_name };
+  }
+
   latestRevision(deliverableId: string): DeliverableRevision | undefined {
     const row = this.db.prepare('SELECT * FROM deliverable_revisions WHERE deliverable_id = ? ORDER BY revision DESC LIMIT 1').get(deliverableId) as RevisionRow | undefined;
     return row ? toRevision(row) : undefined;

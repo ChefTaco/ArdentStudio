@@ -318,8 +318,10 @@ cannot send the bearer token).
   `seq`.
 - `heartbeat` (`{seq, at}`) every 15 seconds.
 - `presence.updated` carries an agent's activity: `offline` and `available` from the 30-second
-  status probe, and `queued`, `working`, `reviewing`, `asking`, `waiting`, `paused` from tasks and
-  Ardent journal events. Nothing is inferred from timers.
+  status probe, and `queued`, `working`, `reviewing`, `asking`, `waiting`, `paused`, `blocked` and
+  `delivering` from tasks, Ardent journal events and verified deliverable revisions, with one
+  state per agent chosen by precedence ([CONDUCTOR.md](CONDUCTOR.md#activity)). Nothing is
+  inferred from timers.
 - `message.delta` (`{message_id, text, mode, step}`) is live reply text: `append` adds to the
   current step, `replace` sets it. It has no `id` and is never replayed; when a stream connects,
   each message still streaming gets one `replace` with its current text. The stored message

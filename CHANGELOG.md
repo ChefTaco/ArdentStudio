@@ -54,5 +54,9 @@ All notable changes to this project are documented here. The format follows
   configuration calls, chained configuration revisions, the model applied with `config-save` through
   a comment-preserving YAML edit limited to Magnus's allowed settings, explained refusals and
   `activation_required` with the restart left to the Magnus console.
+- Agent activity is derived in one place from the probe, tasks, stored journal progress,
+  clarifications, hand-offs and delivered revisions, with the `blocked` state and a documented
+  precedence when an agent has several tasks. Working needs `model_started` or `tool_attempt`;
+  Delivering is transient.
 - Container image (non-root, no package managers at runtime, `/data` volume), CI and a
   publish workflow for npm trusted publishing and GHCR.

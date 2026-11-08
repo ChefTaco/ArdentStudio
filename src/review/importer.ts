@@ -185,8 +185,8 @@ export class ArtifactImporter {
           links: { task_id: task.id, deliverable_id: deliverable.id, revision_id: revision.id }, state: 'complete' });
         this.store.emit(project.id, 'message.created', { message });
       }
-      this.options.conductor.noteActivity(task, 'delivering', `Delivered ${deliverable.name} r${revision.revision}`,
-        { task_id: task.id, ardent_event_seq: row.ardent_event_seq, kind: 'artifact_registered' });
+      // The verified revision is the record Delivering is derived from.
+      this.options.conductor.refreshActivity(project.id, task.binding_id);
     });
   }
 
