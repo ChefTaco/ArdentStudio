@@ -1,10 +1,13 @@
-// Background sync of reference files into each project's HiveMem workspace. State lives on the
-// file row (pending → indexing → indexed | failed | unsupported), so a restart resumes and the
-// UI always shows the real state. Failures retry with backoff; reindex starts over.
+// Background sync of reference files and links into each project's HiveMem workspace. State
+// lives on the file or link row (pending → indexing → indexed | failed | unsupported), so a
+// restart resumes and the UI always shows the real state. Failures retry with backoff; reindex
+// starts over. A link is synced as its own text (title, URL, note): the page is never fetched.
+// A deleted link's source is retired with an empty sync.
 import type { BlobStore } from '../blobs/store.js';
-import type { HiveMemClient } from '../clients/hivemem.js';
+import { chunkHash, type HiveMemClient } from '../clients/hivemem.js';
 import type { Store } from '../db/store.js';
 import type { StudioFile } from '../db/repos/files.js';
+import { linkKnowledgeText, linkRevision, type ReferenceLink } from '../db/repos/links.js';
 import { hivememProjectId, type Project } from '../db/repos/projects.js';
 import type { Logger } from '../logger.js';
 import { chunkText, extractText, KnowledgeTooLargeError } from './extract.js';
@@ -37,6 +40,7 @@ export class KnowledgeSync {
 
   start(): void {
     this.store.files.resetInterrupted();
+    this.store.links.resetInterrupted();
     this.timer = setInterval(() => this.kick(), this.options.intervalMs ?? 15_000);
     this.timer.unref();
     this.kick();
@@ -68,6 +72,7 @@ export class KnowledgeSync {
   async runPass(): Promise<void> {
     for (const project of this.store.projects.pendingWorkspaces()) await this.ensureWorkspace(project);
     for (const file of this.store.files.dueForSync(this.options.batchSize ?? 10)) await this.syncFile(file);
+    for (const link of this.store.links.dueForSync(this.options.batchSize ?? 10)) await this.syncLink(link);
   }
 
   async ensureWorkspace(project: Project): Promise<boolean> {
@@ -124,6 +129,45 @@ export class KnowledgeSync {
       const retry = attempts < this.maxAttempts ? new Date(this.store.clock.now().getTime() + retryDelayMs(attempts)) : null;
       this.logger.warn('Reference sync failed', { file_id: file.id, attempts, error: reason(error) });
       return this.update(file, { state: 'failed', error: reason(error), nextAttemptAt: retry });
+    }
+  }
+
+  private updateLink(link: ReferenceLink, change: Parameters<Store['links']['setKnowledge']>[1]): ReferenceLink {
+    return this.store.tx(() => {
+      const updated = this.store.links.setKnowledge(link.id, change);
+      this.store.emit(link.project_id, 'link.updated', { link: updated });
+      return updated;
+    });
+  }
+
+  async syncLink(link: ReferenceLink): Promise<ReferenceLink> {
+    const project = this.store.projects.get(link.project_id);
+    if (!project) return link;
+    const attempts = link.knowledge.attempts + 1;
+    const retiring = link.deleted_at !== null;
+    this.updateLink(link, { state: 'indexing', attempts, error: null });
+    try {
+      if (project.hivemem.state !== 'ready' && !await this.ensureWorkspace(project)) throw new Error('HiveMem workspace is unavailable');
+      const content = linkKnowledgeText(link);
+      const revision = retiring ? `retired:${link.knowledge.revision ?? 'none'}` : linkRevision(link);
+      await this.hivemem.syncKnowledgeSourceChecked({
+        workspace_id: project.hivemem.workspace_id,
+        project_id: hivememProjectId(project.id),
+        source_id: link.knowledge.source_id ?? `ardentstudio:link:${link.id}`,
+        source_uri: link.url,
+        revision,
+        observed_at: this.store.clock.now().toISOString(),
+        // An empty chunk list retires the source.
+        chunks: retiring ? [] : [{ chunk_key: 'link', content, content_hash: chunkHash(content), heading: link.title, tags: ['ardentstudio', `link:${link.id}`] }],
+      });
+      this.logger.info(retiring ? 'Link source retired' : 'Link indexed', { link_id: link.id });
+      return retiring
+        ? this.updateLink(link, { state: 'not_indexed', revision: null, chunks: null, error: null, nextAttemptAt: null })
+        : this.updateLink(link, { state: 'indexed', revision, chunks: 1, error: null, nextAttemptAt: null });
+    } catch (error) {
+      const retry = attempts < this.maxAttempts ? new Date(this.store.clock.now().getTime() + retryDelayMs(attempts)) : null;
+      this.logger.warn('Link sync failed', { link_id: link.id, attempts, error: reason(error) });
+      return this.updateLink(link, { state: 'failed', error: reason(error), nextAttemptAt: retry });
     }
   }
 }

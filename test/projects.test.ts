@@ -37,7 +37,8 @@ describe('projects', () => {
     await createProject(ctx, { name: 'Battery Recycling Brief', brief_md: 'Research the market.' });
     const search = await json(await ctx.call('GET', '/projects?q=maps'));
     expect(search.projects.map((item: { id: string }) => item.id)).toEqual([first.id]);
-    expect(search.projects[0]).toMatchObject({ file_count: 0, deliverable_count: 1, team: { revision: null, role_count: 0 }, last_activity: { type: 'project.updated' } });
+    expect(search.projects[0]).toMatchObject({ file_count: 0, deliverable_count: 1, team: { revision: null, role_count: 0 }, link_count: 0,
+      open_questions: 0, review_pending: 0, active_tasks: 0, last_activity: { type: 'project.created', text: 'operator created the project' } });
     const response = await ctx.call('PATCH', `/projects/${first.id}`, { body: { name: 'Renamed', deliverables: [{ name: 'Region Map', kind: 'map', formats: ['svg', 'png'] }, { name: 'Handout', kind: 'document', formats: ['pdf'] }] } });
     expect(response.status).toBe(200);
     const updated = await json(response);

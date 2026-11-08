@@ -39,17 +39,19 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | Area | Route | Permission |
 |---|---|---|
 | Health | `GET /health/live`, `GET /health/ready` | none |
-| Projects | `GET /projects?status=&q=` | projects:read |
+| Projects | `GET /projects?status=&q=&needs_review=` | projects:read |
 | | `POST /projects` | projects:write |
 | | `GET /projects/:id`, `GET /projects/:id/snapshot` | projects:read |
 | | `PATCH /projects/:id`, `POST /projects/:id/archive`, `POST /projects/:id/reopen` | projects:write |
 | Files | `POST /projects/:id/files?name=&purpose=` (raw body) | projects:write |
 | | `GET /projects/:id/files`, `GET /blobs/:sha256` | projects:read |
 | | `POST /files/:id/reindex` | projects:write |
+| Links | `GET /projects/:id/links` | projects:read |
+| | `POST /projects/:id/links`, `PATCH /links/:id`, `DELETE /links/:id`, `POST /links/:id/reindex` | projects:write |
 | Templates | `GET /templates?kind=&source=&archived=&q=`, `GET /templates/:id`, `GET /templates/:id/versions/:v` | templates:read |
 | | `POST /templates`, `POST /templates/:id/versions`, `POST /templates/:id/archive` | templates:write |
-| Team | `GET /projects/:id/team`, `POST /projects/:id/team/validate` | projects:read |
-| | `PUT /projects/:id/team/draft`, `POST …/team/publish`, `POST …/team/apply-template` | projects:write |
+| Team | `GET /projects/:id/team`, `POST /projects/:id/team/validate`, `GET …/team/proposals`, `GET …/team/proposals/:proposalId` | projects:read |
+| | `PUT /projects/:id/team/draft`, `POST …/team/publish`, `POST …/team/apply-template`, `POST …/team/propose` | projects:write |
 | | `POST …/team/save-as-template` | projects:read + templates:write |
 | Agents | `GET /agents`, `GET /agents/:ref/presentation`, `GET /agents/:ref/draft`, `GET /agents/:ref/development`, `GET /agents/operations/:id` | projects:read |
 | | `PUT /agents/:ref/presentation`, `PUT`/`DELETE /agents/:ref/draft`, `POST /agents/:ref/preview`, `POST /agents/:ref/development/:recordId/comments` | projects:write |
@@ -75,9 +77,27 @@ background: `hivemem.state` is `pending`, then `ready`, or `failed` with an erro
 An archived project is read-only (`409 PROJECT_ARCHIVED`) except `last_area`. Archive answers
 `409 TASKS_ACTIVE` with the tasks while any Studio task is still active.
 
-`GET /projects/:id/snapshot` returns the project, its files, its team, conversations, active tasks,
-decisions, agent activity and room layout, with the `seq` they are consistent with. Open the
-stream with `?after=<seq>` to continue from it.
+`GET /projects/:id/snapshot` returns the project and its list summary, its files and links, its
+team, conversations, active tasks, decisions, agent activity, room layout and open team proposals,
+with the `seq` they are consistent with. Open the stream with `?after=<seq>` to continue from it.
+
+### Summaries
+
+`GET /projects` and the snapshot's `summary` carry counts derived from stored records only:
+
+| Field | Meaning |
+|---|---|
+| `open_questions` | Agent clarifications nobody has answered |
+| `review_pending` | Deliverable revisions that are `unreviewed`, or `changes_requested` with no newer revision yet |
+| `active_tasks` | Studio tasks that are `queued`, `running`, `input_required`, `pausing` or `paused` |
+| `last_activity` | `{type, at, text}` for the newest room message, pinned decision, received or reviewed revision, added reference or link, published team, export, or the project's creation or archiving. `text` is built from that record alone, for example `Story Lead asked: Which tone?`. Presence, sync progress and other bookkeeping never count. |
+
+`?needs_review=true` keeps projects with `review_pending > 0` (`false` the others). When a change
+alters a project's counts, the same transaction emits `project.updated` with
+`{fields: ["counts"], counts}`, once per change. `last_activity` is not announced on its own: it
+moves with the events that create its records (`message.created`, `decision.created`,
+`deliverable.revision.created`, `review.decision.created`, `file.created`, `link.created`,
+`team.revision.published`, `export.created`), so a client refetches the list or snapshot on those.
 
 ## Files and knowledge
 
@@ -92,6 +112,18 @@ per file (`source_id` `ardentstudio:file:<file id>`, revision = the file's SHA-2
 then apply. `knowledge.state` is `pending`, `indexing`, `indexed`, `failed` (retried with backoff,
 or `POST /files/:id/reindex`) or `unsupported` (images; DOCX until the canvas codec package).
 Attachments and avatars are `not_indexed`.
+
+### Links
+
+`POST /projects/:id/links` takes `url` (http or https, up to 2048 characters, no user name or
+password), `title` and an optional `note_md`. The URL is stored in its normalized form; a project
+holds each URL once (`409 LINK_EXISTS`). Studio never fetches the page. HiveMem's knowledge source
+API takes text, so each link is synced as one source (`source_id` `ardentstudio:link:<link id>`,
+`source_uri` the URL, revision the SHA-256 of the text) holding one chunk with the title, URL and
+note; `knowledge.state` moves like a file's. Editing a link resyncs it; `DELETE /links/:id` marks
+it deleted and retires its source with an empty sync (`knowledge.state` then `not_indexed`).
+Events: `link.created`, `link.updated` (also on every sync state change) and `link.deleted`, each
+with `{link}`.
 
 ## Templates
 
@@ -113,6 +145,37 @@ Validation (`POST …/team/validate`, and in every team response):
 |---|---|
 | error | `coordinator_count`, `reporting_cycle`, `workflow_cycle` (hand-offs other than a `revise` loop), `deliverable_without_producer`, `duplicate_role_key`, `unknown_role`, `self_relationship`, `multiple_managers`, `coordinator_reports` |
 | warning | `unbound_role`, `reviewer_is_only_producer`, `skill_not_enabled`, `agent_unavailable`, `agent_without_hivemem`, `outside_reporting_tree`, `agent_facts_unavailable` |
+
+### Team proposals
+
+`POST /projects/:id/team/propose` (`{agent_ref?}`) asks one agent for a team: the chosen agent, or
+the bound coordinator of the draft team (else the current one). It must be a Magnus-managed agent
+that is available (`422 UNKNOWN_AGENT`, `409 AGENT_UNAVAILABLE`, `409 NO_COORDINATOR`,
+`503 MAGNUS_UNAVAILABLE`), and one proposal runs at a time per project (`409 PROPOSAL_IN_PROGRESS`).
+Studio queues a `team_proposal` task (see [CONDUCTOR.md](CONDUCTOR.md#team-proposals)) with the
+brief, requested deliverables, the current team, the team and agent template catalog and the
+available agents, and answers `201` with the proposal record in state `queued`.
+
+The reply must be one `TeamProposal` JSON object (`teamProposalSchema`): `rationale`,
+`source_template`, `roles[]` (role fields plus `rationale`), `relationships[]`, `stages[]` and
+`bindings[]` (`{role_key, agent_ref, reason}`). Besides the schema, Studio checks that role keys are
+unique, exactly one role coordinates, relationships and bindings name proposed roles, bindings name
+listed agents, templates exist, the team rules hold (reporting tree, hand-off cycles) and every
+requested deliverable has a producer. An invalid reply is asked again once with the validation
+error; a second invalid reply, or a task that fails, ends the proposal `failed` with `error`.
+
+| Record field | Meaning |
+|---|---|
+| `state` | `queued` (also between attempts), `running`, `ready`, `failed`, `cancelled` |
+| `progress` | One line from real records: waiting, preparing, correcting, the outcome |
+| `attempts[]` | `{attempt, task_id, outcome, error}`, at most two; `outcome` is `pending`, `valid`, `invalid`, `failed` or `cancelled` |
+| `basis` | The current and draft revisions and template the proposal was asked against |
+| `proposal` | The validated proposal (`ready` only) |
+| `draft_body` | The proposal as a `PUT …/team/draft` body: suggested bindings filled in, knowledge kept for role keys of the basis team |
+
+Progress arrives as `team.proposal.updated` (`{proposal}`) on the project stream, plus the usual
+`task.*` events for its task. Nothing is applied: the browser shows the difference and sends the
+parts a person accepts with `PUT …/team/draft`. Cancel a proposal by cancelling its `task_id`.
 
 `can_publish` means no errors; publishing with errors answers `409 TEAM_INVALID`.
 `can_start_room` also needs the coordinator bound to an available agent. Agent facts come from
@@ -234,7 +297,7 @@ held instead. `reassign` cancels an active task and creates the same work for an
 `GET /projects/:id/stream?after=<seq>` is server-sent events. Read it with `fetch` (EventSource
 cannot send the bearer token).
 
-- Persisted events (`project.*`, `file.*`, `team.*`, `conversation.*`, `message.*`, `task.*`, `decision.*` …)
+- Persisted events (`project.*`, `file.*`, `link.*`, `team.*`, `conversation.*`, `message.*`, `task.*`, `decision.*` …)
   carry their per-project `seq` as the SSE `id` and replay after `?after=`. Without `after` the
   stream starts at the current end.
 - `reset` (`{seq, reason}`) means the cursor is older than the retained events

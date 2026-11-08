@@ -108,6 +108,18 @@ Agents request; Studio rules and people decide.
 | `pause_requested`, `paused`, `resumed` | Task state `pausing`, `paused`, `running`. |
 | `artifact_registered` | Queues the file for the artifact importer in the same transaction; the importer streams and verifies it and records a deliverable revision (see [API.md](API.md#deliverable-review)). Activity: `Delivered <name> r<n>`. |
 
+## Team proposals
+
+A `team_proposal` task is handled by the team proposer instead of the room. It goes to the agent
+the proposal names, with no team revision, role or Ardent session: a mission (`allowed_actions`
+`observe` and `analyze`, the project's HiveMem `project:<id>` resource, a one-hour deadline, no
+mission tools) where the node is at studio level 2 with Ardent 2.2.0, else a task-submit prompt.
+The brief, the available agents and the template catalog travel as context items for a mission
+and are shortened into the prompt otherwise. Live text is not relayed and no room message is
+written; when the task ends, the proposer validates the reply, asks once more with the validation
+error when it is invalid, and records the outcome (see [API.md](API.md#team-proposals)). Journal
+events move the proposal to `running`; the agent's activity shows the task like any other.
+
 ## Revision tasks
 
 A revision request creates a `revision` task. Its turn carries the review comments as context

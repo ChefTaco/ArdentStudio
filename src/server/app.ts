@@ -8,6 +8,7 @@ import { agentStudioRoutes } from './routes/agent-studio.js';
 import { agentRoutes } from './routes/agents.js';
 import { fileRoutes } from './routes/files.js';
 import { healthRoutes } from './routes/health.js';
+import { linkRoutes } from './routes/links.js';
 import { projectRoutes } from './routes/projects.js';
 import { reviewRoutes } from './routes/review.js';
 import { roomRoutes } from './routes/room.js';
@@ -33,6 +34,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   healthRoutes(register, deps);
   projectRoutes(register, deps);
   fileRoutes(register, deps);
+  linkRoutes(register, deps);
   templateRoutes(register, deps);
   teamRoutes(register, deps);
   agentRoutes(register, deps);

@@ -21,6 +21,7 @@ import { LiveText } from './conductor/live.js';
 import { attachReview } from './review/index.js';
 import type { ArtifactImporter } from './review/importer.js';
 import { createApp } from './server/app.js';
+import { TeamProposer } from './team/proposals.js';
 import { loadSeedTemplates } from './templates/seeds.js';
 
 export const DATABASE_FILE = 'studio.sqlite';
@@ -68,7 +69,8 @@ export function createService(config: Config, options: { logger?: Logger; clock?
   const conductor = new Conductor({ store, blobs, magnus, agents, live, logger });
   const importer = attachReview({ store, blobs, magnus, conductor, logger });
   const operations = new OperationRelay(store, magnus, logger);
-  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, conductor, live, magnus, operations, logger });
+  const proposer = new TeamProposer(store, agents, conductor);
+  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, conductor, live, magnus, operations, proposer, logger });
 
   let maintenance: NodeJS.Timeout | undefined;
   const maintain = () => {

@@ -512,4 +512,59 @@ CREATE TABLE agent_operations (
 CREATE INDEX agent_operations_status ON agent_operations (status);
 `,
   },
+  {
+    id: 5,
+    name: 'links_counts_proposals',
+    sql: `
+-- Link references. The link record (title, URL, note) is synced to HiveMem as a knowledge source;
+-- the linked page is never fetched. A deleted link keeps its row until its source is retired.
+CREATE TABLE reference_links (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects (id),
+  url TEXT NOT NULL,
+  title TEXT NOT NULL,
+  note_md TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  knowledge_state TEXT NOT NULL CHECK (knowledge_state IN ('not_indexed', 'pending', 'indexing', 'indexed', 'failed', 'unsupported')),
+  knowledge_source_id TEXT NOT NULL,
+  knowledge_revision TEXT,
+  knowledge_chunks INTEGER,
+  knowledge_error TEXT,
+  knowledge_attempts INTEGER NOT NULL DEFAULT 0,
+  knowledge_next_attempt_at TEXT,
+  knowledge_updated_at TEXT
+);
+CREATE INDEX reference_links_project ON reference_links (project_id, created_at);
+CREATE INDEX reference_links_knowledge ON reference_links (knowledge_state, knowledge_next_attempt_at);
+
+-- The project counts last announced with project.updated, so a change is announced once.
+ALTER TABLE projects ADD COLUMN counts_json TEXT;
+
+-- Team proposals asked of an agent. The proposal is stored, never applied.
+CREATE TABLE team_proposals (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects (id),
+  agent_ref TEXT NOT NULL,
+  role_key TEXT,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'ready', 'failed', 'cancelled')),
+  progress TEXT,
+  task_id TEXT REFERENCES tasks (id),
+  attempts_json TEXT NOT NULL DEFAULT '[]',
+  basis_json TEXT NOT NULL,
+  -- What the agent was given (brief, deliverables, templates, agents), so a retry asks the same.
+  request_json TEXT NOT NULL,
+  proposal_json TEXT,
+  draft_body_json TEXT,
+  error TEXT,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE INDEX team_proposals_project ON team_proposals (project_id, created_at);
+`,
+  },
 ];
