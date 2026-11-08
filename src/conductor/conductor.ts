@@ -5,13 +5,13 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { isAvailable, type AgentDirectory } from '../agents/directory.js';
-import { ARDENT_STUDIO_CAPABILITY, MagnusError, parseAgentRef, type ArdentTaskEvent, type MagnusClient } from '../clients/magnus.js';
+import { ARDENT_STUDIO_CAPABILITY, MagnusError, parseAgentRef, type ArdentContextItem, type ArdentTaskEvent, type ArdentTeamMission, type MagnusClient } from '../clients/magnus.js';
 import { ServiceTokenError } from '../clients/service-token.js';
 import type { BlobStore } from '../blobs/store.js';
 import { hivememProjectId, type Project } from '../db/repos/projects.js';
 import type { Conversation, Discussion, Message, MessageAuthor } from '../db/repos/room.js';
 import { sessionKey, type SessionContext } from '../db/repos/sessions.js';
-import { TERMINAL_TASK_STATES, type StudioTask, type TaskState } from '../db/repos/tasks.js';
+import { TERMINAL_TASK_STATES, type StudioTask, type TaskMode, type TaskState } from '../db/repos/tasks.js';
 import type { TeamRevision } from '../db/repos/team.js';
 import type { Store } from '../db/store.js';
 import type { Logger } from '../logger.js';
@@ -42,6 +42,34 @@ export interface ConductorOptions {
 export type JournalHook = (task: StudioTask, event: ArdentTaskEvent) => void;
 /** Extra context for a task's turn (review comments for a revision task). */
 export type ContextProvider = (task: StudioTask) => Array<{ title: string; text: string; mime?: string }>;
+
+/** What a mode handler sends: a mission objective and context items, or one prompt for task-submit. */
+export interface ModeRequest { objective: string; contextItems: ArdentContextItem[]; prompt: string; mission: ArdentTeamMission }
+
+/**
+ * A task mode that does not speak in the room (a team proposal). The handler names the agent and
+ * composes the request; the conductor submits and follows it like any task, then hands the final
+ * reply to the handler instead of writing a room message.
+ */
+export interface TaskModeHandler {
+  /** The agent to ask, or why the task cannot start. */
+  agent(task: StudioTask): { agentRef: string } | { error: string };
+  compose(task: StudioTask, input: { project: Project; dispatch: 'mission' | 'turn'; now: Date }): ModeRequest;
+  /** The task's final state and reply. Called inside the transaction that records it. */
+  finished(task: StudioTask, outcome: { state: TaskState; reply: string | null; error: string | null }): void;
+}
+
+interface SubmitPlan {
+  agentRef: string;
+  dispatch: 'mission' | 'turn';
+  session: ReturnType<Store['sessions']['get']>;
+  seenSeq: number;
+  objective: string;
+  contextItems: ArdentContextItem[];
+  prompt: string;
+  mission: ArdentTeamMission | undefined;
+  labels: Record<string, string>;
+}
 
 export class ConductorError extends Error {
   override name = 'ConductorError';
@@ -97,6 +125,7 @@ export class Conductor {
   private readonly presence = new Map<string, boolean>();
   private readonly hooks: JournalHook[] = [];
   private readonly contextProviders: ContextProvider[] = [];
+  private readonly modes = new Map<TaskMode, TaskModeHandler>();
   private pumping: Promise<void> | undefined;
   private pumpAgain = false;
   private retryTimer: NodeJS.Timeout | undefined;
@@ -118,6 +147,11 @@ export class Conductor {
   /** Register extra turn context (for example the review comments of a revision task). */
   addContextProvider(provider: ContextProvider): void {
     this.contextProviders.push(provider);
+  }
+
+  /** Handle tasks of this mode with the handler instead of the room (for example team proposals). */
+  registerMode(mode: TaskMode, handler: TaskModeHandler): void {
+    this.modes.set(mode, handler);
   }
 
   /** Resume following every accepted task from its stored cursor, finish discussions a restart interrupted, and start dispatching. */
@@ -209,35 +243,62 @@ export class Conductor {
     return { level, missions };
   }
 
+  /** A room turn: the role's agent under the task's team revision, with an Ardent session when the node supports one. */
+  private async planTurn(task: StudioTask): Promise<SubmitPlan | string> {
+    const resolved = this.resolve(task);
+    if (typeof resolved === 'string') return resolved;
+    const { project, revision, role, agentRef } = resolved;
+    const { level, missions } = await this.capability(agentRef);
+    const conversationId = task.conversation_id ?? this.ensureTeamConversation(project.id, 'conductor').id;
+    const context: SessionContext = missions ? 'mission' : 'direct';
+    let session = level >= ARDENT_STUDIO_CAPABILITY.bridge ? this.store.sessions.get(conversationId, role.key, agentRef, context) : undefined;
+    if (level >= ARDENT_STUDIO_CAPABILITY.bridge && !session) {
+      const key = sessionKey(project.id, conversationId, role.key);
+      const opened = await this.magnus.openSession(agentRef, missions ? { key, context } : { key });
+      session = this.store.sessions.save({ conversationId, roleKey: role.key, agentRef, context, projectId: project.id, sessionKey: key, sessionId: opened.id });
+    }
+    const turn = this.compose(task, resolved, conversationId, session?.last_seen_seq ?? 0, !session || session.turns === 0);
+    return {
+      agentRef, dispatch: missions ? 'mission' : 'turn', session, seenSeq: turn.seenSeq,
+      objective: turn.composed.objective, contextItems: turn.composed.contextItems, prompt: turn.composed.prompt,
+      mission: missions ? buildMission({ task, project, team: revision.body, role, hivememProjectId: hivememProjectId(project.id), now: new Date() }) : undefined,
+      labels: { 'studio.project': project.id, 'studio.task': task.id, 'studio.conversation': conversationId, 'studio.role': role.key },
+    };
+  }
+
+  /** A handled mode: one request without a session, composed by its handler. */
+  private async planHandled(task: StudioTask, handler: TaskModeHandler): Promise<SubmitPlan | string> {
+    const project = this.store.projects.get(task.project_id);
+    if (!project) return 'The project no longer exists.';
+    const chosen = handler.agent(task);
+    if ('error' in chosen) return chosen.error;
+    const { missions } = await this.capability(chosen.agentRef);
+    const dispatch = missions ? 'mission' : 'turn';
+    const request = handler.compose(task, { project, dispatch, now: new Date() });
+    return {
+      agentRef: chosen.agentRef, dispatch, session: undefined, seenSeq: 0, objective: request.objective, contextItems: request.contextItems,
+      prompt: request.prompt, mission: missions ? request.mission : undefined,
+      labels: { 'studio.project': project.id, 'studio.task': task.id, 'studio.mode': task.mode },
+    };
+  }
+
   private async submit(task: StudioTask): Promise<void> {
     this.submitting.add(task.id);
     try {
-      const resolved = this.resolve(task);
-      if (typeof resolved === 'string') { this.failTask(task, resolved); return; }
-      const { project, revision, role, agentRef } = resolved;
-      const { level, missions } = await this.capability(agentRef);
-      const dispatch = missions ? 'mission' : 'turn';
-      const conversationId = task.conversation_id ?? this.ensureTeamConversation(project.id, 'conductor').id;
-      const context: SessionContext = missions ? 'mission' : 'direct';
-      let session = level >= ARDENT_STUDIO_CAPABILITY.bridge ? this.store.sessions.get(conversationId, role.key, agentRef, context) : undefined;
-      if (level >= ARDENT_STUDIO_CAPABILITY.bridge && !session) {
-        const key = sessionKey(project.id, conversationId, role.key);
-        const opened = await this.magnus.openSession(agentRef, missions ? { key, context } : { key });
-        session = this.store.sessions.save({ conversationId, roleKey: role.key, agentRef, context, projectId: project.id, sessionKey: key, sessionId: opened.id });
-      }
-      const turn = this.compose(task, resolved, conversationId, session?.last_seen_seq ?? 0, !session || session.turns === 0);
+      const handler = this.modes.get(task.mode);
+      const plan = handler ? await this.planHandled(task, handler) : await this.planTurn(task);
+      if (typeof plan === 'string') { this.failTask(task, plan); return; }
+      const { agentRef, dispatch, session, mission } = plan;
       let admission: { task_id: string; state: string };
-      let mission: unknown;
-      if (missions) {
-        mission = buildMission({ task, project, team: revision.body, role, hivememProjectId: hivememProjectId(project.id), now: new Date() });
+      if (mission) {
         admission = await this.magnus.submitMission(agentRef, {
-          ...(session ? { session_id: session.session_id } : {}), objective: turn.composed.objective, mission: mission as never,
-          ...(turn.composed.contextItems.length ? { context_items: turn.composed.contextItems } : {}),
-          labels: { 'studio.project': project.id, 'studio.task': task.id, 'studio.conversation': conversationId, 'studio.role': role.key },
+          ...(session ? { session_id: session.session_id } : {}), objective: plan.objective, mission,
+          ...(plan.contextItems.length ? { context_items: plan.contextItems } : {}),
+          labels: plan.labels,
           idempotency_key: task.id,
         });
       } else {
-        admission = await this.magnus.submitTask(agentRef, { prompt: turn.composed.prompt, idempotency_key: ardentIdempotencyKey(task.id), ...(session ? { session_id: session.session_id } : {}) });
+        admission = await this.magnus.submitTask(agentRef, { prompt: plan.prompt, idempotency_key: ardentIdempotencyKey(task.id), ...(session ? { session_id: session.session_id } : {}) });
       }
       this.retryAt.delete(task.id);
       let accepted: StudioTask | undefined;
@@ -245,7 +306,7 @@ export class Conductor {
         const current = this.store.tasks.get(task.id)!;
         accepted = this.store.tasks.attachArdent(task.id, { agentRef, taskId: admission.task_id, sessionId: session?.session_id ?? null, dispatch, ...(mission ? { mission } : {}) });
         if (current.state === 'queued' && admission.state === 'running') accepted = this.store.tasks.setState(task.id, 'running');
-        if (session) this.store.sessions.recordTurn(session, turn.seenSeq);
+        if (session) this.store.sessions.recordTurn(session, plan.seenSeq);
         this.store.emit(task.project_id, 'task.updated', this.taskEvent(accepted));
         this.refreshActivity(task.project_id, accepted.binding_id);
       });
@@ -328,8 +389,10 @@ export class Conductor {
       if (!current || FINISHED.includes(current.state)) return;
       const failed = this.store.tasks.setState(task.id, 'failed', { error: reason, ardent_state: null });
       this.store.emit(task.project_id, 'task.updated', this.taskEvent(failed));
+      const handler = this.modes.get(task.mode);
       const conversationId = task.conversation_id ?? this.store.room.teamConversation(task.project_id)?.id;
-      if (conversationId) this.systemMessage(conversationId, `${this.roleName(task)}: ${task.title}. ${reason}`, { task_id: task.id }, task.trigger_message_id);
+      if (handler) handler.finished(failed, { state: 'failed', reply: null, error: reason });
+      else if (conversationId) this.systemMessage(conversationId, `${this.roleName(task)}: ${task.title}. ${reason}`, { task_id: task.id }, task.trigger_message_id);
       this.refreshActivity(task.project_id, task.binding_id);
     });
     this.afterFinish(task);
@@ -341,6 +404,7 @@ export class Conductor {
       if (!current || FINISHED.includes(current.state)) return;
       const cancelled = this.store.tasks.setState(task.id, 'cancelled', { error: null, ardent_state: null, note: reason });
       this.store.emit(task.project_id, 'task.updated', this.taskEvent(cancelled));
+      this.modes.get(task.mode)?.finished(cancelled, { state: 'cancelled', reply: null, error: reason });
       this.refreshActivity(task.project_id, task.binding_id);
     });
     this.afterFinish(task);
@@ -364,7 +428,8 @@ export class Conductor {
   /** Live reply text: create the streaming message on the first visible text, then relay it. */
   private relay(taskId: string, step: number, text: string, mode: 'replace' | 'append'): void {
     const task = this.store.tasks.get(taskId);
-    if (!task?.ardent.task_id || FINISHED.includes(task.state)) return;
+    // Handled modes do not speak in the room; their reply is read when the task finishes.
+    if (!task?.ardent.task_id || FINISHED.includes(task.state) || this.modes.has(task.mode)) return;
     let message = this.store.room.messageForArdentTask(task.ardent.task_id);
     if (!message) {
       if (!text) return;
@@ -533,6 +598,8 @@ export class Conductor {
         : (['failed', 'cancelled', 'unknown', 'input_required'] as const).find(item => item === ardentState) ?? 'unknown';
     const reply = (teamResult?.summary ?? result ?? '').trim();
     const error = typeof record.error === 'string' && record.error ? record.error.slice(0, 2000) : null;
+    const handler = this.modes.get(task.mode);
+    if (handler) { this.completeHandled(task, handler, { ardentState, reply, error, outcome }); return; }
     let finishedMessage: Message | undefined;
     this.store.tx(() => {
       const current = this.store.tasks.get(taskId)!;
@@ -561,6 +628,22 @@ export class Conductor {
     });
     const live = finishedMessage ?? this.store.room.messageForArdentTask(task.ardent.task_id);
     if (live) this.options.live.clear(live.id);
+    this.afterFinish(task);
+  }
+
+  /** A handled mode has no clarifications: Ardent input_required ends it as partial, and the handler reads the reply. */
+  private completeHandled(task: StudioTask, handler: TaskModeHandler, input: { ardentState: string; reply: string; error: string | null; outcome: Record<string, unknown> }): void {
+    const { ardentState } = input;
+    const state: TaskState = ardentState === 'completed' || ardentState === 'partial' ? ardentState
+      : ardentState === 'input_required' ? 'partial'
+        : ardentState === 'failed' || ardentState === 'cancelled' ? ardentState : 'unknown';
+    this.store.tx(() => {
+      if (FINISHED.includes(this.store.tasks.get(task.id)!.state)) return;
+      const finished = this.store.tasks.setState(task.id, state, { ...input.outcome, ardent_state: ardentState, error: input.error });
+      this.store.emit(task.project_id, 'task.updated', this.taskEvent(finished));
+      handler.finished(finished, { state, reply: input.reply || null, error: input.error });
+      this.refreshActivity(task.project_id, task.binding_id);
+    });
     this.afterFinish(task);
   }
 

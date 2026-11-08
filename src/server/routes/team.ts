@@ -3,9 +3,11 @@ import type { Project } from '../../db/repos/projects.js';
 import { TeamConflictError, type TeamBody } from '../../db/repos/team.js';
 import type { TeamTemplateBody } from '../../db/repos/templates.js';
 import { TemplateConflictError } from '../../db/repos/templates.js';
-import type {
-  applyTemplateRequestSchema, publishTeamRequestSchema, putTeamDraftRequestSchema, saveAsTemplateRequestSchema, teamDraftBodySchema, validateTeamRequestSchema,
+import {
+  teamProposalIdSchema, type applyTemplateRequestSchema, type proposeTeamRequestSchema, type publishTeamRequestSchema, type putTeamDraftRequestSchema,
+  type saveAsTemplateRequestSchema, type teamDraftBodySchema, type validateTeamRequestSchema,
 } from '../../shared/browser.js';
+import { ProposalError } from '../../team/proposals.js';
 import { teamState, validateAssignment } from '../../team/service.js';
 import { actorOf, requireActive, requireProject, type AppDeps } from '../deps.js';
 import { ApiError, notFound } from '../errors.js';
@@ -116,6 +118,28 @@ export function teamRoutes(register: ReturnType<typeof createRouter>, deps: AppD
       store.record(actor, 'team.apply_template', { type: 'project', id: project.id }, { template_id: id, version: version.version, revision: draft.revision }, idempotencyKey);
     });
     return { body: await teamState(store, project, deps.agents, context(principal)) };
+  });
+
+  register('POST', '/projects/{projectId}/team/propose', async (_c, { params, body, principal, idempotencyKey }) => {
+    const project = requireActive(requireProject(store, params.projectId));
+    const input = body as z.infer<typeof proposeTeamRequestSchema>;
+    try {
+      const proposal = await deps.proposer.propose(project, { agentRef: input.agent_ref, actor: actorOf(principal), actingSubject: principal?.subject, idempotencyKey });
+      return { status: 201, body: proposal };
+    } catch (error) {
+      if (error instanceof ProposalError) throw new ApiError(error.status, error.code, error.message, error.details);
+      throw error;
+    }
+  });
+
+  register('GET', '/projects/{projectId}/team/proposals', (_c, { params }) => ({ body: { proposals: store.proposals.list(requireProject(store, params.projectId).id) } }));
+
+  register('GET', '/projects/{projectId}/team/proposals/{proposalId}', (_c, { params }) => {
+    const project = requireProject(store, params.projectId);
+    const id = teamProposalIdSchema.safeParse(params.proposalId);
+    const proposal = id.success ? store.proposals.get(id.data) : undefined;
+    if (!proposal || proposal.project_id !== project.id) throw notFound('Team proposal');
+    return { body: proposal };
   });
 
   register('POST', '/projects/{projectId}/team/save-as-template', (_c, { params, body, principal, idempotencyKey }) => {

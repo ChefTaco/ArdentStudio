@@ -5,10 +5,13 @@ import { AuditRepository, type AuditActor } from './repos/audit.js';
 import { EventRepository, type ProjectEventRecord } from './repos/events.js';
 import { FileRepository } from './repos/files.js';
 import { IdempotencyRepository } from './repos/idempotency.js';
+import { LinkRepository } from './repos/links.js';
 import { ProjectRepository } from './repos/projects.js';
+import { TeamProposalRepository } from './repos/proposals.js';
 import { ReviewRepository } from './repos/review.js';
 import { RoomRepository } from './repos/room.js';
 import { SessionRepository } from './repos/sessions.js';
+import { COUNT_EVENT_TYPES, ProjectSummaryRepository } from './repos/summaries.js';
 import { TaskRepository } from './repos/tasks.js';
 import { TeamRepository } from './repos/team.js';
 import { TemplateRepository } from './repos/templates.js';
@@ -29,6 +32,9 @@ export class Store {
   readonly events: EventRepository;
   readonly audit: AuditRepository;
   readonly idempotency: IdempotencyRepository;
+  readonly links: LinkRepository;
+  readonly proposals: TeamProposalRepository;
+  readonly summaries: ProjectSummaryRepository;
   private pending: ProjectEventRecord[] = [];
   private depth = 0;
 
@@ -45,14 +51,25 @@ export class Store {
     this.events = new EventRepository(db, clock);
     this.audit = new AuditRepository(db, clock);
     this.idempotency = new IdempotencyRepository(db, clock);
+    this.links = new LinkRepository(db, clock);
+    this.proposals = new TeamProposalRepository(db, clock);
+    this.summaries = new ProjectSummaryRepository(db);
   }
 
-  /** Run fn in one transaction. Events it emits reach open streams only after the commit. */
+  /**
+   * Run fn in one transaction. Events it emits reach open streams only after the commit. When they
+   * can change a project's counts, the outermost transaction recounts and, on a change, also emits
+   * project.updated with the new counts before it commits.
+   */
   tx<T>(fn: () => T): T {
     this.depth++;
     const mark = this.pending.length;
     try {
-      const result = this.db.transaction(fn)();
+      const result = this.db.transaction(() => {
+        const value = fn();
+        if (this.depth === 1) this.announceCounts();
+        return value;
+      })();
       if (this.depth === 1) {
         const committed = this.pending;
         this.pending = [];
@@ -65,6 +82,14 @@ export class Store {
       throw error;
     } finally {
       this.depth--;
+    }
+  }
+
+  private announceCounts(): void {
+    const projects = new Set(this.pending.filter(event => COUNT_EVENT_TYPES.has(event.type)).map(event => event.project_id));
+    for (const projectId of projects) {
+      const counts = this.summaries.recount(projectId);
+      if (counts) this.emit(projectId, 'project.updated', { fields: ['counts'], counts });
     }
   }
 

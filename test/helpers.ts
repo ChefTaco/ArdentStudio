@@ -22,6 +22,7 @@ import { KnowledgeSync } from '../src/knowledge/sync.js';
 import { silentLogger } from '../src/logger.js';
 import { createApp } from '../src/server/app.js';
 import { ARDENT_STUDIO_API_PREFIX, ARDENT_STUDIO_PERMISSIONS, IDEMPOTENCY_HEADER } from '../src/shared/browser.js';
+import { TeamProposer } from '../src/team/proposals.js';
 import { loadSeedTemplates } from '../src/templates/seeds.js';
 import { fakeProfile, FakeMagnusServer } from './fake-magnus.js';
 
@@ -154,7 +155,8 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
   const importer = attachReview({ store, blobs, magnus: magnusClient, conductor, logger: silentLogger, retryMs: 20, maxAttempts: 2 });
   importer.start();
   const operations = new OperationRelay(store, magnusClient, silentLogger, { pollMs: 20 });
-  const app = createApp({ operations, store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: silentLogger, conductor, live, magnus: magnusClient, docx: options.docx,
+  const proposer = new TeamProposer(store, agents, conductor);
+  const app = createApp({ operations, proposer, store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: silentLogger, conductor, live, magnus: magnusClient, docx: options.docx,
     ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}), ...(options.streamRecheckMs ? { streamRecheckMs: options.streamRecheckMs } : {}) });
   let counter = 0;
   const token = (claims?: Parameters<typeof signToken>[1]) => signToken(keys, claims);

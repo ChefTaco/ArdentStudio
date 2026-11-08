@@ -85,6 +85,18 @@
               "type": "string",
               "maxLength": 200
             }
+          },
+          {
+            "in": "query",
+            "name": "needs_review",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
           }
         ],
         "responses": {
@@ -118,7 +130,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
-        "description": "q matches name, brief and tags.",
+        "description": "q matches name, brief and tags. needs_review=true keeps projects with review_pending > 0.",
         "security": [
           {
             "oathweave": []
@@ -494,6 +506,340 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/links": {
+      "post": {
+        "operationId": "postProjectsProjectIdLinks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "http and https only, without credentials. 409 LINK_EXISTS when the project already has this URL. Synced to the project HiveMem workspace as a knowledge source (title, URL and note; the page is not fetched).",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLinkRequestInput"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "getProjectsProjectIdLinks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListLinksResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Links that are not deleted.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/links/{linkId}": {
+      "patch": {
+        "operationId": "patchLinksLinkId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "linkId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "A change queues the link for HiveMem sync again.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLinkRequestInput"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteLinksLinkId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "linkId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Marks the link deleted and retires its HiveMem source.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/links/{linkId}/reindex": {
+      "post": {
+        "operationId": "postLinksLinkIdReindex",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "linkId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Queues the link for HiveMem sync again.",
         "security": [
           {
             "oathweave": []
@@ -1637,6 +1983,198 @@
             }
           }
         }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/team/propose": {
+      "post": {
+        "operationId": "postProjectsProjectIdTeamPropose",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamProposalRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Asks one agent through Magnus (a mission at studio level 2 with Ardent 2.2.0, else task-submit) for a TeamProposal JSON reply with the brief, deliverables, templates and available agents. An invalid reply is retried once with the validation error, then the proposal fails. Progress arrives as team.proposal.updated; nothing is applied. 409 NO_COORDINATOR without agent_ref and a bound coordinator, 409 PROPOSAL_IN_PROGRESS while one is queued or running, 422 UNKNOWN_AGENT, 409 AGENT_UNAVAILABLE, 503 MAGNUS_UNAVAILABLE.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeTeamRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/team/proposals": {
+      "get": {
+        "operationId": "getProjectsProjectIdTeamProposals",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTeamProposalsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Newest first, at most 20.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/team/proposals/{proposalId}": {
+      "get": {
+        "operationId": "getProjectsProjectIdTeamProposalsProposalId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposalId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamProposalRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
       }
     },
     "/api/ardentstudio/v1/projects/{projectId}/team/save-as-template": {
@@ -6499,6 +7037,31 @@
         },
         "additionalProperties": false
       },
+      "CreateLinkRequestInput": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "note_md": {
+            "default": "",
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "url",
+          "title"
+        ],
+        "additionalProperties": false
+      },
       "CreateProjectRequestInput": {
         "type": "object",
         "properties": {
@@ -7370,68 +7933,7 @@
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
           },
           "knowledge": {
-            "type": "object",
-            "properties": {
-              "state": {
-                "$ref": "#/components/schemas/KnowledgeState"
-              },
-              "source_id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "revision": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "chunks": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "error": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "attempts": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "updated_at": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            },
-            "required": [
-              "state",
-              "source_id",
-              "revision",
-              "chunks",
-              "error",
-              "attempts",
-              "updated_at"
-            ]
+            "$ref": "#/components/schemas/KnowledgeSync"
           }
         },
         "required": [
@@ -7516,6 +8018,91 @@
           "unsupported"
         ]
       },
+      "KnowledgeSync": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/KnowledgeState"
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "chunks": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "state",
+          "source_id",
+          "revision",
+          "chunks",
+          "error",
+          "attempts",
+          "updated_at"
+        ]
+      },
+      "LastActivity": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "at",
+          "text"
+        ]
+      },
       "LayoutResponse": {
         "type": "object",
         "properties": {
@@ -7532,6 +8119,70 @@
         },
         "required": [
           "layout"
+        ]
+      },
+      "LinkId": {
+        "type": "string",
+        "pattern": "^lnk_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "LinkResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/LinkId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "note_md": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "knowledge": {
+            "$ref": "#/components/schemas/KnowledgeSync"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "url",
+          "title",
+          "note_md",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "deleted_at",
+          "knowledge"
         ]
       },
       "ListAgentsResponse": {
@@ -7668,6 +8319,20 @@
           "files"
         ]
       },
+      "ListLinksResponse": {
+        "type": "object",
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkResponse"
+            }
+          }
+        },
+        "required": [
+          "links"
+        ]
+      },
       "ListMessagesResponse": {
         "type": "object",
         "properties": {
@@ -7721,6 +8386,20 @@
         },
         "required": [
           "tasks"
+        ]
+      },
+      "ListTeamProposalsResponse": {
+        "type": "object",
+        "properties": {
+          "proposals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamProposalRecord"
+            }
+          }
+        },
+        "required": [
+          "proposals"
         ]
       },
       "ListTemplatesResponse": {
@@ -8517,7 +9196,11 @@
           "export.created",
           "agent.operation.updated",
           "deliverable.updated",
-          "artifact.import.updated"
+          "artifact.import.updated",
+          "link.created",
+          "link.updated",
+          "link.deleted",
+          "team.proposal.updated"
         ]
       },
       "ProjectId": {
@@ -8632,6 +9315,11 @@
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
           },
+          "link_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
           "deliverable_count": {
             "type": "integer",
             "minimum": -9007199254740991,
@@ -8669,24 +9357,25 @@
               "bound_count"
             ]
           },
+          "open_questions": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "review_pending": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "active_tasks": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
           "last_activity": {
             "anyOf": [
               {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "type": "string"
-                  },
-                  "at": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                  }
-                },
-                "required": [
-                  "type",
-                  "at"
-                ]
+                "$ref": "#/components/schemas/LastActivity"
               },
               {
                 "type": "null"
@@ -8710,10 +9399,23 @@
           "archived_at",
           "brief_excerpt",
           "file_count",
+          "link_count",
           "deliverable_count",
           "team",
+          "open_questions",
+          "review_pending",
+          "active_tasks",
           "last_activity"
         ]
+      },
+      "ProposeTeamRequestInput": {
+        "type": "object",
+        "properties": {
+          "agent_ref": {
+            "$ref": "#/components/schemas/AgentRef"
+          }
+        },
+        "additionalProperties": false
       },
       "PublishTeamRequestInput": {
         "type": "object",
@@ -9793,10 +10495,19 @@
           "project": {
             "$ref": "#/components/schemas/Project"
           },
+          "summary": {
+            "$ref": "#/components/schemas/ProjectSummary"
+          },
           "files": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/File"
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkResponse"
             }
           },
           "team": {
@@ -9835,18 +10546,27 @@
                 "type": "null"
               }
             ]
+          },
+          "team_proposals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamProposalRecord"
+            }
           }
         },
         "required": [
           "seq",
           "project",
+          "summary",
           "files",
+          "links",
           "team",
           "conversations",
           "tasks",
           "decisions",
           "activity",
-          "layout"
+          "layout",
+          "team_proposals"
         ]
       },
       "Stage": {
@@ -10134,6 +10854,38 @@
           "stages"
         ]
       },
+      "TeamDraftBody": {
+        "type": "object",
+        "properties": {
+          "roles": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamDraftRole"
+            }
+          },
+          "relationships": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Relationship"
+            }
+          },
+          "stages": {
+            "default": [],
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stage"
+            }
+          }
+        },
+        "required": [
+          "roles",
+          "relationships",
+          "stages"
+        ]
+      },
       "TeamDraftBodyInput": {
         "type": "object",
         "properties": {
@@ -10165,6 +10917,108 @@
           "relationships"
         ],
         "additionalProperties": false
+      },
+      "TeamDraftRole": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "coordinator": {
+            "type": "boolean"
+          },
+          "responsibilities_md": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "instructions_md": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "contributions": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "deliverables": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "agent_template_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplateRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skills": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillRef"
+            }
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agent_ref": {
+            "default": null,
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "knowledge": {
+            "default": [],
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileId"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "coordinator",
+          "responsibilities_md",
+          "instructions_md",
+          "contributions",
+          "deliverables",
+          "agent_template_ref",
+          "skills",
+          "stage",
+          "agent_ref",
+          "knowledge"
+        ]
       },
       "TeamDraftRoleInput": {
         "type": "object",
@@ -10266,6 +11120,423 @@
           "stage"
         ],
         "additionalProperties": false
+      },
+      "TeamProposal": {
+        "type": "object",
+        "properties": {
+          "rationale": {
+            "default": "",
+            "type": "string",
+            "maxLength": 4000
+          },
+          "source_template": {
+            "default": null,
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplateRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "roles": {
+            "minItems": 1,
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamProposalRole"
+            }
+          },
+          "relationships": {
+            "default": [],
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamProposalRelationship"
+            }
+          },
+          "stages": {
+            "default": [],
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stage"
+            }
+          },
+          "bindings": {
+            "default": [],
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamProposalBinding"
+            }
+          }
+        },
+        "required": [
+          "rationale",
+          "source_template",
+          "roles",
+          "relationships",
+          "stages",
+          "bindings"
+        ]
+      },
+      "TeamProposalAttempt": {
+        "type": "object",
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/TaskId"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "valid",
+              "invalid",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "attempt",
+          "task_id",
+          "outcome",
+          "error"
+        ]
+      },
+      "TeamProposalBinding": {
+        "type": "object",
+        "properties": {
+          "role_key": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "agent_ref": {
+            "$ref": "#/components/schemas/AgentRef"
+          },
+          "reason": {
+            "default": "",
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "role_key",
+          "agent_ref",
+          "reason"
+        ]
+      },
+      "TeamProposalId": {
+        "type": "string",
+        "pattern": "^prp_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "TeamProposalRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/TeamProposalId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "agent_ref": {
+            "$ref": "#/components/schemas/AgentRef"
+          },
+          "role_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/TeamProposalState"
+          },
+          "progress": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamProposalAttempt"
+            }
+          },
+          "basis": {
+            "type": "object",
+            "properties": {
+              "current_revision": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "draft_revision": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "source_template": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TemplateRef"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "current_revision",
+              "draft_revision",
+              "source_template"
+            ]
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeamProposal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draft_body": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeamDraftBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "agent_ref",
+          "role_key",
+          "state",
+          "progress",
+          "task_id",
+          "attempts",
+          "basis",
+          "proposal",
+          "draft_body",
+          "error",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "finished_at"
+        ]
+      },
+      "TeamProposalRelationship": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "to": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "type": {
+            "$ref": "#/components/schemas/RelationshipType"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "type"
+        ]
+      },
+      "TeamProposalRole": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "coordinator": {
+            "default": false,
+            "type": "boolean"
+          },
+          "responsibilities_md": {
+            "default": "",
+            "type": "string",
+            "maxLength": 20000
+          },
+          "instructions_md": {
+            "default": "",
+            "type": "string",
+            "maxLength": 20000
+          },
+          "contributions": {
+            "default": [],
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "deliverables": {
+            "default": [],
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "agent_template_ref": {
+            "default": null,
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplateRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skills": {
+            "default": [],
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillRef"
+            }
+          },
+          "stage": {
+            "default": null,
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rationale": {
+            "default": "",
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "coordinator",
+          "responsibilities_md",
+          "instructions_md",
+          "contributions",
+          "deliverables",
+          "agent_template_ref",
+          "skills",
+          "stage",
+          "rationale"
+        ]
+      },
+      "TeamProposalState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "ready",
+          "failed",
+          "cancelled"
+        ]
       },
       "TeamRevision": {
         "type": "object",
@@ -10967,6 +12238,26 @@
           "created_by",
           "created_at"
         ]
+      },
+      "UpdateLinkRequestInput": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "note_md": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "additionalProperties": false
       },
       "UpdateProjectRequestInput": {
         "type": "object",

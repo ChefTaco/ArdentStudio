@@ -22,6 +22,8 @@ export const ID_PREFIXES = {
   export: 'exp',
   draft: 'drf',
   developmentComment: 'dvc',
+  link: 'lnk',
+  teamProposal: 'prp',
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

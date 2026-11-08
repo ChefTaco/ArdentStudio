@@ -44,6 +44,8 @@ export const revisionIdSchema = prefixedId('drv');
 export const commentIdSchema = prefixedId('cmt');
 export const reviewDecisionIdSchema = prefixedId('rvd');
 export const exportIdSchema = prefixedId('exp');
+export const linkIdSchema = prefixedId('lnk');
+export const teamProposalIdSchema = prefixedId('prp');
 /** A Magnus-managed Ardent profile: `<nodeId>~<profile>`, the same reference Magnus uses. */
 export const agentRefSchema = z.string().regex(/^[A-Za-z0-9._-]{1,128}~[A-Za-z0-9._-]{1,128}$/);
 export const roleKeySchema = z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/);
@@ -98,13 +100,31 @@ export const projectSchema = z.object({
   updated_at: isoDate,
   archived_at: isoDate.nullable(),
 });
+/**
+ * The newest meaningful project record: a room message, a pinned decision, a received or reviewed
+ * revision, an added reference or link, a published team, an export, or the project's creation or
+ * archiving. type is the matching event type; text is a one-line description built from that
+ * record only. Presence, sync progress and other bookkeeping do not count.
+ */
+export const lastActivitySchema = z.object({ type: z.string(), at: isoDate, text: z.string() });
+/** Counts derived from stored records. A change is announced as project.updated with fields ["counts"]. */
+export const projectCountsSchema = z.object({
+  /** Agent clarifications nobody has answered yet. */
+  open_questions: z.number().int(),
+  /** Deliverable revisions waiting for a person: unreviewed, or changes requested and no new revision yet. */
+  review_pending: z.number().int(),
+  /** Studio tasks in an active state (queued, running, input_required, pausing, paused). */
+  active_tasks: z.number().int(),
+});
 export const projectSummarySchema = projectSchema.omit({ deliverables: true, brief_md: true }).extend({
   brief_excerpt: z.string(),
   file_count: z.number().int(),
+  link_count: z.number().int(),
   deliverable_count: z.number().int(),
   team: z.object({ revision: z.number().int().nullable(), role_count: z.number().int(), bound_count: z.number().int() }),
-  /** The newest recorded project event. Never synthesized. */
-  last_activity: z.object({ type: z.string(), at: isoDate }).nullable(),
+  ...projectCountsSchema.shape,
+  /** Never synthesized; null only when the project has no such record. */
+  last_activity: lastActivitySchema.nullable(),
 });
 
 const projectFields = {
@@ -137,6 +157,8 @@ export const updateProjectRequestSchema = z.object({
 export const listProjectsQuerySchema = z.object({
   status: z.enum(['active', 'archived', 'all']).default('active'),
   q: z.string().trim().max(200).optional(),
+  /** true: only projects with review_pending > 0. */
+  needs_review: z.enum(['true', 'false']).optional(),
 });
 export const listProjectsResponseSchema = z.object({ projects: z.array(projectSummarySchema) });
 export const projectResponseSchema = projectSchema;
@@ -155,6 +177,16 @@ export const filePurposeSchema = z.enum(['reference', 'attachment', 'avatar']);
  * unsupported: the type has no text to index yet.
  */
 export const knowledgeStateSchema = z.enum(['not_indexed', 'pending', 'indexing', 'indexed', 'failed', 'unsupported']);
+/** A file's or link's HiveMem sync state. source_id is the HiveMem source; revision the synced content digest. */
+export const knowledgeSyncSchema = z.object({
+  state: knowledgeStateSchema,
+  source_id: z.string().nullable(),
+  revision: z.string().nullable(),
+  chunks: z.number().int().nullable(),
+  error: z.string().nullable(),
+  attempts: z.number().int(),
+  updated_at: isoDate.nullable(),
+});
 export const fileSchema = z.object({
   id: fileIdSchema,
   project_id: projectIdSchema,
@@ -165,15 +197,7 @@ export const fileSchema = z.object({
   purpose: filePurposeSchema,
   created_by: z.string(),
   created_at: isoDate,
-  knowledge: z.object({
-    state: knowledgeStateSchema,
-    source_id: z.string().nullable(),
-    revision: z.string().nullable(),
-    chunks: z.number().int().nullable(),
-    error: z.string().nullable(),
-    attempts: z.number().int(),
-    updated_at: isoDate.nullable(),
-  }),
+  knowledge: knowledgeSyncSchema,
 });
 export const uploadFileQuerySchema = z.object({
   name: z.string().trim().min(1).max(255).refine(value => !/[/\\\0]/.test(value) && value !== '.' && value !== '..', 'Invalid file name'),
@@ -182,6 +206,46 @@ export const uploadFileQuerySchema = z.object({
 export const listFilesQuerySchema = z.object({ purpose: filePurposeSchema.optional() });
 export const listFilesResponseSchema = z.object({ files: z.array(fileSchema) });
 export const fileResponseSchema = fileSchema;
+
+// ── Reference links ──
+/** An http or https URL without user name or password. Studio stores it; it never fetches it. */
+export function isReferenceUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && Boolean(url.hostname) && !url.username && !url.password;
+  } catch { return false; }
+}
+const referenceUrl = z.string().trim().min(1).max(2048).refine(isReferenceUrl, 'Expected an http or https URL without a user name or password');
+/**
+ * A link reference. Its title, URL and note are synced to the project HiveMem workspace as a
+ * knowledge source (source_uri is the URL); the linked page itself is not fetched or indexed.
+ */
+export const referenceLinkSchema = z.object({
+  id: linkIdSchema,
+  project_id: projectIdSchema,
+  /** Normalized (WHATWG URL serialization). */
+  url: z.string(),
+  title: z.string(),
+  note_md: z.string(),
+  created_by: z.string(),
+  created_at: isoDate,
+  updated_at: isoDate,
+  /** Set when the link was removed; its HiveMem source is retired. */
+  deleted_at: isoDate.nullable(),
+  knowledge: knowledgeSyncSchema,
+});
+export const createLinkRequestSchema = z.object({
+  url: referenceUrl,
+  title: z.string().trim().min(1).max(200),
+  note_md: text(4_000).default(''),
+}).strict();
+export const updateLinkRequestSchema = z.object({
+  url: referenceUrl.optional(),
+  title: z.string().trim().min(1).max(200).optional(),
+  note_md: text(4_000).optional(),
+}).strict();
+export const listLinksResponseSchema = z.object({ links: z.array(referenceLinkSchema) });
+export const linkResponseSchema = referenceLinkSchema;
 
 // ── Templates ──
 export const skillRefSchema = z.object({
@@ -400,6 +464,110 @@ export const saveAsTemplateRequestSchema = z.object({
   purpose: text(2_000).default(''),
   changelog: z.string().trim().min(1).max(2_000).default('Saved from a project team'),
 }).strict();
+
+// ── Team proposals ──
+/** A role an agent proposes. Optional fields default as shown, so a draft can be built from it. */
+export const teamProposalRoleSchema = z.object({
+  key: roleKeySchema,
+  name,
+  coordinator: z.boolean().default(false),
+  responsibilities_md: text(20_000).default(''),
+  instructions_md: text(20_000).default(''),
+  contributions: shortList(30).default([]),
+  deliverables: shortList(30, 200).default([]),
+  agent_template_ref: templateRefSchema.nullable().default(null),
+  skills: z.array(skillRefSchema).max(50).default([]),
+  stage: stageSchema.nullable().default(null),
+  /** Why the role is on the team. */
+  rationale: text(2_000).default(''),
+});
+export const teamProposalRelationshipSchema = z.object({
+  from: roleKeySchema,
+  to: roleKeySchema,
+  type: relationshipTypeSchema,
+  stage: stageSchema.nullable().optional(),
+  label: z.string().max(120).optional(),
+});
+/** A suggestion only: a person binds roles. agent_ref is one of the agents the request listed. */
+export const teamProposalBindingSchema = z.object({ role_key: roleKeySchema, agent_ref: agentRefSchema, reason: text(1_000).default('') });
+/**
+ * The JSON an agent must answer a team_proposal task with. Besides the field rules: role keys are
+ * unique, exactly one role is the coordinator, relationships and bindings name proposed roles, a
+ * role has at most one binding, and a relationship never points at its own role.
+ */
+export const teamProposalSchema = z.object({
+  rationale: text(4_000).default(''),
+  /** The team template the proposal started from, if any. */
+  source_template: templateRefSchema.nullable().default(null),
+  roles: z.array(teamProposalRoleSchema).min(1).max(30),
+  relationships: z.array(teamProposalRelationshipSchema).max(200).default([]),
+  stages: z.array(stageSchema).max(STAGES.length).default([]),
+  bindings: z.array(teamProposalBindingSchema).max(30).default([]),
+}).superRefine((value, context) => {
+  const keys = new Set<string>();
+  value.roles.forEach((role, index) => {
+    if (keys.has(role.key)) context.addIssue({ code: 'custom', path: ['roles', index, 'key'], message: `Duplicate role key "${role.key}"` });
+    keys.add(role.key);
+  });
+  const coordinators = value.roles.filter(role => role.coordinator).length;
+  if (coordinators !== 1) context.addIssue({ code: 'custom', path: ['roles'], message: `Exactly one role must be the coordinator (found ${coordinators})` });
+  value.relationships.forEach((edge, index) => {
+    for (const end of ['from', 'to'] as const) {
+      if (!keys.has(edge[end])) context.addIssue({ code: 'custom', path: ['relationships', index, end], message: `Unknown role "${edge[end]}"` });
+    }
+    if (edge.from === edge.to) context.addIssue({ code: 'custom', path: ['relationships', index], message: 'A relationship cannot point at its own role' });
+  });
+  const bound = new Set<string>();
+  value.bindings.forEach((binding, index) => {
+    if (!keys.has(binding.role_key)) context.addIssue({ code: 'custom', path: ['bindings', index, 'role_key'], message: `Unknown role "${binding.role_key}"` });
+    if (bound.has(binding.role_key)) context.addIssue({ code: 'custom', path: ['bindings', index, 'role_key'], message: `Role "${binding.role_key}" has more than one binding` });
+    bound.add(binding.role_key);
+  });
+});
+/** queued: waiting for the agent (also between attempts); running: the agent is working; ready: a valid proposal; failed and cancelled are final. */
+export const teamProposalStateSchema = z.enum(['queued', 'running', 'ready', 'failed', 'cancelled']);
+export const teamProposalAttemptSchema = z.object({
+  attempt: z.number().int(),
+  task_id: taskIdSchema,
+  /** pending: not answered yet; invalid: the reply failed validation (error says how). */
+  outcome: z.enum(['pending', 'valid', 'invalid', 'failed', 'cancelled']),
+  error: z.string().nullable(),
+});
+export const teamProposalRecordSchema = z.object({
+  id: teamProposalIdSchema,
+  project_id: projectIdSchema,
+  /** The agent asked: the chosen agent, else the bound coordinator. */
+  agent_ref: agentRefSchema,
+  /** The role that agent holds in the team the proposal was based on, if any. */
+  role_key: z.string().nullable(),
+  state: teamProposalStateSchema,
+  /** One line from real records: the agent's progress, a retry and why, or the outcome. */
+  progress: z.string().nullable(),
+  /** The current attempt's Studio task (mode team_proposal). Cancel it to cancel the proposal. */
+  task_id: taskIdSchema.nullable(),
+  /** At most two: one retry after an invalid reply. */
+  attempts: z.array(teamProposalAttemptSchema),
+  /** The team the proposal was asked against. Compare with the current team before applying. */
+  basis: z.object({ current_revision: z.number().int().nullable(), draft_revision: z.number().int().nullable(), source_template: templateRefSchema.nullable() }),
+  /** The validated proposal when state is ready. */
+  proposal: teamProposalSchema.nullable(),
+  /**
+   * The proposal as a team draft body: suggested bindings filled in, knowledge kept for roles whose
+   * key matches the basis team. Nothing is applied: a person sends (parts of) it with PUT team/draft.
+   */
+  draft_body: teamDraftBodySchema.nullable(),
+  error: z.string().nullable(),
+  created_by: z.string(),
+  created_at: isoDate,
+  updated_at: isoDate,
+  finished_at: isoDate.nullable(),
+});
+export const proposeTeamRequestSchema = z.object({
+  /** Ask this agent instead of the bound coordinator of the draft (else current) team. */
+  agent_ref: agentRefSchema.optional(),
+}).strict();
+export const teamProposalResponseSchema = teamProposalRecordSchema;
+export const listTeamProposalsResponseSchema = z.object({ proposals: z.array(teamProposalRecordSchema) });
 
 // ── Agents (through Magnus) ──
 export const agentSchema = z.object({
@@ -963,7 +1131,11 @@ export const snapshotResponseSchema = z.object({
   /** The stream cursor this snapshot is consistent with: reconnect with ?after=<seq>. */
   seq: z.number().int(),
   project: projectSchema,
+  /** The same summary the project list shows: counts and last activity. */
+  summary: projectSummarySchema,
   files: z.array(fileSchema),
+  /** Link references that are not deleted. */
+  links: z.array(referenceLinkSchema),
   team: teamStateSchema,
   conversations: z.array(conversationSchema),
   /** Active tasks and those waiting for an answer. */
@@ -971,6 +1143,8 @@ export const snapshotResponseSchema = z.object({
   decisions: z.array(decisionSchema),
   activity: z.array(activitySchema),
   layout: roomLayoutSchema.nullable(),
+  /** Team proposals that are still queued or running. */
+  team_proposals: z.array(teamProposalRecordSchema),
 });
 export const streamQuerySchema = z.object({ after: z.string().regex(/^\d{1,15}$/).optional() });
 export const PROJECT_EVENT_TYPES = [
@@ -981,6 +1155,7 @@ export const PROJECT_EVENT_TYPES = [
   'presence.updated', 'task.created', 'task.updated', 'decision.created', 'decision.updated',
   'deliverable.revision.created', 'review.comment.created', 'review.comment.updated', 'review.decision.created',
   'export.created', 'agent.operation.updated', 'deliverable.updated', 'artifact.import.updated',
+  'link.created', 'link.updated', 'link.deleted', 'team.proposal.updated',
 ] as const;
 export const projectEventTypeSchema = z.enum(PROJECT_EVENT_TYPES);
 /** A persisted event. The SSE `id` is its seq. */
@@ -1047,13 +1222,20 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'GET', path: '/health/ready', response: readyResponseSchema, permissions: [], idempotent: false, note: 'Answers 503 with the same body when not ready. Checks are cached for 10 seconds.' },
 
   // Projects
-  { method: 'GET', path: '/projects', query: listProjectsQuerySchema, response: listProjectsResponseSchema, permissions: READ, idempotent: false, note: 'q matches name, brief and tags.' },
+  { method: 'GET', path: '/projects', query: listProjectsQuerySchema, response: listProjectsResponseSchema, permissions: READ, idempotent: false, note: 'q matches name, brief and tags. needs_review=true keeps projects with review_pending > 0.' },
   { method: 'POST', path: '/projects', requestBody: 'json', request: createProjectRequestSchema, response: projectResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Creates the project HiveMem workspace; when HiveMem is unavailable hivemem.state stays pending and is retried.' },
   { method: 'GET', path: '/projects/{projectId}', response: projectResponseSchema, permissions: READ, idempotent: false },
   { method: 'PATCH', path: '/projects/{projectId}', requestBody: 'json', request: updateProjectRequestSchema, response: projectResponseSchema, permissions: WRITE, idempotent: true, note: 'An archived project is read-only (409) except last_area.' },
   { method: 'POST', path: '/projects/{projectId}/archive', response: projectResponseSchema, permissions: WRITE, idempotent: true, note: '409 with details.tasks while Studio tasks are still active.' },
   { method: 'POST', path: '/projects/{projectId}/reopen', response: projectResponseSchema, permissions: WRITE, idempotent: true },
   { method: 'GET', path: '/projects/{projectId}/snapshot', response: snapshotResponseSchema, permissions: READ, idempotent: false },
+
+  // Reference links
+  { method: 'POST', path: '/projects/{projectId}/links', requestBody: 'json', request: createLinkRequestSchema, response: linkResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'http and https only, without credentials. 409 LINK_EXISTS when the project already has this URL. Synced to the project HiveMem workspace as a knowledge source (title, URL and note; the page is not fetched).' },
+  { method: 'GET', path: '/projects/{projectId}/links', response: listLinksResponseSchema, permissions: READ, idempotent: false, note: 'Links that are not deleted.' },
+  { method: 'PATCH', path: '/links/{linkId}', requestBody: 'json', request: updateLinkRequestSchema, response: linkResponseSchema, permissions: WRITE, idempotent: true, note: 'A change queues the link for HiveMem sync again.' },
+  { method: 'DELETE', path: '/links/{linkId}', response: linkResponseSchema, permissions: WRITE, idempotent: true, note: 'Marks the link deleted and retires its HiveMem source.' },
+  { method: 'POST', path: '/links/{linkId}/reindex', response: linkResponseSchema, permissions: WRITE, idempotent: true, note: 'Queues the link for HiveMem sync again.' },
 
   // Files
   { method: 'POST', path: '/projects/{projectId}/files', query: uploadFileQuerySchema, requestBody: 'raw', response: fileResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Raw body up to ARDENT_STUDIO_MAX_BLOB_BYTES (default 64 MiB) with an allowed Content-Type (UPLOAD_MIME_TYPES). References are indexed into the project HiveMem workspace.' },
@@ -1075,6 +1257,9 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'POST', path: '/projects/{projectId}/team/validate', requestBody: 'json', request: validateTeamRequestSchema, response: validationResultSchema, permissions: READ, idempotent: false, note: 'Validates the given body, else the draft, else the current revision. No side effects.' },
   { method: 'POST', path: '/projects/{projectId}/team/publish', requestBody: 'json', request: publishTeamRequestSchema, response: teamStateSchema, permissions: WRITE, idempotent: true, note: '409 with details.validation when the draft has errors.' },
   { method: 'POST', path: '/projects/{projectId}/team/apply-template', requestBody: 'json', request: applyTemplateRequestSchema, response: teamStateSchema, permissions: WRITE, idempotent: true },
+  { method: 'POST', path: '/projects/{projectId}/team/propose', requestBody: 'json', request: proposeTeamRequestSchema, response: teamProposalResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Asks one agent through Magnus (a mission at studio level 2 with Ardent 2.2.0, else task-submit) for a TeamProposal JSON reply with the brief, deliverables, templates and available agents. An invalid reply is retried once with the validation error, then the proposal fails. Progress arrives as team.proposal.updated; nothing is applied. 409 NO_COORDINATOR without agent_ref and a bound coordinator, 409 PROPOSAL_IN_PROGRESS while one is queued or running, 422 UNKNOWN_AGENT, 409 AGENT_UNAVAILABLE, 503 MAGNUS_UNAVAILABLE.' },
+  { method: 'GET', path: '/projects/{projectId}/team/proposals', response: listTeamProposalsResponseSchema, permissions: READ, idempotent: false, note: 'Newest first, at most 20.' },
+  { method: 'GET', path: '/projects/{projectId}/team/proposals/{proposalId}', response: teamProposalResponseSchema, permissions: READ, idempotent: false },
   { method: 'POST', path: '/projects/{projectId}/team/save-as-template', requestBody: 'json', request: saveAsTemplateRequestSchema, response: templateDetailSchema, permissions: ['ardentstudio:projects:read', 'ardentstudio:templates:write'], idempotent: true, successStatus: 201, note: 'Bindings and knowledge are not copied.' },
 
   // Agents

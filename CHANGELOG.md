@@ -42,5 +42,13 @@ All notable changes to this project are documented here. The format follows
   preview tasks, applying drafts through Magnus with per-part results, development records with
   comments (optionally relayed as operator notes), and Magnus New Agent with the acting person and
   operation progress relayed to the project stream.
+- Project summaries with `open_questions`, `review_pending`, `active_tasks` and a `last_activity`
+  line derived from stored records, a `needs_review` list filter, the summary in the snapshot, and
+  `project.updated` with the counts whenever they change.
+- Link references (http and https URLs with a title and note), synced to the project HiveMem
+  workspace as text knowledge sources and retired when deleted.
+- Team proposals: `POST /projects/:id/team/propose` asks the coordinator or a chosen agent for a
+  validated `TeamProposal` (one retry with the validation error), stores it with a draft body and
+  streams `team.proposal.updated`; nothing is applied.
 - Container image (non-root, no package managers at runtime, `/data` volume), CI and a
   publish workflow for npm trusted publishing and GHCR.

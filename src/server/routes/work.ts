@@ -120,6 +120,7 @@ export function workRoutes(register: ReturnType<typeof createRouter>, deps: AppD
     const task = requireTask(store, params.taskId);
     const project = requireActive(requireProject(store, task.project_id));
     const input = body as z.infer<typeof reassignTaskRequestSchema>;
+    if (task.mode === 'team_proposal') throw new ApiError(409, 'NOT_REASSIGNABLE', 'Ask for a new team proposal with the agent you want instead');
     const revision = requireTeam(store, project.id);
     const role = revision.body.roles.find(item => item.key === input.role_key);
     if (!role?.agent_ref) throw new ApiError(409, 'TEAM_NOT_READY', `Role "${input.role_key}" has no bound agent in team r${revision.revision}`);

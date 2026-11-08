@@ -15,20 +15,28 @@ export function projectRoutes(register: ReturnType<typeof createRouter>, deps: A
   const summary = (project: Project): Summary => {
     const { deliverables, brief_md, ...rest } = project;
     const team = store.team.draft(project.id) ?? store.team.current(project.id);
-    const latest = store.events.latest(project.id);
+    const current = store.team.current(project.id);
     return {
       ...rest,
       brief_excerpt: brief_md.replace(/\s+/g, ' ').trim().slice(0, 240),
       file_count: store.files.count(project.id),
+      link_count: store.links.count(project.id),
       deliverable_count: deliverables.length,
       team: { revision: store.team.pointers(project.id).current, role_count: team?.body.roles.length ?? 0, bound_count: team?.body.roles.filter(role => role.agent_ref).length ?? 0 },
-      last_activity: latest ? { type: latest.type, at: latest.at } : null,
+      ...store.summaries.counts(project.id),
+      // Role names come from the published team, the one agents spoke under.
+      last_activity: store.summaries.lastActivity(project.id, current?.body ?? team?.body),
     };
   };
 
   register('GET', '/projects', (_c, { query }) => {
     const filter = query as z.infer<typeof listProjectsQuerySchema>;
-    return { body: { projects: store.projects.list(filter).map(summary) } };
+    let projects = store.projects.list(filter);
+    if (filter.needs_review !== undefined) {
+      const needing = store.summaries.needingReview();
+      projects = projects.filter(project => needing.has(project.id) === (filter.needs_review === 'true'));
+    }
+    return { body: { projects: projects.map(summary) } };
   });
 
   register('POST', '/projects', (_c, { body, principal, idempotencyKey }) => {
@@ -105,7 +113,9 @@ export function projectRoutes(register: ReturnType<typeof createRouter>, deps: A
     const view = store.db.transaction(() => ({
       seq: store.events.cursor(id).lastSeq,
       project: store.projects.get(id)!,
+      summary: summary(store.projects.get(id)!),
       files: store.files.list(id),
+      links: store.links.list(id),
       current: store.team.current(id) ?? null,
       draft: store.team.draft(id) ?? null,
       conversations: store.room.conversations(id),
@@ -113,6 +123,7 @@ export function projectRoutes(register: ReturnType<typeof createRouter>, deps: A
       decisions: store.room.decisions(id),
       activity: activityOf(id),
       layout: store.room.layout(id) ?? null,
+      team_proposals: store.proposals.open(id),
     }))();
     const { current, draft, ...rest } = view;
     const subject = draft ?? current;

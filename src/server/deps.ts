@@ -13,6 +13,7 @@ import type { Store } from '../db/store.js';
 import type { EventBus } from '../events/bus.js';
 import type { KnowledgeSync } from '../knowledge/sync.js';
 import type { Logger } from '../logger.js';
+import type { TeamProposer } from '../team/proposals.js';
 import { ApiError, notFound } from './errors.js';
 
 export interface AppDeps {
@@ -27,6 +28,8 @@ export interface AppDeps {
   /** Live reply text of streaming messages. */
   live: LiveText;
   magnus: MagnusClient;
+  /** Team proposals asked of an agent (§3.2.4). */
+  proposer: Pick<TeamProposer, 'propose'>;
   /** Relays Magnus New Agent operations to the project stream. */
   operations: OperationRelay;
   /** The canvas Word codec, once its package is installed. Without it DOCX conversion answers 501. */
