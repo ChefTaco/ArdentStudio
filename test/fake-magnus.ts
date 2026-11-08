@@ -49,6 +49,16 @@ export class FakeMagnusServer {
   artifacts = new Map<string, { bytes: Uint8Array; mime: string }>();
   /** Serve these bytes instead of the stored ones (a corrupted relay). */
   artifactOverride = new Map<string, Uint8Array>();
+  /** Real Magnus refuses identity-save and skill-set from a service identity; set true to model a Magnus that allows them. */
+  allowAgentEdits = false;
+  identities = new Map<string, { text: string; revision: string }>();
+  skillRevision = 'c'.repeat(64);
+  development = new Map<string, Array<Record<string, unknown>>>();
+  notes: Array<{ ref: string; body: Record<string, unknown>; actingSubject: string | undefined }> = [];
+  /** Oathweave subjects that are Magnus ADMINs. */
+  admins = new Set(['subject-operator']);
+  operations = new Map<string, Record<string, unknown>>();
+  private readonly operationSubscribers = new Map<string, Set<Subscriber>>();
   private readonly subscribers = new Map<string, Set<Subscriber>>();
   private readonly waiters: Array<() => void> = [];
   private server: Server | undefined;
@@ -139,6 +149,27 @@ export class FakeMagnusServer {
     return sha;
   }
 
+  identityOf(ref: string, kind: string): { text: string; revision: string } {
+    const key = `${ref}|${kind}`;
+    let value = this.identities.get(key);
+    if (!value) {
+      const text = `# ${kind} of ${ref}\n`;
+      value = { text, revision: createHash('sha256').update(text).digest('hex') };
+      this.identities.set(key, value);
+    }
+    return value;
+  }
+
+  /** Change a New Agent operation and push it to open operation streams. */
+  updateOperation(id: string, patch: Record<string, unknown>): void {
+    const next: Record<string, unknown> = { ...this.operations.get(id)!, ...patch, updatedAt: new Date().toISOString() };
+    this.operations.set(id, next);
+    for (const subscriber of this.operationSubscribers.get(id) ?? []) {
+      subscriber.send(next.status === 'running' ? 'operation' : 'done', next);
+      if (next.status !== 'running') subscriber.end();
+    }
+  }
+
   record(task: FakeTask) {
     return { id: task.id, caller: 'management', context: task.context, session_id: task.session_id, prompt: task.prompt, content_hash: 'x',
       idempotency_key: task.idempotency_key, backend: 'llamacpp', state: task.state, result: task.result, error: task.error,
@@ -159,6 +190,33 @@ export class FakeMagnusServer {
     if (this.fail) return fail(response, 503, 'DEPENDENCY_UNAVAILABLE', 'Magnus unavailable');
 
     if (request.method === 'GET' && path === '/api/v1/ardent/profiles') return ok(response, this.profiles);
+    if (request.method === 'POST' && path === '/api/v1/ardent/agents') {
+      if (!actingSubject || !this.admins.has(actingSubject)) return fail(response, 403, 'ACTING_ADMIN_REQUIRED', 'The acting person is not a Magnus ADMIN');
+      const input = body as Record<string, unknown>;
+      if (this.profiles.some(item => item.nodeId === input.nodeId && item.id === input.profile)) return fail(response, 409, 'CONFLICT', 'The profile exists');
+      const id = randomUUID();
+      const now = new Date().toISOString();
+      this.operations.set(id, { id, kind: 'deploy', nodeId: input.nodeId, profile: input.profile, status: 'running', error: null, createdBy: 'operator', attempts: 1,
+        request: { apiPort: null, model: input.model, skills: input.skills, hivemem: true, artifacts_max_bytes: null }, createdAt: now, updatedAt: now, completedAt: null,
+        steps: [{ name: 'profile-create', status: 'running', startedAt: now, finishedAt: null, receipt: null, error: null }] });
+      return ok(response, { operationId: id }, 202);
+    }
+    const operation = /^\/api\/v1\/ardent\/agents\/operations\/([^/]+)(\/stream)?$/.exec(path);
+    if (request.method === 'GET' && operation) {
+      const current = this.operations.get(operation[1]!);
+      if (!current) return fail(response, 404, 'NOT_FOUND', 'Unknown operation');
+      if (!operation[2]) return ok(response, current);
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      const send = (event: string, data: unknown) => { response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+      let set = this.operationSubscribers.get(operation[1]!);
+      if (!set) { set = new Set(); this.operationSubscribers.set(operation[1]!, set); }
+      const subscriber: Subscriber = { send, end: () => { set.delete(subscriber); response.end(); } };
+      request.on('close', () => set.delete(subscriber));
+      send(current.status === 'running' ? 'operation' : 'done', current);
+      if (current.status !== 'running') { response.end(); return; }
+      set.add(subscriber);
+      return;
+    }
     let match = /^\/api\/v1\/ardent\/installations\/([^/]+)$/.exec(path);
     if (request.method === 'GET' && match) {
       const nodeId = match[1]!;
@@ -176,6 +234,17 @@ export class FakeMagnusServer {
     if (rest === 'memory/status') return ok(response, { status: this.memory.get(ref) ?? 'ready', agent_id: ref, workspace_id: 'default', retrieval: null, storage: null, reason: null });
     if (rest === 'skills') return ok(response, { skills: this.skillMap.get(ref) ?? [] });
     if (rest === 'status') return ok(response, { version: '2.2.0', profile, backend: 'llamacpp', tasks: this.tasks.size });
+    match = /^identity\/(soul|identity)$/.exec(rest);
+    if (match) return ok(response, { kind: match[1], name: `${match[1]!.toUpperCase()}.md`, ...this.identityOf(ref, match[1]!) });
+    if (rest === 'development') {
+      if (level < 2) return fail(response, 409, 'AGENT_UPGRADE_REQUIRED', `Upgrade the Magnus agent on Node ${nodeId}`);
+      const records = this.development.get(ref) ?? [];
+      const after = url.searchParams.get('after');
+      const start = after ? records.findIndex(item => item.id === after) + 1 : 0;
+      const limit = Number(url.searchParams.get('limit') ?? '50');
+      const page = records.slice(start, start + limit);
+      return ok(response, { records: page, next: start + limit < records.length ? String(page.at(-1)!.id) : null });
+    }
     match = /^artifacts\/([a-f0-9]{64})$/.exec(rest);
     if (match) {
       const artifact = this.artifacts.get(match[1]!);
@@ -255,8 +324,31 @@ export class FakeMagnusServer {
         this.event(task.id, action === 'task-pause' ? 'pause_requested' : 'resumed', { state: task.state });
         return ok(response, { task_id: task.id, state: task.state, admission: action === 'task-pause' ? 'paused' : 'open' });
       }
-      default:
-        return fail(response, 403, 'FORBIDDEN', `Action ${action} is not allowed for this identity`);
+      case 'identity-save': case 'skill-set': {
+        if (!this.allowAgentEdits) break;
+        if (action === 'identity-save') {
+          const current = this.identityOf(ref, String(body.target));
+          if (input.revision !== current.revision) return fail(response, 409, 'CONFLICT', 'Ardent refused the request in the task\'s current state');
+          const text = String(input.text);
+          const next = { text, revision: createHash('sha256').update(text).digest('hex') };
+          this.identities.set(`${ref}|${String(body.target)}`, next);
+          return ok(response, { kind: body.target, name: 'x.md', ...next });
+        }
+        if (input.revision !== this.skillRevision) return fail(response, 409, 'CONFLICT', 'stale configuration revision');
+        const skills = this.skillMap.get(ref) ?? [];
+        this.skillMap.set(ref, skills.map(skill => skill.name === body.target ? { ...skill, enabled: Boolean(input.enabled) } : skill));
+        this.skillRevision = createHash('sha256').update(`${this.skillRevision}:${String(body.target)}`).digest('hex');
+        return ok(response, { revision: this.skillRevision, activation_required: true });
+      }
+      case 'development-note': {
+        if (needs(2)) return;
+        if (!actingSubject) return fail(response, 403, 'ACTING_SUBJECT_REQUIRED', 'needs a person');
+        this.notes.push({ ref, body: input, actingSubject });
+        return ok(response, { id: `dev_${randomUUID()}`, agent_ref: ref, kind: input.kind, title: input.title, body: input.body, author: input.author ?? 'operator',
+          epistemic: 'operator_reported', before_sha256: null, after_sha256: null, sources: input.sources ?? [], created_at: new Date().toISOString() });
+      }
+      default: break;
     }
+    return fail(response, 403, 'FORBIDDEN', `Action ${action} is not allowed for this identity`);
   }
 }

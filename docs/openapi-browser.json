@@ -1762,6 +1762,786 @@
             "oathweave": []
           }
         ]
+      },
+      "post": {
+        "operationId": "postAgents",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:agents:admin"
+        ],
+        "x-idempotent": true,
+        "description": "Magnus New Agent with the acting person: Magnus also requires that person to be a Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). The agent always gets HiveMem. Progress is relayed as agent.operation.updated on project_id's stream.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewAgentRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/agents/operations/{operationId}": {
+      "get": {
+        "operationId": "getAgentsOperationsOperationId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Operations started from Studio. Magnus's current view, or the last relayed one when Magnus is unreachable.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/agents/{agentRef}/presentation": {
+      "get": {
+        "operationId": "getAgentsAgentRefPresentation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentRef",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Presentation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "putAgentsAgentRefPresentation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentRef",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Presentation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Studio-only display name and portrait; the agent itself is unchanged.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutPresentationRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/agents/{agentRef}/draft": {
+      "get": {
+        "operationId": "getAgentsAgentRefDraft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentRef",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentDraftResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "The calling person's draft.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "putAgentsAgentRefDraft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentRef",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentDraftResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutAgentDraftRequestInput"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAgentsAgentRefDraft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentRef",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentDraftResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/agents/{agentRef}/preview": {
+      "post": {
+        "operationId": "postAgentsAgentRefPreview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentRef",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent events",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "x-events": {
+              "preview.accepted": {
+                "$ref": "#/components/schemas/PreviewAcceptedEvent"
+              },
+              "preview.text": {
+                "$ref": "#/components/schemas/PreviewTextEvent"
+              },
+              "preview.delta": {
+                "$ref": "#/components/schemas/PreviewTextEvent"
+              },
+              "preview.event": {
+                "$ref": "#/components/schemas/PreviewJournalEvent"
+              },
+              "preview.done": {
+                "$ref": "#/components/schemas/PreviewDoneEvent"
+              },
+              "preview.error": {
+                "$ref": "#/components/schemas/PreviewErrorEvent"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": false,
+        "description": "Streams a side-effect-free Ardent preview task (no memory writes, no mission tools, no identity changes, artifacts expire). Needs the agent's Magnus node agent at studio level 2: otherwise 409 PREVIEW_UNAVAILABLE. Sending x-idempotency-key again streams the same preview task.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/agents/{agentRef}/apply": {
+      "post": {
+        "operationId": "postAgentsAgentRefApply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentRef",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:agents:admin"
+        ],
+        "x-idempotent": true,
+        "description": "Applies parts of the calling person's draft through Magnus (identity-save, skill-set) with the acting person, each against its base revision. Results are per part; running tasks keep their instructions.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/agents/{agentRef}/development": {
+      "get": {
+        "operationId": "getAgentsAgentRefDevelopment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentRef",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,400}$"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,3}$"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevelopmentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/agents/{agentRef}/development/{recordId}/comments": {
+      "post": {
+        "operationId": "postAgentsAgentRefDevelopmentRecordIdComments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentRef",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "recordId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateDevelopmentCommentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDevelopmentCommentRequestInput"
+              }
+            }
+          }
+        }
       }
     },
     "/api/ardentstudio/v1/projects/{projectId}/layout": {
@@ -4115,6 +4895,292 @@
           "roles"
         ]
       },
+      "AgentDraft": {
+        "type": "object",
+        "properties": {
+          "agent_ref": {
+            "$ref": "#/components/schemas/AgentRef"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "base": {
+            "$ref": "#/components/schemas/AgentDraftBase"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/AgentDraftBody"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "agent_ref",
+          "user_id",
+          "base",
+          "draft",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "AgentDraftBase": {
+        "type": "object",
+        "properties": {
+          "soul_revision": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "identity_revision": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "config_revision": {
+            "$ref": "#/components/schemas/Sha256"
+          }
+        }
+      },
+      "AgentDraftBaseInput": {
+        "type": "object",
+        "properties": {
+          "soul_revision": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "identity_revision": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "config_revision": {
+            "$ref": "#/components/schemas/Sha256"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentDraftBody": {
+        "type": "object",
+        "properties": {
+          "soul": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 131072
+          },
+          "identity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 131072
+          },
+          "skills_enabled": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+            }
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "AgentDraftBodyInput": {
+        "type": "object",
+        "properties": {
+          "soul": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 131072
+          },
+          "identity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 131072
+          },
+          "skills_enabled": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+            }
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentDraftResponse": {
+        "type": "object",
+        "properties": {
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "draft"
+        ]
+      },
+      "AgentOperation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agent_ref": {
+            "$ref": "#/components/schemas/AgentRef"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "deploy",
+              "hivemem"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "succeeded",
+              "failed"
+            ]
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentOperationStep"
+            }
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "agent_ref",
+          "project_id",
+          "role_key",
+          "kind",
+          "status",
+          "steps",
+          "error",
+          "attempts",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "completed_at"
+        ]
+      },
+      "AgentOperationStep": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "skipped",
+              "failed"
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "receipt": {
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "started_at",
+          "finished_at",
+          "receipt",
+          "error"
+        ]
+      },
       "AgentRef": {
         "type": "string",
         "pattern": "^[A-Za-z0-9._-]{1,128}~[A-Za-z0-9._-]{1,128}$"
@@ -4358,6 +5424,115 @@
           "body_md"
         ],
         "additionalProperties": false
+      },
+      "ApplyRequestInput": {
+        "type": "object",
+        "properties": {
+          "parts": {
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "soul",
+                "identity",
+                "skills",
+                "model"
+              ]
+            }
+          }
+        },
+        "required": [
+          "parts"
+        ],
+        "additionalProperties": false
+      },
+      "ApplyResponse": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApplyResult"
+            }
+          },
+          "active_tasks": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "results",
+          "active_tasks",
+          "note",
+          "draft"
+        ]
+      },
+      "ApplyResult": {
+        "type": "object",
+        "properties": {
+          "part": {
+            "type": "string",
+            "enum": [
+              "soul",
+              "identity",
+              "skills",
+              "model"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "unchanged",
+              "failed",
+              "unsupported"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "part",
+          "status",
+          "error",
+          "code",
+          "revision"
+        ]
       },
       "ApplyTemplateRequestInput": {
         "type": "object",
@@ -5270,6 +6445,46 @@
         ],
         "additionalProperties": false
       },
+      "CreateDevelopmentCommentRequestInput": {
+        "type": "object",
+        "properties": {
+          "body_md": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000
+          },
+          "relay_to_agent": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "body_md"
+        ],
+        "additionalProperties": false
+      },
+      "CreateDevelopmentCommentResponse": {
+        "type": "object",
+        "properties": {
+          "comment": {
+            "$ref": "#/components/schemas/DevelopmentComment"
+          },
+          "relayed": {
+            "type": "boolean"
+          },
+          "relay_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "comment",
+          "relayed",
+          "relay_error"
+        ]
+      },
       "CreateExportRequestInput": {
         "type": "object",
         "properties": {
@@ -5773,6 +6988,168 @@
           "decision",
           "short_doc",
           "options"
+        ]
+      },
+      "DevelopmentComment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agent_ref": {
+            "$ref": "#/components/schemas/AgentRef"
+          },
+          "record_ref": {
+            "type": "string"
+          },
+          "body_md": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "agent_ref",
+          "record_ref",
+          "body_md",
+          "author",
+          "created_at"
+        ]
+      },
+      "DevelopmentRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agent_ref": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "operator",
+              "runtime"
+            ]
+          },
+          "epistemic": {
+            "type": "string",
+            "enum": [
+              "agent_reported",
+              "operator_reported",
+              "observed"
+            ]
+          },
+          "before_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "after_sha256": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sha256"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ]
+            }
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DevelopmentComment"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "agent_ref",
+          "kind",
+          "title",
+          "body",
+          "author",
+          "epistemic",
+          "before_sha256",
+          "after_sha256",
+          "sources",
+          "created_at",
+          "comments"
+        ]
+      },
+      "DevelopmentResponse": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DevelopmentRecord"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "supported",
+          "reason",
+          "records",
+          "next"
         ]
       },
       "Discussion": {
@@ -6589,6 +7966,101 @@
           "failed"
         ]
       },
+      "NewAgentModelInput": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "emberpath_alias": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$"
+              }
+            },
+            "required": [
+              "emberpath_alias"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "base_url": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "base_url",
+              "model"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "NewAgentRequestInput": {
+        "type": "object",
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{1,128}$"
+          },
+          "profile": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "api_port": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 65535
+          },
+          "template": {
+            "$ref": "#/components/schemas/TemplateRefInput"
+          },
+          "soul_md": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 131072
+          },
+          "identity_md": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 131072
+          },
+          "model": {
+            "$ref": "#/components/schemas/NewAgentModelInput"
+          },
+          "skills": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,100}$"
+            }
+          },
+          "artifacts_max_bytes": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 67108864
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "role_key": {
+            "$ref": "#/components/schemas/RoleKey"
+          }
+        },
+        "required": [
+          "node_id",
+          "profile",
+          "model"
+        ],
+        "additionalProperties": false
+      },
       "Placement": {
         "type": "object",
         "properties": {
@@ -6672,6 +8144,184 @@
         "required": [
           "message",
           "tasks"
+        ]
+      },
+      "Presentation": {
+        "type": "object",
+        "properties": {
+          "agent_ref": {
+            "$ref": "#/components/schemas/AgentRef"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "portrait": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AvatarPreset"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_file_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "agent_ref",
+          "display_name",
+          "portrait",
+          "avatar_file_id",
+          "updated_by",
+          "updated_at"
+        ]
+      },
+      "PreviewAcceptedEvent": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "task_id",
+          "session_id"
+        ]
+      },
+      "PreviewDoneEvent": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "task_id",
+          "state",
+          "result",
+          "error"
+        ]
+      },
+      "PreviewErrorEvent": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "PreviewJournalEvent": {
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "kind"
+        ]
+      },
+      "PreviewRequestInput": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16000
+          },
+          "use_draft": {
+            "default": true,
+            "type": "boolean"
+          },
+          "new_session": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "additionalProperties": false
+      },
+      "PreviewTextEvent": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "text"
         ]
       },
       "Project": {
@@ -7079,6 +8729,22 @@
         ],
         "additionalProperties": false
       },
+      "PutAgentDraftRequestInput": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "default": {},
+            "$ref": "#/components/schemas/AgentDraftBaseInput"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/AgentDraftBodyInput"
+          }
+        },
+        "required": [
+          "draft"
+        ],
+        "additionalProperties": false
+      },
       "PutLayoutRequestInput": {
         "type": "object",
         "properties": {
@@ -7125,6 +8791,49 @@
           "base_revision",
           "seats",
           "placements"
+        ],
+        "additionalProperties": false
+      },
+      "PutPresentationRequestInput": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "portrait": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AvatarPresetInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_file_id": {
+            "default": null,
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "display_name",
+          "portrait"
         ],
         "additionalProperties": false
       },

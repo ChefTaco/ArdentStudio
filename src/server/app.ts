@@ -4,6 +4,7 @@ import type { AppDeps } from './deps.js';
 import type { AppEnv } from './env.js';
 import { errorResponse } from './errors.js';
 import { createRouter } from './routing.js';
+import { agentStudioRoutes } from './routes/agent-studio.js';
 import { agentRoutes } from './routes/agents.js';
 import { fileRoutes } from './routes/files.js';
 import { healthRoutes } from './routes/health.js';
@@ -35,6 +36,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   templateRoutes(register, deps);
   teamRoutes(register, deps);
   agentRoutes(register, deps);
+  agentStudioRoutes(register, deps);
   roomRoutes(register, deps);
   workRoutes(register, deps);
   reviewRoutes(register, deps);

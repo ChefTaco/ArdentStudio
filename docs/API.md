@@ -32,7 +32,7 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | `ardentstudio:templates:read` | Read templates and versions |
 | `ardentstudio:templates:write` | Create templates, add versions, archive; save a project team as a template |
 | `ardentstudio:review:write` | Comment on, accept, reject and finalize deliverables; request revisions (with projects:write); export |
-| `ardentstudio:agents:admin` | New Agent through Magnus (with Agent Studio; Magnus also requires an ADMIN person) |
+| `ardentstudio:agents:admin` | New Agent and applying drafts through Magnus (Magnus also checks the acting person) |
 
 ## Routes
 
@@ -51,7 +51,9 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | Team | `GET /projects/:id/team`, `POST /projects/:id/team/validate` | projects:read |
 | | `PUT /projects/:id/team/draft`, `POST …/team/publish`, `POST …/team/apply-template` | projects:write |
 | | `POST …/team/save-as-template` | projects:read + templates:write |
-| Agents | `GET /agents` | projects:read |
+| Agents | `GET /agents`, `GET /agents/:ref/presentation`, `GET /agents/:ref/draft`, `GET /agents/:ref/development`, `GET /agents/operations/:id` | projects:read |
+| | `PUT /agents/:ref/presentation`, `PUT`/`DELETE /agents/:ref/draft`, `POST /agents/:ref/preview`, `POST /agents/:ref/development/:recordId/comments` | projects:write |
+| | `POST /agents` (New Agent), `POST /agents/:ref/apply` | agents:admin |
 | Room | `GET /projects/:id/layout`, `GET /projects/:id/conversations`, `GET /conversations/:id/messages?after=&limit=` | projects:read |
 | | `PUT /projects/:id/layout`, `POST /projects/:id/conversations`, `POST /conversations/:id/stop`, `POST /conversations/:id/messages`, `POST /messages/:id/answer`, `POST /messages/:id/follow-up` | projects:write |
 | Decisions | `GET /projects/:id/decisions` | projects:read |
@@ -120,6 +122,36 @@ Magnus; when Magnus cannot answer, `agent_facts` says `partial` or `unavailable`
 
 `GET /agents` lists the Magnus-managed Ardent profiles with Studio presentation and the project
 roles they hold. When Magnus is unavailable the list is empty and `magnus.state` is `unavailable`.
+
+Agent Studio (`:ref` is `<nodeId>~<profile>`):
+
+- **Presentation** is Studio-only: display name, portrait preset or an `avatar` file.
+- **Drafts.** Each person has one draft per agent: `soul`, `identity`, `skills_enabled` (the complete
+  enabled set) and `model`, with the `base` revisions it was made from. Omitted soul and identity
+  revisions are read from the agent through Magnus when the draft is saved.
+- **Preview** (`POST /agents/:ref/preview`, `prompt`, `use_draft`, `new_session`) streams an Ardent
+  preview task as server-sent events: `preview.accepted` (`task_id`, `session_id`),
+  `preview.text`/`preview.delta` (live reply text), `preview.event` (journal `sequence` and `kind`
+  only), then `preview.done` (`state`, `result`, `error`) or `preview.error`. A preview writes no
+  memory, development records, identity or configuration, uses no mission tools, and its files
+  expire. It needs the agent's Magnus node agent at Studio level 2 with Ardent 2.2.0; otherwise
+  `409 PREVIEW_UNAVAILABLE`. Sending the same `x-idempotency-key` again streams the same task.
+- **Apply** (`POST /agents/:ref/apply`, `parts`) writes parts of the draft through Magnus as the
+  acting person: `soul` and `identity` with `identity-save` against the base revision (a newer
+  revision is a `CONFLICT`), `skills` with `skill-set` against `base.config_revision`. Results are
+  per part: `applied`, `unchanged`, `failed` (with Magnus's code and message) or `unsupported`
+  (`model`: change it in the Magnus console). Applied parts leave the draft. `active_tasks` counts
+  Studio tasks still running on the agent; they keep the instructions they started with. Released
+  Magnus refuses `identity-save` and `skill-set` from a service identity, and Apply reports that
+  refusal for each part.
+- **Development** (`GET /agents/:ref/development?after=&limit=&kind=`) lists the agent's Ardent
+  development records (`author`, `epistemic` such as `agent_reported`, sources) with Studio comments.
+  A runtime that does not publish them answers `supported: false` with the reason. A comment with
+  `relay_to_agent` is also recorded in the agent's history as an operator note.
+- **New Agent** (`POST /agents`) asks Magnus to deploy a new Ardent profile as the acting person
+  (Magnus requires a Magnus ADMIN: `403 ACTING_ADMIN_REQUIRED`), always with HiveMem. An agent
+  template version fills the soul, identity, local skills and Studio portrait. Progress is relayed
+  as `agent.operation.updated` on the `project_id` stream; `GET /agents/operations/:id` reads it.
 
 ## Room
 

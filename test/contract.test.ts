@@ -18,9 +18,9 @@ describe('browser contract', () => {
     expect(served.filter(route => !documented.has(route))).toEqual([]);
   });
 
-  it('marks every mutation idempotent except side-effect-free validation', () => {
+  it('marks every mutation idempotent except side-effect-free validation and previews', () => {
     const exempt = ardentStudioBrowserRoutes.filter(route => route.method !== 'GET' && !route.idempotent).map(route => `${route.method} ${route.path}`);
-    expect(exempt).toEqual(['POST /projects/{projectId}/team/validate']);
+    expect(exempt).toEqual(['POST /projects/{projectId}/team/validate', 'POST /agents/{agentRef}/preview']);
     expect(ardentStudioBrowserRoutes.filter(route => route.method === 'GET' && route.idempotent)).toEqual([]);
   });
 
