@@ -17,6 +17,8 @@ import { KnowledgeSync } from './knowledge/sync.js';
 import { createLogger, type Logger } from './logger.js';
 import { Conductor } from './conductor/conductor.js';
 import { LiveText } from './conductor/live.js';
+import { attachReview } from './review/index.js';
+import type { ArtifactImporter } from './review/importer.js';
 import { createApp } from './server/app.js';
 import { loadSeedTemplates } from './templates/seeds.js';
 
@@ -30,6 +32,7 @@ export interface Service {
   chattermost: ChatterMostClient | undefined;
   knowledge: KnowledgeSync;
   conductor: Conductor;
+  importer: ArtifactImporter;
   /** Start background work (knowledge sync, event compaction, the conductor). */
   start(): void;
   stop(): Promise<void>;
@@ -62,6 +65,7 @@ export function createService(config: Config, options: { logger?: Logger; clock?
   );
   const live = new LiveText(bus);
   const conductor = new Conductor({ store, blobs, magnus, agents, live, logger });
+  const importer = attachReview({ store, blobs, magnus, conductor, logger });
   const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, conductor, live, magnus, logger });
 
   let maintenance: NodeJS.Timeout | undefined;
@@ -77,10 +81,11 @@ export function createService(config: Config, options: { logger?: Logger; clock?
   };
 
   return {
-    app, store, magnus, hivemem, chattermost, knowledge, conductor,
+    app, store, magnus, hivemem, chattermost, knowledge, conductor, importer,
     start() {
       knowledge.start();
       conductor.start();
+      importer.start();
       maintain();
       maintenance = setInterval(maintain, 3600_000);
       maintenance.unref();
@@ -88,6 +93,7 @@ export function createService(config: Config, options: { logger?: Logger; clock?
     async stop() {
       if (maintenance) clearInterval(maintenance);
       await conductor.stop();
+      await importer.stop();
       await knowledge.stop();
       db.close();
     },

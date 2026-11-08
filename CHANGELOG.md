@@ -32,5 +32,11 @@ All notable changes to this project are documented here. The format follows
   idempotent final messages, hand-off enforcement on team edges, clarifications that continue the
   same session, decision proposals, discussion rounds with a coordinator summary, presence
   probing and activity from journal events, and restart safety.
+- Deliverable Review: an artifact importer that streams registered files from Magnus into the
+  blob store, verifies their SHA-256 and records superseding deliverable revisions; deliverables,
+  anchored comments (text, DOCX, PDF, image, whole file), review decisions, final revisions,
+  revision requests that send anchored comments to the producer role, and export packages (zip
+  with `manifest.json`). DOCX conversion routes are stored per file or revision and answer 501
+  until the canvas Word codec package is available.
 - Container image (non-root, no package managers at runtime, `/data` volume), CI and a
   publish workflow for npm trusted publishing and GHCR.

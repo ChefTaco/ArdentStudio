@@ -774,7 +774,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
-        "description": "Bytes as application/octet-stream with Content-Disposition attachment; the recorded type is in X-Blob-Mime. Only blobs that a project file references are served.",
+        "description": "Bytes as application/octet-stream with Content-Disposition attachment; the recorded type is in X-Blob-Mime. Only blobs that a project file, a deliverable revision or an export references are served.",
         "security": [
           {
             "oathweave": []
@@ -3025,6 +3025,829 @@
         }
       }
     },
+    "/api/ardentstudio/v1/projects/{projectId}/deliverables": {
+      "get": {
+        "operationId": "getProjectsProjectIdDeliverables",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListDeliverablesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Deliverables with every revision, plus artifact imports that are still pending or failed.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/deliverables/{deliverableId}": {
+      "get": {
+        "operationId": "getDeliverablesDeliverableId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deliverableId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deliverable"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/revisions/{revisionId}": {
+      "get": {
+        "operationId": "getRevisionsRevisionId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "revisionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevisionDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/revisions/{revisionId}/comments": {
+      "get": {
+        "operationId": "getRevisionsRevisionIdComments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "revisionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCommentsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postRevisionsRevisionIdComments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "revisionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewComment"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:review:write"
+        ],
+        "x-idempotent": true,
+        "description": "The anchor kind must fit the revision type (422 ANCHOR_KIND). A text anchor must quote the revision exactly (422 ANCHOR_MISMATCH) and name its digest (409 ANCHOR_STALE). A docx anchor needs the stored conversion (409 DOCX_NOT_CONVERTED).",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCommentRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/comments/{commentId}/resolve": {
+      "post": {
+        "operationId": "postCommentsCommentIdResolve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "commentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewComment"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:review:write"
+        ],
+        "x-idempotent": true,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/revisions/{revisionId}/decisions": {
+      "post": {
+        "operationId": "postRevisionsRevisionIdDecisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "revisionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:review:write"
+        ],
+        "x-idempotent": true,
+        "description": "changes_requested needs a note or an open comment (422 NOTE_REQUIRED).",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReviewDecisionRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/deliverables/{deliverableId}/final": {
+      "post": {
+        "operationId": "postDeliverablesDeliverableIdFinal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deliverableId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deliverable"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:review:write"
+        ],
+        "x-idempotent": true,
+        "description": "One final revision per deliverable; a rejected revision cannot be final (409).",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetFinalRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/revision-requests": {
+      "post": {
+        "operationId": "postProjectsProjectIdRevisionRequests",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevisionRequestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:review:write",
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Starts a revision task for the producer role with the anchored comments as context, and links the comments to it. The revised file comes back as the next revision, superseding this one.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/exports": {
+      "get": {
+        "operationId": "getProjectsProjectIdExports",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListExportsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postProjectsProjectIdExports",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:review:write"
+        ],
+        "x-idempotent": true,
+        "description": "A zip of the final revisions with manifest.json (Ardent manifest fields, review status and decisions). Deliverables without a final revision are listed as excluded; none at all answers 409 NOTHING_FINAL.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateExportRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/files/{fileId}/docx": {
+      "get": {
+        "operationId": "getFilesFileIdDocx",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocxDocumentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Answers 501 DOCX_CONVERTER_UNAVAILABLE until the canvas Word codec package is installed.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/revisions/{revisionId}/docx": {
+      "get": {
+        "operationId": "getRevisionsRevisionIdDocx",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "revisionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocxDocumentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Answers 501 DOCX_CONVERTER_UNAVAILABLE until the canvas Word codec package is installed.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
     "/api/ardentstudio/v1/projects/{projectId}/stream": {
       "get": {
         "operationId": "getProjectsProjectIdStream",
@@ -3568,6 +4391,82 @@
         },
         "additionalProperties": false
       },
+      "ArtifactImport": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/TaskId"
+          },
+          "agent_ref": {
+            "$ref": "#/components/schemas/AgentRef"
+          },
+          "name": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "imported",
+              "failed"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "task_id",
+          "agent_ref",
+          "name",
+          "mime",
+          "size",
+          "sha256",
+          "state",
+          "attempts",
+          "error",
+          "revision_id",
+          "updated_at"
+        ]
+      },
       "AssignmentRole": {
         "type": "object",
         "properties": {
@@ -3727,6 +4626,411 @@
         "type": "string",
         "pattern": "^bnd_[0-9A-HJKMNP-TV-Z]{26}$"
       },
+      "CommentAnchor": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "text"
+              },
+              "start": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "quote": {
+                "type": "string",
+                "maxLength": 4000
+              },
+              "source_sha256": {
+                "$ref": "#/components/schemas/Sha256"
+              }
+            },
+            "required": [
+              "kind",
+              "start",
+              "end",
+              "quote",
+              "source_sha256"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "docx"
+              },
+              "paragraph_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_:-]{1,128}$"
+              },
+              "start": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "quote": {
+                "type": "string",
+                "maxLength": 4000
+              }
+            },
+            "required": [
+              "kind",
+              "paragraph_id",
+              "start",
+              "end",
+              "quote"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "pdf"
+              },
+              "page": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "rect": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "w": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "h": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "w",
+                  "h"
+                ]
+              },
+              "quote": {
+                "type": "string",
+                "maxLength": 4000
+              }
+            },
+            "required": [
+              "kind",
+              "page"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "image"
+              },
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "w": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "h": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "viewbox": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  },
+                  "w": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "h": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "w",
+                  "h"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "x",
+              "y",
+              "w",
+              "h"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "file"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          }
+        ]
+      },
+      "CommentAnchorInput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "text"
+              },
+              "start": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "quote": {
+                "type": "string",
+                "maxLength": 4000
+              },
+              "source_sha256": {
+                "$ref": "#/components/schemas/Sha256"
+              }
+            },
+            "required": [
+              "kind",
+              "start",
+              "end",
+              "quote",
+              "source_sha256"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "docx"
+              },
+              "paragraph_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_:-]{1,128}$"
+              },
+              "start": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "quote": {
+                "type": "string",
+                "maxLength": 4000
+              }
+            },
+            "required": [
+              "kind",
+              "paragraph_id",
+              "start",
+              "end",
+              "quote"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "pdf"
+              },
+              "page": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "rect": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "w": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "h": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "w",
+                  "h"
+                ],
+                "additionalProperties": false
+              },
+              "quote": {
+                "type": "string",
+                "maxLength": 4000
+              }
+            },
+            "required": [
+              "kind",
+              "page"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "image"
+              },
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "w": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "h": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "viewbox": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  },
+                  "w": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "h": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "w",
+                  "h"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "kind",
+              "x",
+              "y",
+              "w",
+              "h"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "file"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "CommentId": {
+        "type": "string",
+        "pattern": "^cmt_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
       "Conversation": {
         "type": "object",
         "properties": {
@@ -3829,6 +5133,24 @@
           "direct",
           "discussion"
         ]
+      },
+      "CreateCommentRequestInput": {
+        "type": "object",
+        "properties": {
+          "anchor": {
+            "$ref": "#/components/schemas/CommentAnchorInput"
+          },
+          "body_md": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "anchor",
+          "body_md"
+        ],
+        "additionalProperties": false
       },
       "CreateConversationRequestInput": {
         "oneOf": [
@@ -3948,6 +5270,20 @@
         ],
         "additionalProperties": false
       },
+      "CreateExportRequestInput": {
+        "type": "object",
+        "properties": {
+          "deliverable_ids": {
+            "minItems": 1,
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliverableId"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateProjectRequestInput": {
         "type": "object",
         "properties": {
@@ -4004,6 +5340,23 @@
         },
         "required": [
           "name"
+        ],
+        "additionalProperties": false
+      },
+      "CreateReviewDecisionRequestInput": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/ReviewDecisionKind"
+          },
+          "note_md": {
+            "default": "",
+            "type": "string",
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "decision"
         ],
         "additionalProperties": false
       },
@@ -4200,6 +5553,97 @@
         "type": "string",
         "pattern": "^dec_[0-9A-HJKMNP-TV-Z]{26}$"
       },
+      "Deliverable": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/DeliverableId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "requested_deliverable_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequestedDeliverableId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "producer_role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "final_revision_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "revisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliverableRevision"
+            }
+          },
+          "comments": {
+            "type": "object",
+            "properties": {
+              "open": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "resolved": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "open",
+              "resolved"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "requested_deliverable_id",
+          "name",
+          "kind",
+          "producer_role",
+          "final_revision_id",
+          "created_at",
+          "updated_at",
+          "revisions",
+          "comments"
+        ]
+      },
       "DeliverableFormat": {
         "type": "string",
         "enum": [
@@ -4213,6 +5657,114 @@
           "webp",
           "csv",
           "json"
+        ]
+      },
+      "DeliverableId": {
+        "type": "string",
+        "pattern": "^dlv_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "DeliverableRevision": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/RevisionId"
+          },
+          "deliverable_id": {
+            "$ref": "#/components/schemas/DeliverableId"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "blob_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "producer_binding_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BindingId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_task_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_message_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ardent": {
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supersedes_revision_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "review_status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          }
+        },
+        "required": [
+          "id",
+          "deliverable_id",
+          "revision",
+          "blob_sha256",
+          "mime",
+          "size",
+          "producer_binding_id",
+          "source_task_id",
+          "source_message_id",
+          "ardent",
+          "supersedes_revision_id",
+          "received_at",
+          "review_status"
         ]
       },
       "DesiredOutput": {
@@ -4270,6 +5822,70 @@
           "done"
         ]
       },
+      "DocxDocumentResponse": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "revision"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "blob_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "codec": {
+            "type": "string"
+          },
+          "codec_version": {
+            "type": "string"
+          },
+          "document_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "paragraphs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "text"
+              ]
+            }
+          },
+          "document": {}
+        },
+        "required": [
+          "source",
+          "blob_sha256",
+          "codec",
+          "codec_version",
+          "document_sha256",
+          "paragraphs",
+          "document"
+        ]
+      },
       "ErrorResponse": {
         "type": "object",
         "properties": {
@@ -4292,6 +5908,54 @@
         },
         "required": [
           "error"
+        ]
+      },
+      "ExportId": {
+        "type": "string",
+        "pattern": "^exp_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "ExportRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ExportId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "revision_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevisionId"
+            }
+          },
+          "blob_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "manifest": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "revision_ids",
+          "blob_sha256",
+          "manifest",
+          "created_by",
+          "created_at"
         ]
       },
       "File": {
@@ -4536,6 +6200,20 @@
           "magnus"
         ]
       },
+      "ListCommentsResponse": {
+        "type": "object",
+        "properties": {
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewComment"
+            }
+          }
+        },
+        "required": [
+          "comments"
+        ]
+      },
       "ListConversationsResponse": {
         "type": "object",
         "properties": {
@@ -4562,6 +6240,41 @@
         },
         "required": [
           "decisions"
+        ]
+      },
+      "ListDeliverablesResponse": {
+        "type": "object",
+        "properties": {
+          "deliverables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Deliverable"
+            }
+          },
+          "imports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactImport"
+            }
+          }
+        },
+        "required": [
+          "deliverables",
+          "imports"
+        ]
+      },
+      "ListExportsResponse": {
+        "type": "object",
+        "properties": {
+          "exports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExportRecord"
+            }
+          }
+        },
+        "required": [
+          "exports"
         ]
       },
       "ListFilesResponse": {
@@ -5152,7 +6865,9 @@
           "review.comment.updated",
           "review.decision.created",
           "export.created",
-          "agent.operation.updated"
+          "agent.operation.updated",
+          "deliverable.updated",
+          "artifact.import.updated"
         ]
       },
       "ProjectId": {
@@ -5824,6 +7539,238 @@
           "reason"
         ]
       },
+      "ReviewComment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/CommentId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "revision_id": {
+            "$ref": "#/components/schemas/RevisionId"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/CommentAnchor"
+          },
+          "body_md": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved"
+            ]
+          },
+          "revision_task_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "addressed_in_revision_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "revision_id",
+          "anchor",
+          "body_md",
+          "author",
+          "state",
+          "revision_task_id",
+          "addressed_in_revision_id",
+          "created_at",
+          "resolved_at",
+          "updated_at"
+        ]
+      },
+      "ReviewDecision": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ReviewDecisionId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "revision_id": {
+            "$ref": "#/components/schemas/RevisionId"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ReviewDecisionKind"
+          },
+          "note_md": {
+            "type": "string"
+          },
+          "decided_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "revision_id",
+          "decision",
+          "note_md",
+          "decided_by",
+          "created_at"
+        ]
+      },
+      "ReviewDecisionId": {
+        "type": "string",
+        "pattern": "^rvd_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "ReviewDecisionKind": {
+        "type": "string",
+        "enum": [
+          "accepted",
+          "changes_requested",
+          "rejected"
+        ]
+      },
+      "ReviewStatus": {
+        "type": "string",
+        "enum": [
+          "unreviewed",
+          "changes_requested",
+          "accepted",
+          "rejected",
+          "superseded"
+        ]
+      },
+      "RevisionDetailResponse": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "$ref": "#/components/schemas/DeliverableRevision"
+          },
+          "deliverable": {
+            "$ref": "#/components/schemas/Deliverable"
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewComment"
+            }
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewDecision"
+            }
+          }
+        },
+        "required": [
+          "revision",
+          "deliverable",
+          "comments",
+          "decisions"
+        ]
+      },
+      "RevisionId": {
+        "type": "string",
+        "pattern": "^drv_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "RevisionRequestInput": {
+        "type": "object",
+        "properties": {
+          "comment_ids": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommentId"
+            }
+          },
+          "role_key": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "instructions_md": {
+            "default": "",
+            "type": "string",
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "comment_ids"
+        ],
+        "additionalProperties": false
+      },
+      "RevisionRequestResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "task": {
+            "$ref": "#/components/schemas/Task"
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewComment"
+            }
+          }
+        },
+        "required": [
+          "message",
+          "task",
+          "comments"
+        ]
+      },
       "RoleKey": {
         "type": "string",
         "pattern": "^[a-z][a-z0-9_-]{0,47}$"
@@ -6054,6 +8001,18 @@
           "kind",
           "x",
           "y"
+        ],
+        "additionalProperties": false
+      },
+      "SetFinalRequestInput": {
+        "type": "object",
+        "properties": {
+          "revision_id": {
+            "$ref": "#/components/schemas/RevisionId"
+          }
+        },
+        "required": [
+          "revision_id"
         ],
         "additionalProperties": false
       },

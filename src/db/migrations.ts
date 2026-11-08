@@ -440,4 +440,56 @@ CREATE TABLE agent_sessions (
 );
 `,
   },
+  {
+    id: 3,
+    name: 'review',
+    sql: `
+-- One revision per Ardent artifact registration.
+ALTER TABLE deliverable_revisions ADD COLUMN ardent_artifact_id TEXT;
+CREATE UNIQUE INDEX deliverable_revisions_artifact ON deliverable_revisions (ardent_artifact_id) WHERE ardent_artifact_id IS NOT NULL;
+CREATE INDEX deliverable_revisions_blob ON deliverable_revisions (blob_sha256);
+CREATE INDEX exports_blob ON exports (blob_sha256);
+ALTER TABLE review_comments ADD COLUMN updated_at TEXT;
+
+-- Artifacts an agent registered, waiting to be streamed in from Magnus and verified.
+CREATE TABLE artifact_imports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects (id),
+  task_id TEXT NOT NULL REFERENCES tasks (id),
+  agent_ref TEXT NOT NULL,
+  artifact_id TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  manifest_json TEXT NOT NULL,
+  ardent_event_seq INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('pending', 'imported', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT,
+  error TEXT,
+  revision_id TEXT REFERENCES deliverable_revisions (id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (agent_ref, artifact_id)
+);
+CREATE INDEX artifact_imports_due ON artifact_imports (state, next_attempt_at);
+
+-- A DOCX converted to the neutral Word exchange document. The codec gives paragraphs new ids on
+-- every import, so the conversion is stored once per file or revision and anchors use its ids.
+CREATE TABLE docx_documents (
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('file', 'revision')),
+  source_id TEXT NOT NULL,
+  blob_sha256 TEXT NOT NULL REFERENCES blobs (sha256),
+  codec TEXT NOT NULL,
+  codec_version TEXT NOT NULL,
+  -- The exchange document and canvas value, stored as a blob.
+  document_sha256 TEXT NOT NULL REFERENCES blobs (sha256),
+  -- [{id, text}] for every paragraph, to check anchors and quote them to agents.
+  paragraphs_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (source_kind, source_id)
+);
+`,
+  },
 ];

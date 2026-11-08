@@ -37,6 +37,8 @@ export interface TurnInput {
   names: { author: (message: Message) => string; role: (key: string) => string };
   attachments: readonly AttachmentText[];
   discussion?: { question: string; desired_output: string; round: number; max_rounds: number; summary: boolean; transcript: readonly Message[] } | undefined;
+  /** Further material for this turn, such as the review comments of a revision request. */
+  extra?: ReadonlyArray<{ title: string; text: string; mime?: string }> | undefined;
 }
 
 export interface ComposedTurn {
@@ -138,6 +140,13 @@ export function composeTurn(input: TurnInput): ComposedTurn {
     }
   }
 
+  const extraNotes: string[] = [];
+  const extraInline: string[] = [];
+  for (const item of input.extra ?? []) {
+    if (addItem(item.title, item.text, item.mime)) extraNotes.push(`- ${item.title}`);
+    extraInline.push(`${item.title}:\n${clip(item.text, 3_000)}`);
+  }
+
   const sections = (mode: 'mission' | 'prompt', budget: { brief: string; room: string; discussion: string }) => [
     roleSection(input.role),
     input.firstTurn ? projectSection(input, budget.brief) : `Project: ${input.project.name}`,
@@ -145,6 +154,8 @@ export function composeTurn(input: TurnInput): ComposedTurn {
     budget.room ? `Room messages since your last turn:\n${budget.room}` : '',
     budget.discussion ? `Discussion so far:\n${budget.discussion}` : '',
     attachmentNotes.length ? `Attachments:\n${attachmentNotes.join('\n')}` : '',
+    mode === 'mission' && extraNotes.length ? `In context items:\n${extraNotes.join('\n')}` : '',
+    mode === 'prompt' && extraInline.length ? extraInline.join('\n\n') : '',
     requestSection(input),
     mode === 'mission'
       ? 'Reply to the team in plain prose; your reply is posted in the room as your message.'
@@ -190,16 +201,16 @@ const missionLine = (text: string) => {
 };
 
 /** The TeamMission for a Studio task: constraints from the project, criteria from the request. */
-export function buildMission(input: { task: Pick<StudioTask, 'id' | 'mode' | 'title' | 'assignment_revision'>; project: Pick<Project, 'name' | 'constraints' | 'deliverables'>;
+export function buildMission(input: { task: Pick<StudioTask, 'id' | 'mode' | 'title' | 'assignment_revision'> & { source?: Record<string, unknown> }; project: Pick<Project, 'name' | 'constraints' | 'deliverables'>;
   team: Pick<TeamBody, 'relationships'>; role: TeamRole; hivememProjectId: string; now: Date }): ArdentTeamMission {
   const { task, role, project } = input;
   const unique = (values: string[]) => [...new Set(values.map(missionLine).filter(Boolean))].slice(0, 32);
   const criteria = task.mode === 'turn' ? ['Reply to the latest message addressed to you, in your role']
     : task.mode === 'discussion_turn' ? ['Contribute your view to the discussion round, in your role']
       : [`Complete: ${task.title}`];
-  const expected = task.mode === 'assignment' || task.mode === 'revision'
-    ? project.deliverables.filter(item => item.producer_role_key === role.key).map(item => item.name)
-    : [];
+  const expected = task.mode === 'revision' && typeof task.source?.deliverable_name === 'string' ? [task.source.deliverable_name]
+    : task.mode === 'assignment' ? project.deliverables.filter(item => item.producer_role_key === role.key).map(item => item.name)
+      : [];
   return {
     id: task.id,
     revision: Math.max(1, task.assignment_revision ?? 1),

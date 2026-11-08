@@ -10,6 +10,9 @@ import type { KnowledgeSyncRequest, KnowledgeSyncResponse } from '../src/clients
 import { MagnusClient } from '../src/clients/magnus.js';
 import { Conductor, type ConductorOptions } from '../src/conductor/conductor.js';
 import { LiveText } from '../src/conductor/live.js';
+import type { DocxConverter } from '../src/review/docx.js';
+import { attachReview } from '../src/review/index.js';
+import type { ArtifactImporter } from '../src/review/importer.js';
 import { openDatabase } from '../src/db/database.js';
 import type { Clock } from '../src/db/json.js';
 import { Store } from '../src/db/store.js';
@@ -113,6 +116,7 @@ export interface TestContext {
   magnus: FakeMagnusServer;
   magnusClient: MagnusClient;
   conductor: Conductor;
+  importer: ArtifactImporter;
   live: LiveText;
   hivemem: FakeHiveMem;
   knowledge: KnowledgeSync;
@@ -125,7 +129,7 @@ export interface TestContext {
 
 let keyCache: Promise<Keys> | undefined;
 
-export async function createTestContext(options: { clock?: Clock; maxBlobBytes?: number; heartbeatMs?: number; streamRecheckMs?: number; seed?: boolean; conductor?: Partial<ConductorOptions> } = {}): Promise<TestContext> {
+export async function createTestContext(options: { clock?: Clock; maxBlobBytes?: number; heartbeatMs?: number; streamRecheckMs?: number; seed?: boolean; conductor?: Partial<ConductorOptions>; docx?: DocxConverter } = {}): Promise<TestContext> {
   const dir = mkdtempSync(join(tmpdir(), 'ardent-studio-test-'));
   const clock = options.clock ?? { now: () => new Date() };
   const db = openDatabase(join(dir, 'studio.sqlite'));
@@ -145,7 +149,9 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
   const live = new LiveText(bus);
   const conductor = new Conductor({ store, blobs, magnus: magnusClient, agents, live, logger: silentLogger, presenceMs: 3_600_000, submitRetryMs: 20,
     follower: { pollMinMs: 20, pollMaxMs: 50, pollWindowMs: 300, reconnectMs: 10 }, ...options.conductor });
-  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: silentLogger, conductor, live, magnus: magnusClient,
+  const importer = attachReview({ store, blobs, magnus: magnusClient, conductor, logger: silentLogger, retryMs: 20, maxAttempts: 2 });
+  importer.start();
+  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: silentLogger, conductor, live, magnus: magnusClient, docx: options.docx,
     ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}), ...(options.streamRecheckMs ? { streamRecheckMs: options.streamRecheckMs } : {}) });
   let counter = 0;
   const token = (claims?: Parameters<typeof signToken>[1]) => signToken(keys, claims);
@@ -160,8 +166,8 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
     return app.request(`${ARDENT_STUDIO_API_PREFIX}${path}`, { method, headers, ...(body !== undefined ? { body } : {}) });
   };
   return {
-    dir, store, blobs, bus, app, magnus, magnusClient, conductor, live, hivemem, knowledge, keys, revoked, token, call,
-    close: async () => { await conductor.stop(); await magnus.close(); db.close(); rmSync(dir, { recursive: true, force: true }); },
+    dir, store, blobs, bus, app, magnus, magnusClient, conductor, importer, live, hivemem, knowledge, keys, revoked, token, call,
+    close: async () => { await conductor.stop(); await importer.stop(); await magnus.close(); db.close(); rmSync(dir, { recursive: true, force: true }); },
   };
 }
 

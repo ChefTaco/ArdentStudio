@@ -5,6 +5,7 @@ import type { HiveMemClient } from '../clients/hivemem.js';
 import type { MagnusClient } from '../clients/magnus.js';
 import type { Conductor } from '../conductor/conductor.js';
 import type { LiveText } from '../conductor/live.js';
+import type { DocxConverter } from '../review/docx.js';
 import type { AuditActor } from '../db/repos/audit.js';
 import type { Project } from '../db/repos/projects.js';
 import type { Store } from '../db/store.js';
@@ -25,6 +26,8 @@ export interface AppDeps {
   /** Live reply text of streaming messages. */
   live: LiveText;
   magnus: MagnusClient;
+  /** The canvas Word codec, once its package is installed. Without it DOCX conversion answers 501. */
+  docx?: DocxConverter | undefined;
   logger: Logger;
   /** SSE heartbeat interval. Default 15 s. */
   heartbeatMs?: number;

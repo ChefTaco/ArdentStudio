@@ -106,7 +106,14 @@ Agents request; Studio rules and people decide.
 | `team_ask_user` | Posts a `clarification` message. The turn ends as `input_required`; `POST /messages/:id/answer` continues the same session. |
 | `team_propose_decision` | Posts a `decision_proposal` card. Only a person pins it (`POST /projects/:id/decisions`). |
 | `pause_requested`, `paused`, `resumed` | Task state `pausing`, `paused`, `running`. |
-| `artifact_registered` | Reserved for the artifact importer (Deliverable Review). |
+| `artifact_registered` | Queues the file for the artifact importer in the same transaction; the importer streams and verifies it and records a deliverable revision (see [API.md](API.md#deliverable-review)). Activity: `Delivered <name> r<n>`. |
+
+## Revision tasks
+
+A revision request creates a `revision` task. Its turn carries the review comments as context
+items, each with where it points (quote and offsets, paragraph, page or image region), the current
+file for small text formats, and the digest to pass as `revises_sha256`. The mission expects the
+deliverable as its artifact.
 
 ## Discussions
 
@@ -125,6 +132,7 @@ Agent activity (`presence.updated`) comes from real records only:
 | `offline`, `available` | The status probe every 30 seconds (Magnus profile running and reachable). The probe sets nothing else. |
 | `queued`, `working`, `reviewing`, `paused` | Studio task state and journal events (`model_started`, `tool_attempt` adds the tool name) |
 | `asking` | `team_ask_user`, or a task waiting for an answer |
+| `delivering` | A verified deliverable revision from the agent's task |
 | `waiting` | A task behind another in its ordering group |
 | `unknown` | Not probed yet |
 
