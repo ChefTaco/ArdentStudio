@@ -93,6 +93,8 @@ export function teamRoutes(register: ReturnType<typeof createRouter>, deps: AppD
       if (error instanceof TeamConflictError) throw new ApiError(409, 'TEAM_REVISION_CONFLICT', error.message);
       throw error;
     }
+    // Newly bound agents get their status now, not at the next 30-second probe.
+    void deps.conductor.probe();
     return { body: await teamState(store, project, deps.agents, context(principal)) };
   });
 

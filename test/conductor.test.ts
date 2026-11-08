@@ -495,7 +495,16 @@ describe('derived activity', () => {
       ctx.conductor.refreshActivity(project.id, created.binding_id);
     });
     expect(activityOf(project.id, created.binding_id)).toMatchObject({ state: 'delivering', label: 'Delivered Region Map r1' });
-    await waitFor(() => activityOf(project.id, created.binding_id)?.state === 'unknown');
+    await waitFor(() => activityOf(project.id, created.binding_id)?.state === 'available');
+  });
+
+  it('checks the status of agents bound in a newly published team at once', async () => {
+    ctx = await createTestContext();
+    const project = await createProject(ctx);
+    await publishTeam(ctx, project.id);
+    const lead = ctx.store.team.current(project.id)!.body.roles.find(role => role.key === 'lead')!;
+    await waitFor(() => activityOf(project.id, lead.binding_id!)?.state === 'available');
+    expect(activityOf(project.id, lead.binding_id!)).toMatchObject({ state: 'available', label: 'Available' });
   });
 });
 
