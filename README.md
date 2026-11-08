@@ -15,8 +15,9 @@ A project has three areas:
    (verified deliverable revisions, anchored comments, revision requests, decisions and exports).
 
 Version 0.1 covers projects, reference files with HiveMem knowledge sync, templates, team
-assignment, agents through Magnus, the conversation room with its conductor, Deliverable Review
-and the live project event stream.
+assignment, agents through Magnus (Agent Studio drafts, streaming previews, apply, development
+records and New Agent), the conversation room with its conductor, Deliverable Review and the live
+project event stream.
 
 ## Requirements
 

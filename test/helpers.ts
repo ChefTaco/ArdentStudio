@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exportJWK, generateKeyPair, SignJWT, createLocalJWKSet, type JWTVerifyGetKey } from 'jose';
 import { AgentDirectory } from '../src/agents/directory.js';
+import { OperationRelay } from '../src/agents/operations.js';
 import type { IdentityLink } from '../src/auth/links.js';
 import { createAuthenticator, createOathweaveVerifier } from '../src/auth/oathweave.js';
 import { BlobStore } from '../src/blobs/store.js';
@@ -117,6 +118,7 @@ export interface TestContext {
   magnusClient: MagnusClient;
   conductor: Conductor;
   importer: ArtifactImporter;
+  operations: OperationRelay;
   live: LiveText;
   hivemem: FakeHiveMem;
   knowledge: KnowledgeSync;
@@ -151,7 +153,8 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
     follower: { pollMinMs: 20, pollMaxMs: 50, pollWindowMs: 300, reconnectMs: 10 }, ...options.conductor });
   const importer = attachReview({ store, blobs, magnus: magnusClient, conductor, logger: silentLogger, retryMs: 20, maxAttempts: 2 });
   importer.start();
-  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: silentLogger, conductor, live, magnus: magnusClient, docx: options.docx,
+  const operations = new OperationRelay(store, magnusClient, silentLogger, { pollMs: 20 });
+  const app = createApp({ operations, store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: silentLogger, conductor, live, magnus: magnusClient, docx: options.docx,
     ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}), ...(options.streamRecheckMs ? { streamRecheckMs: options.streamRecheckMs } : {}) });
   let counter = 0;
   const token = (claims?: Parameters<typeof signToken>[1]) => signToken(keys, claims);
@@ -166,8 +169,8 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
     return app.request(`${ARDENT_STUDIO_API_PREFIX}${path}`, { method, headers, ...(body !== undefined ? { body } : {}) });
   };
   return {
-    dir, store, blobs, bus, app, magnus, magnusClient, conductor, importer, live, hivemem, knowledge, keys, revoked, token, call,
-    close: async () => { await conductor.stop(); await importer.stop(); await magnus.close(); db.close(); rmSync(dir, { recursive: true, force: true }); },
+    dir, store, blobs, bus, app, magnus, magnusClient, conductor, importer, operations, live, hivemem, knowledge, keys, revoked, token, call,
+    close: async () => { await conductor.stop(); await importer.stop(); await operations.stop(); await magnus.close(); db.close(); rmSync(dir, { recursive: true, force: true }); },
   };
 }
 

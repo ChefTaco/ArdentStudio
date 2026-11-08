@@ -1,4 +1,5 @@
 import type { AgentDirectory } from '../agents/directory.js';
+import type { OperationRelay } from '../agents/operations.js';
 import type { Authenticator, Principal } from '../auth/oathweave.js';
 import type { BlobStore } from '../blobs/store.js';
 import type { HiveMemClient } from '../clients/hivemem.js';
@@ -26,6 +27,8 @@ export interface AppDeps {
   /** Live reply text of streaming messages. */
   live: LiveText;
   magnus: MagnusClient;
+  /** Relays Magnus New Agent operations to the project stream. */
+  operations: OperationRelay;
   /** The canvas Word codec, once its package is installed. Without it DOCX conversion answers 501. */
   docx?: DocxConverter | undefined;
   logger: Logger;

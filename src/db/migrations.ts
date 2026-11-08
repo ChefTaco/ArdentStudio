@@ -492,4 +492,24 @@ CREATE TABLE docx_documents (
 );
 `,
   },
+  {
+    id: 4,
+    name: 'agent_operations',
+    sql: `
+-- Magnus New Agent operations started from Studio, so their progress can be relayed to the
+-- project stream and resumed after a restart. Magnus owns the operation; this is a mirror.
+CREATE TABLE agent_operations (
+  id TEXT PRIMARY KEY,
+  agent_ref TEXT NOT NULL,
+  project_id TEXT REFERENCES projects (id),
+  role_key TEXT,
+  status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+  operation_json TEXT,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX agent_operations_status ON agent_operations (status);
+`,
+  },
 ];

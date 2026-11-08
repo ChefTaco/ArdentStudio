@@ -791,6 +791,173 @@ export const docxDocumentResponseSchema = z.object({
   document: z.unknown(),
 });
 
+
+// ── Agent Studio ──
+export const presentationSchema = z.object({
+  agent_ref: agentRefSchema,
+  display_name: z.string().nullable(),
+  portrait: avatarPresetSchema.nullable(),
+  avatar_file_id: fileIdSchema.nullable(),
+  updated_by: z.string().nullable(),
+  updated_at: isoDate.nullable(),
+});
+export const putPresentationRequestSchema = z.object({
+  display_name: z.string().trim().min(1).max(80).nullable(),
+  portrait: avatarPresetSchema.nullable(),
+  /** A project file uploaded with purpose avatar. */
+  avatar_file_id: fileIdSchema.nullable().default(null),
+}).strict();
+const skillName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/);
+/** Unsaved changes to an agent. Each person has one draft per agent; Apply writes it through Magnus. */
+export const agentDraftBodySchema = z.object({
+  soul: z.string().min(1).max(131_072).optional(),
+  identity: z.string().min(1).max(131_072).optional(),
+  /** The complete set of enabled local skills. */
+  skills_enabled: z.array(skillName).max(100).optional(),
+  /** An Emberpath alias or model name, for Preview. */
+  model: z.string().trim().min(1).max(200).optional(),
+}).strict();
+/** The revisions the draft was based on; Apply refuses to overwrite a newer revision. */
+export const agentDraftBaseSchema = z.object({
+  soul_revision: sha256Schema.optional(),
+  identity_revision: sha256Schema.optional(),
+  /** Ardent's configuration revision, needed to change skills. */
+  config_revision: sha256Schema.optional(),
+}).strict();
+export const agentDraftSchema = z.object({
+  agent_ref: agentRefSchema,
+  user_id: z.string(),
+  base: agentDraftBaseSchema,
+  draft: agentDraftBodySchema,
+  created_at: isoDate,
+  updated_at: isoDate,
+});
+export const agentDraftResponseSchema = z.object({ draft: agentDraftSchema.nullable() });
+export const putAgentDraftRequestSchema = z.object({
+  /** Omitted soul and identity revisions are read from the agent through Magnus. */
+  base: agentDraftBaseSchema.default({}),
+  draft: agentDraftBodySchema,
+}).strict();
+export const previewRequestSchema = z.object({
+  prompt: z.string().trim().min(1).max(16_000),
+  /** Run with this person's draft (soul, identity, skills, model) instead of the saved agent. */
+  use_draft: z.boolean().default(true),
+  /** Start a fresh preview conversation instead of continuing the last one. */
+  new_session: z.boolean().default(false),
+}).strict();
+export const previewAcceptedEventSchema = z.object({ task_id: z.string(), session_id: z.string().nullable() });
+export const previewTextEventSchema = z.object({ step: z.number().int(), text: z.string() });
+/** Journal progress only (sequence and kind); details stay in Ardent. */
+export const previewJournalEventSchema = z.object({ sequence: z.number().int(), kind: z.string() });
+export const previewDoneEventSchema = z.object({ task_id: z.string(), state: z.string(), result: z.string().nullable(), error: z.string().nullable() });
+export const previewErrorEventSchema = z.object({ code: z.string(), message: z.string() });
+export const APPLY_PARTS = ['soul', 'identity', 'skills', 'model'] as const;
+export const applyRequestSchema = z.object({
+  parts: z.array(z.enum(APPLY_PARTS)).min(1).max(APPLY_PARTS.length).refine(value => new Set(value).size === value.length, 'Duplicate part'),
+}).strict();
+export const applyResultSchema = z.object({
+  part: z.enum(APPLY_PARTS),
+  /** applied; unchanged (the draft has no change for it); failed (error and code say why); unsupported (Studio cannot change it; use the Magnus console). */
+  status: z.enum(['applied', 'unchanged', 'failed', 'unsupported']),
+  error: z.string().nullable(),
+  code: z.string().nullable(),
+  /** The new Ardent revision when applied. */
+  revision: z.string().nullable(),
+});
+export const applyResponseSchema = z.object({
+  results: z.array(applyResultSchema),
+  /** Studio tasks still running on this agent; they keep the instructions they started with. */
+  active_tasks: z.number().int(),
+  note: z.string().nullable(),
+  /** What is left of the draft: applied parts are removed from it. */
+  draft: agentDraftSchema.nullable(),
+});
+export const developmentQuerySchema = z.object({
+  after: z.string().regex(/^[A-Za-z0-9_-]{1,400}$/).optional(),
+  limit: z.string().regex(/^\d{1,3}$/).optional(),
+  kind: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/).optional(),
+});
+export const developmentCommentSchema = z.object({ id: z.string(), agent_ref: agentRefSchema, record_ref: z.string(), body_md: z.string(), author: z.string(), created_at: isoDate });
+/** An Ardent development record. author and epistemic say who reported it: agent_reported records are the agent's own account. */
+export const developmentRecordSchema = z.object({
+  id: z.string(),
+  agent_ref: z.string(),
+  kind: z.string(),
+  title: z.string(),
+  body: z.string(),
+  author: z.enum(['agent', 'operator', 'runtime']),
+  epistemic: z.enum(['agent_reported', 'operator_reported', 'observed']),
+  before_sha256: sha256Schema.nullable(),
+  after_sha256: sha256Schema.nullable(),
+  sources: z.array(z.object({ kind: z.string(), ref: z.string() })),
+  created_at: z.string(),
+  comments: z.array(developmentCommentSchema),
+});
+export const developmentResponseSchema = z.object({
+  /** False when the agent's runtime does not publish development records; reason says why. */
+  supported: z.boolean(),
+  reason: z.string().nullable(),
+  records: z.array(developmentRecordSchema),
+  next: z.string().nullable(),
+});
+export const createDevelopmentCommentRequestSchema = z.object({
+  body_md: z.string().trim().min(1).max(8_000),
+  /** Also record the comment in the agent's development history (an operator note). */
+  relay_to_agent: z.boolean().default(false),
+}).strict();
+export const createDevelopmentCommentResponseSchema = z.object({ comment: developmentCommentSchema, relayed: z.boolean(), relay_error: z.string().nullable() });
+const credentialFreeUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
+  } catch { return false; }
+};
+/** An Emberpath alias, or an OpenAI-compatible endpoint and model. Never credentials. */
+export const newAgentModelSchema = z.union([
+  z.object({ emberpath_alias: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/) }).strict(),
+  z.object({ base_url: z.string().max(2048).refine(credentialFreeUrl, 'Expected an HTTP(S) URL without credentials, query or fragment'), model: z.string().min(1).max(200) }).strict(),
+]);
+export const newAgentRequestSchema = z.object({
+  node_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  profile: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  api_port: z.number().int().min(1024).max(65535).optional(),
+  /** An agent template version: its soul, identity, local skills and portrait fill what is not given. */
+  template: templateRefSchema.optional(),
+  soul_md: z.string().min(1).max(131_072).optional(),
+  identity_md: z.string().min(1).max(131_072).optional(),
+  model: newAgentModelSchema,
+  skills: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,100}$/)).max(100).optional(),
+  artifacts_max_bytes: z.number().int().min(1024).max(67_108_864).optional(),
+  /** Relay the operation's progress to this project's stream. */
+  project_id: projectIdSchema.optional(),
+  role_key: roleKeySchema.optional(),
+}).strict();
+export const agentOperationStepSchema = z.object({
+  name: z.string(),
+  status: z.enum(['pending', 'running', 'succeeded', 'skipped', 'failed']),
+  started_at: z.string().nullable(),
+  finished_at: z.string().nullable(),
+  receipt: z.record(z.string(), z.unknown()).nullable(),
+  error: z.string().nullable(),
+});
+/** A Magnus New Agent operation as Studio relays it. */
+export const agentOperationSchema = z.object({
+  id: z.string(),
+  agent_ref: agentRefSchema,
+  project_id: projectIdSchema.nullable(),
+  role_key: z.string().nullable(),
+  kind: z.enum(['deploy', 'hivemem']),
+  status: z.enum(['running', 'succeeded', 'failed']),
+  steps: z.array(agentOperationStepSchema),
+  error: z.string().nullable(),
+  attempts: z.number().int(),
+  created_by: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  completed_at: z.string().nullable(),
+});
+export const agentOperationResponseSchema = agentOperationSchema;
+
 // ── Project snapshot and stream ──
 export const snapshotResponseSchema = z.object({
   /** The stream cursor this snapshot is consistent with: reconnect with ?after=<seq>. */
@@ -872,6 +1039,7 @@ const WRITE = ['ardentstudio:projects:write'] as const;
 const TEMPLATES_READ = ['ardentstudio:templates:read'] as const;
 const TEMPLATES_WRITE = ['ardentstudio:templates:write'] as const;
 const REVIEW = ['ardentstudio:review:write'] as const;
+const AGENTS_ADMIN = ['ardentstudio:agents:admin'] as const;
 
 export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   // Health
@@ -911,6 +1079,21 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
 
   // Agents
   { method: 'GET', path: '/agents', response: listAgentsResponseSchema, permissions: READ, idempotent: false, note: 'Magnus-managed Ardent profiles. When Magnus is unavailable the list is empty and magnus.state says so.' },
+  { method: 'POST', path: '/agents', requestBody: 'json', request: newAgentRequestSchema, response: agentOperationResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, successStatus: 201, note: 'Magnus New Agent with the acting person: Magnus also requires that person to be a Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). The agent always gets HiveMem. Progress is relayed as agent.operation.updated on project_id\'s stream.' },
+  { method: 'GET', path: '/agents/operations/{operationId}', response: agentOperationResponseSchema, permissions: READ, idempotent: false, note: 'Operations started from Studio. Magnus\'s current view, or the last relayed one when Magnus is unreachable.' },
+  { method: 'GET', path: '/agents/{agentRef}/presentation', response: presentationSchema, permissions: READ, idempotent: false },
+  { method: 'PUT', path: '/agents/{agentRef}/presentation', requestBody: 'json', request: putPresentationRequestSchema, response: presentationSchema, permissions: WRITE, idempotent: true, note: 'Studio-only display name and portrait; the agent itself is unchanged.' },
+  { method: 'GET', path: '/agents/{agentRef}/draft', response: agentDraftResponseSchema, permissions: READ, idempotent: false, note: 'The calling person\'s draft.' },
+  { method: 'PUT', path: '/agents/{agentRef}/draft', requestBody: 'json', request: putAgentDraftRequestSchema, response: agentDraftResponseSchema, permissions: WRITE, idempotent: true },
+  { method: 'DELETE', path: '/agents/{agentRef}/draft', response: agentDraftResponseSchema, permissions: WRITE, idempotent: true },
+  {
+    method: 'POST', path: '/agents/{agentRef}/preview', requestBody: 'json', request: previewRequestSchema, response: null, permissions: WRITE, idempotent: false,
+    events: { 'preview.accepted': previewAcceptedEventSchema, 'preview.text': previewTextEventSchema, 'preview.delta': previewTextEventSchema, 'preview.event': previewJournalEventSchema, 'preview.done': previewDoneEventSchema, 'preview.error': previewErrorEventSchema },
+    note: 'Streams a side-effect-free Ardent preview task (no memory writes, no mission tools, no identity changes, artifacts expire). Needs the agent\'s Magnus node agent at studio level 2: otherwise 409 PREVIEW_UNAVAILABLE. Sending x-idempotency-key again streams the same preview task.',
+  },
+  { method: 'POST', path: '/agents/{agentRef}/apply', requestBody: 'json', request: applyRequestSchema, response: applyResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, note: 'Applies parts of the calling person\'s draft through Magnus (identity-save, skill-set) with the acting person, each against its base revision. Results are per part; running tasks keep their instructions.' },
+  { method: 'GET', path: '/agents/{agentRef}/development', query: developmentQuerySchema, response: developmentResponseSchema, permissions: READ, idempotent: false },
+  { method: 'POST', path: '/agents/{agentRef}/development/{recordId}/comments', requestBody: 'json', request: createDevelopmentCommentRequestSchema, response: createDevelopmentCommentResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201 },
 
   // Room
   { method: 'GET', path: '/projects/{projectId}/layout', response: layoutResponseSchema, permissions: READ, idempotent: false },

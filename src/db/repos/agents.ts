@@ -9,6 +9,12 @@ export interface Portrait { preset: string; accent: string; emblem: string }
 export interface AgentPresentation { agent_ref: string; portrait: Portrait | null; avatar_file_id: string | null; display_name: string | null; updated_by: string; updated_at: string }
 export interface AgentDraft { id: string; agent_ref: string; user_id: string; base: Record<string, unknown>; draft: Record<string, unknown>; created_at: string; updated_at: string }
 export interface DevelopmentComment { id: string; agent_ref: string; record_ref: string; body_md: string; author: string; created_at: string }
+export interface AgentOperationRecord {
+  id: string; agent_ref: string; project_id: string | null; role_key: string | null; status: 'running' | 'succeeded' | 'failed';
+  operation: Record<string, unknown> | null; created_by: string; created_at: string; updated_at: string;
+}
+type OperationRow = Omit<AgentOperationRecord, 'operation'> & { operation_json: string | null };
+const toOperation = ({ operation_json, ...row }: OperationRow): AgentOperationRecord => ({ ...row, operation: readJson<Record<string, unknown> | null>(operation_json, null) });
 
 export class AgentRepository {
   constructor(private readonly db: Db, private readonly clock: Clock) {}
@@ -58,6 +64,43 @@ export class AgentRepository {
     this.db.prepare('INSERT INTO development_comments (id, agent_ref, record_ref, body_md, author, created_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(id, input.agentRef, input.recordRef, input.bodyMd, input.author, this.clock.now().toISOString());
     return this.db.prepare('SELECT * FROM development_comments WHERE id = ?').get(id) as DevelopmentComment;
+  }
+
+  /** Comments on several records at once, grouped by record. */
+  developmentCommentsFor(agentRef: string, recordRefs: readonly string[]): Map<string, DevelopmentComment[]> {
+    const wanted = new Set(recordRefs);
+    const grouped = new Map<string, DevelopmentComment[]>();
+    for (const comment of this.developmentComments(agentRef)) {
+      if (!wanted.has(comment.record_ref)) continue;
+      grouped.set(comment.record_ref, [...grouped.get(comment.record_ref) ?? [], comment]);
+    }
+    return grouped;
+  }
+
+  // ── New Agent operations ──
+
+  recordOperation(input: { id: string; agentRef: string; projectId: string | null; roleKey: string | null; createdBy: string }): AgentOperationRecord {
+    const now = this.clock.now().toISOString();
+    this.db.prepare(`INSERT INTO agent_operations (id, agent_ref, project_id, role_key, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, 'running', ?, ?, ?)
+      ON CONFLICT (id) DO NOTHING`).run(input.id, input.agentRef, input.projectId, input.roleKey, input.createdBy, now, now);
+    return this.operation(input.id)!;
+  }
+
+  operation(id: string): AgentOperationRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM agent_operations WHERE id = ?').get(id) as OperationRow | undefined;
+    return row ? toOperation(row) : undefined;
+  }
+
+  runningOperations(): AgentOperationRecord[] {
+    return (this.db.prepare("SELECT * FROM agent_operations WHERE status = 'running' ORDER BY created_at").all() as OperationRow[]).map(toOperation);
+  }
+
+  /** Store Magnus's latest view. Returns false when nothing changed. */
+  updateOperation(id: string, status: AgentOperationRecord['status'], operation: Record<string, unknown>): boolean {
+    const text = writeJson(operation);
+    const changes = this.db.prepare('UPDATE agent_operations SET status = ?, operation_json = ?, updated_at = ? WHERE id = ? AND (operation_json IS NOT ? OR status <> ?)')
+      .run(status, text, this.clock.now().toISOString(), id, text, status).changes;
+    return changes > 0;
   }
 
   developmentComments(agentRef: string, recordRef?: string): DevelopmentComment[] {

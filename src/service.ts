@@ -2,6 +2,7 @@
 import { join } from 'node:path';
 import { serve, type ServerType } from '@hono/node-server';
 import { AgentDirectory } from './agents/directory.js';
+import { OperationRelay } from './agents/operations.js';
 import { createAuthenticator, createOathweaveVerifier, type Authenticator } from './auth/oathweave.js';
 import { BlobStore } from './blobs/store.js';
 import { ChatterMostClient } from './clients/chattermost.js';
@@ -66,7 +67,8 @@ export function createService(config: Config, options: { logger?: Logger; clock?
   const live = new LiveText(bus);
   const conductor = new Conductor({ store, blobs, magnus, agents, live, logger });
   const importer = attachReview({ store, blobs, magnus, conductor, logger });
-  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, conductor, live, magnus, logger });
+  const operations = new OperationRelay(store, magnus, logger);
+  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, conductor, live, magnus, operations, logger });
 
   let maintenance: NodeJS.Timeout | undefined;
   const maintain = () => {
@@ -86,6 +88,7 @@ export function createService(config: Config, options: { logger?: Logger; clock?
       knowledge.start();
       conductor.start();
       importer.start();
+      operations.start();
       maintain();
       maintenance = setInterval(maintain, 3600_000);
       maintenance.unref();
@@ -94,6 +97,7 @@ export function createService(config: Config, options: { logger?: Logger; clock?
       if (maintenance) clearInterval(maintenance);
       await conductor.stop();
       await importer.stop();
+      await operations.stop();
       await knowledge.stop();
       db.close();
     },

@@ -38,5 +38,9 @@ All notable changes to this project are documented here. The format follows
   revision requests that send anchored comments to the producer role, and export packages (zip
   with `manifest.json`). DOCX conversion routes are stored per file or revision and answer 501
   until the canvas Word codec package is available.
+- Agent Studio: Studio presentation, per-person agent drafts, streaming previews through Magnus
+  preview tasks, applying drafts through Magnus with per-part results, development records with
+  comments (optionally relayed as operator notes), and Magnus New Agent with the acting person and
+  operation progress relayed to the project stream.
 - Container image (non-root, no package managers at runtime, `/data` volume), CI and a
   publish workflow for npm trusted publishing and GHCR.
