@@ -85,11 +85,11 @@ when a required setting is missing or unsafe.
 | `ARDENT_STUDIO_MAGNUS_URL` | yes | | Magnus control API origin. |
 | `ARDENT_STUDIO_MAGNUS_CLIENT_ID` | yes | | Machine client for the audience `magnus`. |
 | `ARDENT_STUDIO_MAGNUS_CLIENT_SECRET` | yes (secret) | | Its secret. |
-| `ARDENT_STUDIO_MAGNUS_SCOPE` | | | Optional token scope. |
+| `ARDENT_STUDIO_MAGNUS_SCOPE` | | `magnus:ardent` | Token scope. Oathweave grants nothing without one. |
 | `ARDENT_STUDIO_HIVEMEM_URL` | yes | | HiveMem origin. |
 | `ARDENT_STUDIO_HIVEMEM_CLIENT_ID` | yes | | Machine client for the audience `hivemem`. |
 | `ARDENT_STUDIO_HIVEMEM_CLIENT_SECRET` | yes (secret) | | Its secret. |
-| `ARDENT_STUDIO_HIVEMEM_SCOPE` | | | Optional token scope. |
+| `ARDENT_STUDIO_HIVEMEM_SCOPE` | | `hivemem:workspaces:write hivemem:memories:write` | Token scope. |
 | `ARDENT_STUDIO_CHATTERMOST_WEBHOOK_URL` | (secret) | | Optional incoming-webhook URL for announcements. |
 | `ARDENT_STUDIO_ALLOW_PLAINTEXT_SERVICES` | | `false` | Allow `http://` service URLs off loopback (isolated container networks only). |
 
