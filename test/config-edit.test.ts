@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changedConfigPaths, ConfigEditError, editConfig, modelPath } from '../src/agents/config-edit.js';
+import { changedConfigPaths, ConfigEditError, configuredSkills, editConfig, modelPath } from '../src/agents/config-edit.js';
 
 const CONFIG = `# Ardent profile
 execution:
@@ -33,5 +33,14 @@ describe('config edits', () => {
     expect(() => editConfig('a: [1, 2', { 'providers.llamacpp.model': 'x' })).toThrow(/not valid YAML/);
     expect(() => editConfig('- a\n- b\n', { 'providers.llamacpp.model': 'x' })).toThrow(/not a YAML mapping/);
     expect(changedConfigPaths(CONFIG, CONFIG.replace('port: 8700', 'port: 9000'))).toEqual(['api.port']);
+  });
+
+  it('reads the skills the saved configuration enables', () => {
+    expect(configuredSkills(CONFIG)).toEqual(['mapping']);
+    expect(configuredSkills('skills:\n  enabled: [mapping, web-research]\n')).toEqual(['mapping', 'web-research']);
+    expect(configuredSkills('skills:\n  directories: [skills]\n')).toEqual([]);
+    expect(configuredSkills('execution:\n  backend: llamacpp\n')).toEqual([]);
+    expect(() => configuredSkills('skills:\n  enabled: mapping\n')).toThrow(ConfigEditError);
+    expect(() => configuredSkills('skills:\n  enabled: [1, 2]\n')).toThrow(/not a list of names/);
   });
 });

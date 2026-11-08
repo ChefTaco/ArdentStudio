@@ -2,7 +2,7 @@
 // edited in place with the yaml library, so comments, order, formatting and every other value stay
 // exactly as they were; only ARDENT_SERVICE_CONFIG_PATHS may change, and that is checked before
 // anything is sent.
-import { isMap, parse, parseDocument } from 'yaml';
+import { isMap, isSeq, parse, parseDocument } from 'yaml';
 import { ARDENT_SERVICE_CONFIG_PATHS, type ArdentServiceConfigPath } from '../clients/magnus.js';
 
 export class ConfigEditError extends Error {
@@ -49,6 +49,19 @@ export function changedConfigPaths(before: string, after: string): string[] {
   };
   walk(parse(before) as unknown, parse(after) as unknown, []);
   return changed;
+}
+
+/**
+ * The skills the saved configuration enables (skills.enabled). Ardent's skill list reports the
+ * running profile, which loads its configuration at start, so a skill enabled since then lists as
+ * off until the profile restarts; this is the state a skill change is made against.
+ */
+export function configuredSkills(text: string): string[] {
+  const value = configValue(text, 'skills.enabled');
+  if (value === undefined || value === null) return [];
+  const list: unknown = isSeq(value) ? value.toJSON() : value;
+  if (!Array.isArray(list) || !list.every(item => typeof item === 'string')) throw new ConfigEditError('The agent\'s configuration has a skills.enabled that is not a list of names', 'CONFIG_UNREADABLE');
+  return list;
 }
 
 /** The model setting for the configured backend: providers.codex.model on codex, else providers.llamacpp.model. */

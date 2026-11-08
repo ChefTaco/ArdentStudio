@@ -64,3 +64,9 @@ All notable changes to this project are documented here. The format follows
   Delivering is transient.
 - Container image (non-root, no package managers at runtime, `/data` volume), CI and a
   publish workflow for npm trusted publishing and GHCR.
+
+### Fixed
+
+- Agent Apply compares a skills draft with the saved configuration (`skills.enabled`) instead of
+  the running profile's skill list, so a skill enabled since the last restart is neither switched
+  off nor reported as unchanged by mistake.

@@ -3,7 +3,7 @@
 // agent itself (identity, skills, model) lives in Ardent and changes only through Magnus, as the acting person.
 import { streamSSE } from 'hono/streaming';
 import type { z } from 'zod';
-import { ConfigEditError, editConfig, modelPath } from '../../agents/config-edit.js';
+import { ConfigEditError, configuredSkills, editConfig, modelPath } from '../../agents/config-edit.js';
 import { operationView } from '../../agents/operations.js';
 import {
   agentOperationSchema, ARDENT_SERVICE_CAN_RESTART, ardentTaskDoneEventSchema, ardentTaskEventSchema, ardentTaskTextEventSchema, MagnusError, parseAgentRef,
@@ -268,12 +268,15 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
         let activation = false;
         let changed = 0;
         try {
-          const current = await magnus.skills(ref, context);
-          const changes = current.filter(skill => skill.enabled !== wanted.includes(skill.name));
+          // The skill list reports the running profile; a switch changes the saved configuration, so
+          // the draft is compared with that. A skill enabled since the last restart stays enabled.
+          const [current, config] = await Promise.all([magnus.skills(ref, context), magnus.config(ref, context)]);
+          const configured = new Set(configuredSkills(config.text));
+          const changes = current.filter(skill => configured.has(skill.name) !== wanted.includes(skill.name));
           const unknown = (wanted as string[]).filter(name => !current.some(skill => skill.name === name));
           if (unknown.length) { results.push(failed(part, `The agent has no skills named ${unknown.join(', ')}`, 'UNKNOWN_SKILL')); continue; }
           for (const skill of changes) {
-            const answer = await magnus.setSkill(ref, skill.name, { enabled: !skill.enabled, revision: configRevision }, context);
+            const answer = await magnus.setSkill(ref, skill.name, { enabled: wanted.includes(skill.name), revision: configRevision }, context);
             configRevision = answer.revision;
             activation ||= answer.activation_required;
             changed++;

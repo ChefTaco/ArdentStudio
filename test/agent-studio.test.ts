@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
+import { configuredSkills } from '../src/agents/config-edit.js';
 import { parseSse, type SseMessage } from '../src/clients/sse.js';
 import { ARDENT_STUDIO_API_PREFIX } from '../src/shared/browser.js';
 import { createProject, createTestContext, json, profile, publishTeam, waitFor, type TestContext } from './helpers.js';
@@ -95,7 +96,7 @@ describe('apply', () => {
     expect(refused.results).toEqual([
       { part: 'soul', status: 'failed', error: 'Action identity-save is not allowed for this identity', code: 'FORBIDDEN', revision: null, activation_required: false },
       { part: 'identity', status: 'unchanged', error: null, code: null, revision: null, activation_required: false },
-      { part: 'skills', status: 'failed', error: 'Action skill-set is not allowed for this identity', code: 'FORBIDDEN', revision: null, activation_required: false },
+      { part: 'skills', status: 'failed', error: 'Resource config is not allowed for this identity', code: 'FORBIDDEN', revision: null, activation_required: false },
       { part: 'model', status: 'failed', error: 'Resource config is not allowed for this identity', code: 'FORBIDDEN', revision: null, activation_required: false },
     ]);
     expect(refused).toMatchObject({ activation_required: false, restart: { available: false, reason: expect.stringContaining('Magnus console') } });
@@ -111,7 +112,9 @@ describe('apply', () => {
     expect(applied.results).toMatchObject([{ part: 'soul', status: 'applied', revision: digest('Calm and exact.'), activation_required: false },
       { part: 'skills', status: 'applied', revision: ctx.magnus.configOf(REF).revision, activation_required: true }]);
     expect(ctx.magnus.identityOf(REF, 'soul').text).toBe('Calm and exact.');
-    expect(ctx.magnus.skillMap.get(REF)).toEqual([{ name: 'research', enabled: true }, { name: 'mapping', enabled: false }]);
+    // The saved configuration changed; the running profile keeps its skills until it restarts.
+    expect(configuredSkills(ctx.magnus.configOf(REF).text)).toEqual(['research']);
+    expect(ctx.magnus.skillMap.get(REF)).toEqual([{ name: 'research', enabled: false }, { name: 'mapping', enabled: true }]);
     // Each skill change is based on the revision the previous one answered.
     const skillCalls = ctx.magnus.calls.slice(mark).filter(call => action(call) === 'skill-set');
     expect(skillCalls.map(call => (call.body as { body: { revision: string } }).body.revision)).toEqual(['c'.repeat(64), digest(`${'c'.repeat(64)}:research`)]);
@@ -128,6 +131,37 @@ describe('apply', () => {
     expect(stale.results[0]).toMatchObject({ part: 'soul', status: 'failed', code: 'CONFLICT', error: expect.stringContaining('changed since this draft was saved') });
     expect(ctx.magnus.identityOf(REF, 'soul').text).toBe('Calm and exact.');
     expect((await ctx.call('POST', '/agents/node2~mapper/apply', { body: { parts: ['soul'] } })).status).toBe(409);
+  });
+
+  it('compares skills with the saved configuration, not the running profile, so a skill enabled before a restart stays enabled', async () => {
+    ctx = await createTestContext();
+    ctx.magnus.studio.set('node1', 3);
+    ctx.magnus.skillReleases.set('web-research@1.2.0', 'f'.repeat(64));
+    ctx.magnus.skillMap.set(REF, [{ name: 'research', enabled: false }, { name: 'mapping', enabled: true }]);
+    await ctx.call('POST', `/agents/${REF}/skills/install`, { body: { source: 'hiveskills', name: 'web-research', version: '1.2.0', enable: true, revision: ctx.magnus.configOf(REF).revision } });
+    // Ardent lists the new skill as off: the running profile has not loaded it.
+    expect(ctx.magnus.skillMap.get(REF)).toContainEqual({ name: 'web-research', enabled: false });
+
+    // A draft made from the saved configuration adds research; web-research stays as it is.
+    await ctx.call('PUT', `/agents/${REF}/draft`, { body: { base: { config_revision: ctx.magnus.configOf(REF).revision }, draft: { skills_enabled: ['mapping', 'research', 'web-research'] } } });
+    const mark = ctx.magnus.calls.length;
+    const applied = await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['skills'] } }));
+    expect(applied.results).toMatchObject([{ part: 'skills', status: 'applied', activation_required: true }]);
+    const switched = ctx.magnus.calls.slice(mark).filter(call => action(call) === 'skill-set')
+      .map(call => ({ target: (call.body as { target: string }).target, enabled: (call.body as { body: { enabled: boolean } }).body.enabled }));
+    expect(switched).toEqual([{ target: 'research', enabled: true }]);
+    expect(configuredSkills(ctx.magnus.configOf(REF).text).sort()).toEqual(['mapping', 'research', 'web-research']);
+
+    // Turning off a skill that is enabled but not yet running does switch it off.
+    await ctx.call('PUT', `/agents/${REF}/draft`, { body: { base: { config_revision: ctx.magnus.configOf(REF).revision }, draft: { skills_enabled: ['mapping', 'research'] } } });
+    expect((await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['skills'] } }))).results).toMatchObject([{ part: 'skills', status: 'applied' }]);
+    expect(configuredSkills(ctx.magnus.configOf(REF).text).sort()).toEqual(['mapping', 'research']);
+
+    // After a restart the running list matches, and the same draft has nothing left to change.
+    ctx.magnus.restart(REF);
+    expect(ctx.magnus.skillMap.get(REF)).toEqual([{ name: 'research', enabled: true }, { name: 'mapping', enabled: true }, { name: 'web-research', enabled: false }]);
+    await ctx.call('PUT', `/agents/${REF}/draft`, { body: { base: { config_revision: ctx.magnus.configOf(REF).revision }, draft: { skills_enabled: ['mapping', 'research'] } } });
+    expect((await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['skills'] } }))).results).toMatchObject([{ part: 'skills', status: 'unchanged' }]);
   });
 
   it('applies the model with config-save, changing only the model setting of the configured backend', async () => {
@@ -270,7 +304,8 @@ describe('catalog skill install', () => {
       note: expect.stringContaining('restarts'), restart: { available: false } });
     const call = ctx.magnus.calls.find(item => action(item) === 'skill-install')!;
     expect(call).toMatchObject({ actingSubject: 'subject-operator', body: { action: 'skill-install', body: { ...release, enable: true, revision } } });
-    expect(ctx.magnus.skillMap.get(REF)).toContainEqual({ name: 'web-research', enabled: true });
+    expect(configuredSkills(ctx.magnus.configOf(REF).text)).toContain('web-research');
+    expect(ctx.magnus.skillMap.get(REF)).toContainEqual({ name: 'web-research', enabled: false });
     const audit = ctx.store.db.prepare("SELECT detail_json FROM audit WHERE action = 'agent.skill.install'").get() as { detail_json: string } | undefined;
     expect(JSON.parse(audit!.detail_json)).toMatchObject({ name: 'web-research', version: '1.2.0', changed: true, enabled: true });
     // enable without the configuration revision is refused before Magnus sees it.
