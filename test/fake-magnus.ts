@@ -42,6 +42,8 @@ export class FakeMagnusServer {
   sessions = new Map<string, { id: string; key: string; context: string }>();
   /** Answer task streams with 503 (the follower then polls). */
   failStreams = false;
+  /** Answer journal pages with 502, as Magnus does for a page over its relay size limit. */
+  failEvents = false;
   /** End each task stream after this long, as Ardent does after 60 s. */
   streamLimitMs = 60_000;
   /** Make the next n submissions fail with 503. */
@@ -302,7 +304,8 @@ export class FakeMagnusServer {
       if (!task) return fail(response, 404, 'NOT_FOUND', 'Ardent task, session or resource not found');
       const after = Number(url.searchParams.get('after') ?? request.headers['last-event-id'] ?? '0');
       if (!match[2]) return ok(response, this.record(task));
-      if (match[2] === '/events') return ok(response, { events: task.events.filter(event => event.sequence > after) });
+      if (match[2] === '/events') return this.failEvents ? fail(response, 502, 'DEPENDENCY_UNAVAILABLE', 'Ardent management response exceeds size limit')
+        : ok(response, { events: task.events.filter(event => event.sequence > after) });
       return this.stream(request, response, task, after);
     }
     return fail(response, 404, 'NOT_FOUND', 'No such resource');

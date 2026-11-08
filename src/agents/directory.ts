@@ -29,6 +29,9 @@ export class AgentDirectory {
     this.cacheMs = options.cacheMs ?? PROFILE_CACHE_MS;
   }
 
+  /** Forget the cached profiles, so an agent that New Agent just created is listed at once. */
+  invalidate(): void { this.cache = undefined; }
+
   /** Magnus profiles, cached briefly so one page load does not ask Magnus repeatedly. */
   async profiles(context: CallContext = {}): Promise<MagnusArdentProfile[]> {
     if (this.cache && this.now() - this.cache.at < this.cacheMs) return this.cache.profiles;

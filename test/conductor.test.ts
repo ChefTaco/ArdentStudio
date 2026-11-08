@@ -225,6 +225,19 @@ describe('conductor following', () => {
     await waitFor(() => studioTask(posted.tasks[0].id).state === 'completed');
     expect(ctx.store.room.messageForArdentTask(ardent!.id)!.body_md).toBe('Proposed a scale.');
   });
+  it('finishes a task whose journal pages Magnus cannot relay', async () => {
+    const { team } = await room();
+    const posted = await post(team.id, { body_md: 'Outline it.' });
+    const [ardent] = await ctx.magnus.submitted(1);
+    await followed(posted.tasks[0].id);
+    ctx.magnus.failStreams = true;
+    ctx.magnus.failEvents = true;
+    ctx.magnus.dropStreams(ardent!.id);
+    await waitFor(() => ctx.conductor.followerOf(posted.tasks[0].id)?.mode === 'poll');
+    ctx.magnus.finish(ardent!.id, { state: 'failed', error: 'CONTEXT_BUDGET_EXCEEDED' });
+    await waitFor(() => studioTask(posted.tasks[0].id).state === 'failed');
+    expect(ctx.store.room.messageForArdentTask(ardent!.id)?.body_md ?? '').toContain('CONTEXT_BUDGET_EXCEEDED');
+  });
 });
 
 describe('agent requests', () => {
@@ -275,6 +288,18 @@ describe('agent requests', () => {
     expect(next!.session_id).toBe(first!.session_id);
     expect((next!.body as { objective: string }).objective).toContain('operator answered "Which tone: grim or hopeful?":\nHopeful');
     expect((await ctx.call('POST', `/messages/${clarification.id}/answer`, { body: { body_md: 'Again' } })).status).toBe(409);
+  });
+
+  it('does not repeat the question as a reply when Ardent summarizes the turn with it', async () => {
+    const { team } = await room();
+    const posted = await post(team.id, { body_md: 'Outline it.' });
+    const [ardent] = await ctx.magnus.submitted(1);
+    await followed(posted.tasks[0].id);
+    ctx.magnus.event(ardent!.id, 'team_ask_user', { question: 'Which tone: grim or hopeful?', options: ['Grim', 'Hopeful'] });
+    await waitFor(() => ctx.store.room.messages(team.id).find(message => message.kind === 'clarification'));
+    ctx.magnus.finish(ardent!.id, { state: 'completed', result: JSON.stringify({ outcome: 'input_required', summary: 'Which tone: grim or hopeful?' }) });
+    await waitFor(() => studioTask(posted.tasks[0].id).state === 'input_required');
+    expect(ctx.store.room.messages(team.id).map(message => message.kind)).toEqual(['message', 'clarification']);
   });
 
   it('records a proposal as a card that only a person pins', async () => {
