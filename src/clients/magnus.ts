@@ -105,8 +105,11 @@ export type ArdentResource =
 export const RELEASED_ACTIONS = ['profile-create', 'config-validate', 'config-save', 'peer-validate', 'peer-save', 'identity-save', 'identity-restore',
   'provider-test', 'channel-test', 'peer-test', 'memory-search', 'task-submit', 'task-cancel', 'skill-set', 'service-start', 'service-stop',
   'service-restart', 'package-install', 'context-stage', 'context-adopt', 'context-rollback'] as const;
-/** Actions added for Ardent Project Studio. session-open needs studio >= 1, the others studio >= 2 and Ardent 2.2.0. */
-export const STUDIO_ACTIONS = ['session-open', 'mission-submit', 'task-pause', 'task-resume', 'preview-submit', 'development-note'] as const;
+/**
+ * Actions added for Ardent Project Studio. session-open needs studio >= 1, skill-install studio >= 3 and a
+ * Magnus with a HiveSkills registry, the others studio >= 2 and Ardent 2.2.0.
+ */
+export const STUDIO_ACTIONS = ['session-open', 'mission-submit', 'task-pause', 'task-resume', 'preview-submit', 'development-note', 'skill-install'] as const;
 export type MagnusArdentAction = typeof RELEASED_ACTIONS[number] | typeof STUDIO_ACTIONS[number];
 /**
  * Agent changes Magnus runs for a service identity only with x-acting-subject naming a linked Magnus
@@ -114,7 +117,7 @@ export type MagnusArdentAction = typeof RELEASED_ACTIONS[number] | typeof STUDIO
  * subject: 403 ACTING_SUBJECT_UNLINKED. A stale revision answers 409 CONFLICT. Reading config needs
  * the same acting ADMIN.
  */
-export const ARDENT_SERVICE_ADMIN_ACTIONS = ['identity-save', 'skill-set', 'config-save'] as const;
+export const ARDENT_SERVICE_ADMIN_ACTIONS = ['identity-save', 'skill-set', 'config-save', 'skill-install'] as const;
 /**
  * The only configuration values a service's config-save may change (Magnus ARDENT_SERVICE_CONFIG_PATHS).
  * A change anywhere else answers 403 CONFIG_PATH_FORBIDDEN. An array is one value.
@@ -135,7 +138,7 @@ export type ArdentServiceConfigPath = typeof ARDENT_SERVICE_CONFIG_PATHS[number]
  */
 export const ARDENT_SERVICE_CAN_RESTART = false;
 /** Node agent Studio levels (Magnus ARDENT_STUDIO_CAPABILITY). */
-export const ARDENT_STUDIO_CAPABILITY = { bridge: 1, missions: 2 } as const;
+export const ARDENT_STUDIO_CAPABILITY = { bridge: 1, missions: 2, skillInstall: 3 } as const;
 /** Journal event kinds Ardent 2.2.0 adds. Others appear too; readers accept unknown kinds. */
 export const ARDENT_STUDIO_EVENT_KINDS = ['mission', 'team_handoff', 'team_ask_user', 'team_propose_decision', 'artifact_registered', 'development_note',
   'team_result', 'team_result_rejected', 'pause_requested', 'paused', 'resumed', 'preview'] as const;
@@ -163,6 +166,24 @@ export const ardentIdentityEditSchema = z.object({ text: z.string().min(1).max(1
 /** action skill-set: revision is the configuration revision. */
 export const ardentSkillEditSchema = z.object({ enabled: z.boolean(), revision: digest }).strict();
 export const ardentSkillTargetSchema = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
+/**
+ * action skill-install (Magnus ardentSkillInstallSchema): a HiveSkills catalog release that Magnus fetches,
+ * checks against the catalog digest and installs onto the profile; with enable, the configuration revision.
+ */
+export const ardentSkillInstallSchema = z.object({
+  source: z.literal('hiveskills'),
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/),
+  version: z.string().max(64).regex(/^v?\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/i),
+  channel: z.enum(['stable', 'canary']).optional(),
+  enable: z.boolean().optional(),
+  revision: digest.optional(),
+}).strict().refine(value => !value.enable || value.revision !== undefined, { message: 'enable needs the configuration revision', path: ['revision'] });
+/** The skill-install answer. A failed enable leaves the skill installed, with enable_error saying why. */
+export const ardentSkillInstallResultSchema = z.object({
+  source: z.literal('hiveskills'), name: z.string(), version: z.string(), sha256: digest, files: z.number().int(),
+  changed: z.boolean(), enabled: z.boolean(), revision: digest.nullable(), enable_error: z.string().nullable(), activation_required: z.boolean(),
+});
+export type ArdentSkillInstallResult = z.infer<typeof ardentSkillInstallResultSchema>;
 /** action config-save: the whole config.yaml and the configuration revision it replaces. */
 export const ardentConfigEditSchema = z.object({ text: z.string().min(1).max(200_000), revision: digest }).strict();
 /** action session-open */
@@ -419,6 +440,15 @@ export class MagnusClient {
   async setSkill(ref: string, name: string, body: { enabled: boolean; revision: string }, context: CallContext = {}): Promise<ArdentConfigSaved> {
     const target = validated(ardentSkillTargetSchema, name, 'skill-set');
     return ardentConfigSavedSchema.parse(await this.action(ref, 'skill-set', { target, body: validated(ardentSkillEditSchema, body, 'skill-set') }, context));
+  }
+
+  /**
+   * Install a HiveSkills catalog release (studio >= 3). Magnus answers 503 HIVESKILLS_UNCONFIGURED without a registry,
+   * 409 SKILL_VERSION_UNAVAILABLE or SKILL_CONFLICT, and 422 SKILL_ARCHIVE_INVALID; a Magnus that predates the action
+   * answers 400 "Invalid Ardent action".
+   */
+  async installSkill(ref: string, body: z.input<typeof ardentSkillInstallSchema>, context: CallContext = {}): Promise<ArdentSkillInstallResult> {
+    return ardentSkillInstallResultSchema.parse(await this.action(ref, 'skill-install', { body: validated(ardentSkillInstallSchema, body, 'skill-install') }, context));
   }
 
   /** Magnus refuses (403 CONFIG_PATH_FORBIDDEN) a text that changes anything outside ARDENT_SERVICE_CONFIG_PATHS. */

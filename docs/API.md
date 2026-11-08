@@ -32,7 +32,7 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | `ardentstudio:templates:read` | Read templates and versions |
 | `ardentstudio:templates:write` | Create templates, add versions, archive; save a project team as a template |
 | `ardentstudio:review:write` | Comment on, accept, reject and finalize deliverables; request revisions (with projects:write); export |
-| `ardentstudio:agents:admin` | New Agent and applying drafts through Magnus (Magnus also checks the acting person) |
+| `ardentstudio:agents:admin` | New Agent, applying drafts and installing catalog skills through Magnus (Magnus also checks the acting person) |
 
 ## Routes
 
@@ -55,7 +55,7 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | | `POST …/team/save-as-template` | projects:read + templates:write |
 | Agents | `GET /agents`, `GET /agents/:ref/presentation`, `GET /agents/:ref/draft`, `GET /agents/:ref/development`, `GET /agents/operations/:id` | projects:read |
 | | `PUT /agents/:ref/presentation`, `PUT`/`DELETE /agents/:ref/draft`, `POST /agents/:ref/preview`, `POST /agents/:ref/development/:recordId/comments` | projects:write |
-| | `POST /agents` (New Agent), `POST /agents/:ref/apply` | agents:admin |
+| | `POST /agents` (New Agent), `POST /agents/:ref/apply`, `POST /agents/:ref/skills/install` | agents:admin |
 | Room | `GET /projects/:id/layout`, `GET /projects/:id/conversations`, `GET /conversations/:id/messages?after=&limit=` | projects:read |
 | | `PUT /projects/:id/layout`, `POST /projects/:id/conversations`, `POST /conversations/:id/stop`, `POST /conversations/:id/messages`, `POST /messages/:id/answer`, `POST /messages/:id/follow-up` | projects:write |
 | Decisions | `GET /projects/:id/decisions` | projects:read |
@@ -220,6 +220,17 @@ Agent Studio (`:ref` is `<nodeId>~<profile>`):
   carry `activation_required`. Magnus does not let Studio's service identity run `service-restart`,
   so `restart.available` is `false` and the restart is done from the Magnus console. `active_tasks`
   counts Studio tasks still running on the agent; they keep the instructions they started with.
+- **Install a catalog skill** (`POST /agents/:ref/skills/install`, `{source: "hiveskills", name,
+  version, channel?, enable?, revision?}`) runs Magnus's `skill-install` as the acting person, whom
+  Magnus requires to be a linked Magnus ADMIN. Magnus fetches that HiveSkills release from its
+  configured registry, checks it against the catalog digest and installs it; with `enable` and the
+  configuration revision it also enables it. The answer is Magnus's (`changed`, `enabled`,
+  `revision`, `enable_error`, `activation_required`, …) with a `note` and `restart` as for Apply; a
+  failed enable leaves the skill installed. Magnus's refusals keep their codes:
+  `HIVESKILLS_UNCONFIGURED` (503), `SKILL_VERSION_UNAVAILABLE` and `SKILL_CONFLICT` (409),
+  `SKILL_ARCHIVE_INVALID` (422), `AGENT_UPGRADE_REQUIRED` (409, the node agent is below Studio level 3),
+  `ACTING_ADMIN_REQUIRED` (403); a Magnus without the action answers 409 `MAGNUS_UPGRADE_REQUIRED`.
+  The audit records the skill, version, digest and outcome.
 - **Development** (`GET /agents/:ref/development?after=&limit=&kind=`) lists the agent's Ardent
   development records (`author`, `epistemic` such as `agent_reported`, sources) with Studio comments.
   A runtime that does not publish them answers `supported: false` with the reason. A comment with

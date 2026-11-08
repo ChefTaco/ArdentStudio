@@ -1,6 +1,6 @@
 // Agent Studio: presentation, per-person drafts, streaming previews, applying a draft through
-// Magnus, development records with comments, and Magnus New Agent. The agent itself (identity,
-// skills, model) lives in Ardent and changes only through Magnus, as the acting person.
+// Magnus, HiveSkills catalog installs, development records with comments, and Magnus New Agent. The
+// agent itself (identity, skills, model) lives in Ardent and changes only through Magnus, as the acting person.
 import { streamSSE } from 'hono/streaming';
 import type { z } from 'zod';
 import { ConfigEditError, editConfig, modelPath } from '../../agents/config-edit.js';
@@ -14,7 +14,7 @@ import type { AgentDraft } from '../../db/repos/agents.js';
 import type { AgentTemplateBody } from '../../db/repos/templates.js';
 import {
   agentRefSchema, APPLY_PARTS, IDEMPOTENCY_HEADER, idempotencyKeySchema,
-  type applyRequestSchema, type applyResultSchema, type createDevelopmentCommentRequestSchema, type developmentQuerySchema, type newAgentRequestSchema,
+  type applyRequestSchema, type applyResultSchema, type createDevelopmentCommentRequestSchema, type developmentQuerySchema, type installSkillRequestSchema, type newAgentRequestSchema,
   type previewRequestSchema, type putAgentDraftRequestSchema, type putPresentationRequestSchema,
 } from '../../shared/browser.js';
 import { actorOf, requireProject, type AppDeps } from '../deps.js';
@@ -31,6 +31,8 @@ const APPLY_REFUSALS: Readonly<Record<string, string>> = {
   CONFIG_PATH_FORBIDDEN: 'Magnus refused a configuration change outside the settings Studio may change.',
   CONFLICT: 'The agent changed since this draft was saved. Reload the agent and save the draft again.',
 };
+/** Magnus skill-install refusals that explain themselves. */
+const SKILL_INSTALL_REFUSALS: readonly string[] = ['HIVESKILLS_UNCONFIGURED', 'SKILL_VERSION_UNAVAILABLE', 'SKILL_CONFLICT', 'SKILL_ARCHIVE_INVALID'];
 const RESTART_UNAVAILABLE = 'Studio cannot restart an agent: Magnus does not let its service identity run service-restart. Restart the profile from the Magnus console.';
 
 function requireRef(value: string | undefined): string {
@@ -322,6 +324,26 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
     ].filter(Boolean);
     return { body: { results, active_tasks: active, draft: draftView(remaining), note: notes.length ? notes.join(' ') : null,
       activation_required: activation, restart: { available: ARDENT_SERVICE_CAN_RESTART, reason: ARDENT_SERVICE_CAN_RESTART ? null : RESTART_UNAVAILABLE } } };
+  });
+
+  register('POST', '/agents/{agentRef}/skills/install', async (_c, { params, body, principal, idempotencyKey }) => {
+    const ref = requireRef(params.agentRef);
+    const input = body as z.infer<typeof installSkillRequestSchema>;
+    const actor = actorOf(principal);
+    let result;
+    try {
+      result = await magnus.installSkill(ref, input, { actingSubject: actor.subject });
+    } catch (error) {
+      // Magnus's own skill refusals say what to fix; keep their codes.
+      if (error instanceof MagnusError && SKILL_INSTALL_REFUSALS.includes(error.code)) throw new ApiError(error.status === 422 ? 422 : error.status === 503 ? 503 : 409, error.code, error.message);
+      if (error instanceof MagnusError && error.status === 400 && error.message === 'Invalid Ardent action')
+        throw new ApiError(409, 'MAGNUS_UPGRADE_REQUIRED', 'This Magnus release cannot install catalog skills; upgrade Magnus first');
+      magnusError(error);
+    }
+    store.record(actor, 'agent.skill.install', { type: 'agent', id: ref }, { source: result.source, name: result.name, version: result.version, sha256: result.sha256,
+      changed: result.changed, enabled: result.enabled, enable_error: result.enable_error !== null }, idempotencyKey);
+    return { body: { ...result, note: result.activation_required ? 'The skill takes effect after the agent\'s profile restarts; restart it from the Magnus console.' : null,
+      restart: { available: ARDENT_SERVICE_CAN_RESTART, reason: ARDENT_SERVICE_CAN_RESTART ? null : RESTART_UNAVAILABLE } } };
   });
 
   register('GET', '/agents/{agentRef}/development', async (_c, { params, query, principal }) => {

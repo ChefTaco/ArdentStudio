@@ -2916,6 +2916,87 @@
         }
       }
     },
+    "/api/ardentstudio/v1/agents/{agentRef}/skills/install": {
+      "post": {
+        "operationId": "postAgentsAgentRefSkillsInstall",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentRef",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallSkillResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:agents:admin"
+        ],
+        "x-idempotent": true,
+        "description": "Magnus skill-install with the acting person, who must be a linked Magnus ADMIN (403 ACTING_ADMIN_REQUIRED); the node agent needs studio 3 (409 AGENT_UPGRADE_REQUIRED). Magnus refusals keep their codes: 503 HIVESKILLS_UNCONFIGURED, 409 SKILL_VERSION_UNAVAILABLE, 409 SKILL_CONFLICT (a local skill of that name), 422 SKILL_ARCHIVE_INVALID; a Magnus without the action answers 409 MAGNUS_UPGRADE_REQUIRED.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallSkillRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/ardentstudio/v1/agents/{agentRef}/development": {
       "get": {
         "operationId": "getAgentsAgentRefDevelopment",
@@ -8025,6 +8106,126 @@
           "pending",
           "ready",
           "failed"
+        ]
+      },
+      "InstallSkillRequestInput": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "const": "hiveskills"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^v?\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.-]+)?$"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "canary"
+            ]
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "source",
+          "name",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "InstallSkillResponse": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "const": "hiveskills"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "files": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enable_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "activation_required": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restart": {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "available",
+              "reason"
+            ]
+          }
+        },
+        "required": [
+          "source",
+          "name",
+          "version",
+          "sha256",
+          "files",
+          "changed",
+          "enabled",
+          "revision",
+          "enable_error",
+          "activation_required",
+          "note",
+          "restart"
         ]
       },
       "Integration": {

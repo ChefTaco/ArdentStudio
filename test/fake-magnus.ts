@@ -65,6 +65,10 @@ export class FakeMagnusServer {
   forbidConfig = false;
   development = new Map<string, Array<Record<string, unknown>>>();
   notes: Array<{ ref: string; body: Record<string, unknown>; actingSubject: string | undefined }> = [];
+  /** HiveSkills releases Magnus can install, by `name@version`, with their digests; empty models a Magnus without a registry. */
+  skillReleases = new Map<string, string>();
+  /** False: a Magnus that predates skill-install (400 "Invalid Ardent action"). */
+  allowSkillInstall = true;
   /** Oathweave subjects that are Magnus ADMINs. */
   admins = new Set(['subject-operator']);
   operations = new Map<string, Record<string, unknown>>();
@@ -399,6 +403,32 @@ export class FakeMagnusServer {
         const revision = createHash('sha256').update(input.text).digest('hex');
         this.configs.set(ref, { text: input.text, revision });
         return ok(response, { revision, activation_required: true });
+      }
+      case 'skill-install': {
+        if (!this.allowSkillInstall) return fail(response, 400, 'VALIDATION_ERROR', 'Invalid Ardent action');
+        const refusal = this.adminRefusal(actingSubject);
+        if (refusal) return fail(response, ...refusal);
+        if (needs(3)) return;
+        if (!this.skillReleases.size) return fail(response, 503, 'HIVESKILLS_UNCONFIGURED', 'Magnus has no HiveSkills registry; set MAGNUS_ARDENT_HIVESKILLS_URL');
+        const name = String(input.name);
+        const sha256 = this.skillReleases.get(`${name}@${String(input.version)}`);
+        if (!sha256) return fail(response, 409, 'SKILL_VERSION_UNAVAILABLE', `${name} ${String(input.version)} is not the release promoted on the stable channel`);
+        const skills = this.skillMap.get(ref) ?? [];
+        let enabled = skills.find(skill => skill.name === name)?.enabled ?? false;
+        let revision: string | null = null;
+        let enableError: string | null = null;
+        if (input.enable && !enabled) {
+          const config = this.configOf(ref);
+          if (input.revision !== config.revision) enableError = 'The Ardent configuration changed since it was read; enable the skill from the list';
+          else {
+            revision = createHash('sha256').update(`${config.revision}:${name}`).digest('hex');
+            this.configs.set(ref, { text: config.text, revision });
+            enabled = true;
+          }
+        }
+        this.skillMap.set(ref, [...skills.filter(skill => skill.name !== name), { name, enabled }]);
+        return ok(response, { source: 'hiveskills', name, version: input.version, sha256, files: 2, changed: true, enabled, revision,
+          enable_error: enableError, activation_required: true });
       }
       case 'development-note': {
         if (needs(2)) return;

@@ -128,7 +128,7 @@ describe('Magnus client', () => {
     expect(await client.createAgent(deploy, { actingSubject: 'subject-operator' })).toEqual({ operationId: 'op-1' });
     expect(calls.at(-1)!.url).toBe('https://magnus.example.com/api/v1/ardent/agents');
     await expect(client.createAgent({ ...deploy, model: { base_url: 'https://user:secret@llm.example.com', model: 'm' } }, { actingSubject: 'subject-operator' })).rejects.toThrow();
-    expect(STUDIO_ACTIONS).toEqual(['session-open', 'mission-submit', 'task-pause', 'task-resume', 'preview-submit', 'development-note']);
+    expect(STUDIO_ACTIONS).toEqual(['session-open', 'mission-submit', 'task-pause', 'task-resume', 'preview-submit', 'development-note', 'skill-install']);
   });
 
   it('parses agent references strictly', () => {
