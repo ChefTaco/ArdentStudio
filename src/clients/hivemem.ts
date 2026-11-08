@@ -5,6 +5,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ServiceTokenProvider } from './service-token.js';
+import { trimTrailingSlashes } from '../url.js';
 
 export class HiveMemError extends Error {
   override name = 'HiveMemError';
@@ -68,7 +69,7 @@ export class HiveMemClient {
 
   constructor(private readonly options: HiveMemClientOptions) {
     this.request = options.fetch ?? ((input, init) => fetch(input, init));
-    this.baseUrl = options.baseUrl.replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(options.baseUrl);
   }
 
   /** Unauthenticated liveness of the HiveMem service. */

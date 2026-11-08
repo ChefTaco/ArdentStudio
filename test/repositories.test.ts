@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { isId, newId, ulid } from '../src/ids.js';
+import { trimTrailingSlashes } from '../src/url.js';
 import { IDEMPOTENCY_RETENTION_MS, STALE_CLAIM_MS } from '../src/db/repos/idempotency.js';
 import { createProject, createTestContext, ManualClock, type TestContext } from './helpers.js';
 
@@ -118,5 +119,14 @@ describe('idempotency keys', () => {
     expect(keys.claim('operator', 'fixture-key-b', 'POST', '/y', 'f9')).toEqual({ kind: 'claimed' });
     clock.advance(IDEMPOTENCY_RETENTION_MS + 1);
     expect(keys.prune()).toBe(3);
+  });
+});
+
+describe('base URLs', () => {
+  it('lose trailing slashes in linear time', () => {
+    expect(trimTrailingSlashes('https://magnus.example.com///')).toBe('https://magnus.example.com');
+    expect(trimTrailingSlashes('https://magnus.example.com/api')).toBe('https://magnus.example.com/api');
+    expect(trimTrailingSlashes('/'.repeat(100_000))).toBe('');
+    expect(trimTrailingSlashes(`${'/'.repeat(100_000)}x`)).toBe(`${'/'.repeat(100_000)}x`);
   });
 });

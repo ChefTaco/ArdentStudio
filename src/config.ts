@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { parseIdentityLinks, type IdentityLink } from './auth/links.js';
+import { trimTrailingSlashes } from './url.js';
 
 export const DEFAULT_PORT = 8097;
 export const DEFAULT_MAX_BLOB_BYTES = 64 * 1024 * 1024;
@@ -108,7 +109,7 @@ export function loadConfig(env: Env = process.env): Config {
     if (!raw) return raw;
     const problem = urlIssue(raw, { httpsOnly, allowPlaintext });
     if (problem) issues.push({ name, message: problem });
-    return exact ? raw : raw.replace(/\/+$/, '');
+    return exact ? raw : trimTrailingSlashes(raw);
   };
 
   const dataRaw = required('ARDENT_STUDIO_DATA');

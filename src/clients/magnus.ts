@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import { parseSse, type SseMessage } from './sse.js';
 import type { ServiceTokenProvider } from './service-token.js';
+import { trimTrailingSlashes } from '../url.js';
 
 export const ACTING_SUBJECT_HEADER = 'x-acting-subject';
 
@@ -130,7 +131,7 @@ export class MagnusClient {
 
   constructor(private readonly options: MagnusClientOptions) {
     this.request = options.fetch ?? ((input, init) => fetch(input, init));
-    this.baseUrl = options.baseUrl.replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(options.baseUrl);
   }
 
   // ── Released routes ──
