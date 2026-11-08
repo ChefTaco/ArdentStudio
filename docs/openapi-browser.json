@@ -1,0 +1,4849 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Ardent Project Studio browser API",
+    "version": "1",
+    "description": "Generated from src/shared/browser.ts by scripts/export-browser-contracts.ts. Do not edit by hand.",
+    "license": {
+      "name": "Apache-2.0",
+      "identifier": "Apache-2.0"
+    }
+  },
+  "paths": {
+    "/api/ardentstudio/v1/health/live": {
+      "get": {
+        "operationId": "getHealthLive",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [],
+        "x-idempotent": false,
+        "security": []
+      }
+    },
+    "/api/ardentstudio/v1/health/ready": {
+      "get": {
+        "operationId": "getHealthReady",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [],
+        "x-idempotent": false,
+        "description": "Answers 503 with the same body when not ready. Checks are cached for 10 seconds.",
+        "security": []
+      }
+    },
+    "/api/ardentstudio/v1/projects": {
+      "get": {
+        "operationId": "getProjects",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "active",
+              "type": "string",
+              "enum": [
+                "active",
+                "archived",
+                "all"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListProjectsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "q matches name, brief and tags.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postProjects",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Creates the project HiveMem workspace; when HiveMem is unavailable hivemem.state stays pending and is retried.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}": {
+      "get": {
+        "operationId": "getProjectsProjectId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patchProjectsProjectId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "An archived project is read-only (409) except last_area.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/archive": {
+      "post": {
+        "operationId": "postProjectsProjectIdArchive",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "409 with details.tasks while Studio tasks are still active.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/reopen": {
+      "post": {
+        "operationId": "postProjectsProjectIdReopen",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/snapshot": {
+      "get": {
+        "operationId": "getProjectsProjectIdSnapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/files": {
+      "post": {
+        "operationId": "postProjectsProjectIdFiles",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          },
+          {
+            "in": "query",
+            "name": "purpose",
+            "required": false,
+            "schema": {
+              "default": "reference",
+              "type": "string",
+              "enum": [
+                "reference",
+                "attachment",
+                "avatar"
+              ]
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/File"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Raw body up to ARDENT_STUDIO_MAX_BLOB_BYTES (default 64 MiB) with an allowed Content-Type (UPLOAD_MIME_TYPES). References are indexed into the project HiveMem workspace.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/markdown": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "text/csv": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/pdf": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/gif": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/svg+xml": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "getProjectsProjectIdFiles",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "purpose",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "reference",
+                "attachment",
+                "avatar"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListFilesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/blobs/{sha256}": {
+      "get": {
+        "operationId": "getBlobsSha256",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Bytes as application/octet-stream with Content-Disposition attachment; the recorded type is in X-Blob-Mime. Only blobs that a project file references are served.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/files/{fileId}/reindex": {
+      "post": {
+        "operationId": "postFilesFileIdReindex",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/File"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Queues the file for HiveMem sync again.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/templates": {
+      "get": {
+        "operationId": "getTemplates",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "team"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "seed",
+                "user"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "type": "string",
+              "enum": [
+                "true",
+                "false",
+                "all"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTemplatesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:templates:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postTemplates",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:templates:write"
+        ],
+        "x-idempotent": true,
+        "description": "Templates never carry secrets; values that look like credentials are rejected.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTemplateRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/templates/{templateId}": {
+      "get": {
+        "operationId": "getTemplatesTemplateId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:templates:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/templates/{templateId}/versions/{version}": {
+      "get": {
+        "operationId": "getTemplatesTemplateIdVersionsVersion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateVersion"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:templates:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/templates/{templateId}/versions": {
+      "post": {
+        "operationId": "postTemplatesTemplateIdVersions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:templates:write"
+        ],
+        "x-idempotent": true,
+        "description": "Versions are immutable. 409 when base_version is not the latest.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTemplateVersionRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/templates/{templateId}/archive": {
+      "post": {
+        "operationId": "postTemplatesTemplateIdArchive",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:templates:write"
+        ],
+        "x-idempotent": true,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveTemplateRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/team": {
+      "get": {
+        "operationId": "getProjectsProjectIdTeam",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/team/draft": {
+      "put": {
+        "operationId": "putProjectsProjectIdTeamDraft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutTeamDraftRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/team/validate": {
+      "post": {
+        "operationId": "postProjectsProjectIdTeamValidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Validates the given body, else the draft, else the current revision. No side effects.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateTeamRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/team/publish": {
+      "post": {
+        "operationId": "postProjectsProjectIdTeamPublish",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "409 with details.validation when the draft has errors.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishTeamRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/team/apply-template": {
+      "post": {
+        "operationId": "postProjectsProjectIdTeamApplyTemplate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyTemplateRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/team/save-as-template": {
+      "post": {
+        "operationId": "postProjectsProjectIdTeamSaveAsTemplate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read",
+          "ardentstudio:templates:write"
+        ],
+        "x-idempotent": true,
+        "description": "Bindings and knowledge are not copied.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveAsTemplateRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/agents": {
+      "get": {
+        "operationId": "getAgents",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAgentsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Magnus-managed Ardent profiles. When Magnus is unavailable the list is empty and magnus.state says so.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/stream": {
+      "get": {
+        "operationId": "getProjectsProjectIdStream",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,15}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent events",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "x-events": {
+              "*": {
+                "$ref": "#/components/schemas/ProjectEvent"
+              },
+              "reset": {
+                "$ref": "#/components/schemas/ResetEvent"
+              },
+              "heartbeat": {
+                "$ref": "#/components/schemas/HeartbeatEvent"
+              },
+              "message.delta": {
+                "$ref": "#/components/schemas/MessageDeltaEvent"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Persisted events carry their seq as the SSE id and replay after ?after=. reset means the cursor is older than retained events (or ahead of them): refetch the snapshot. heartbeat every 15 s. The stream closes when the token expires or its session ends; reconnect with a fresh token.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "oathweave": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Oathweave resource token with audience ardentstudio. Permissions: ardentstudio:projects:read, ardentstudio:projects:write, ardentstudio:templates:read, ardentstudio:templates:write, ardentstudio:review:write, ardentstudio:agents:admin."
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Agent": {
+        "type": "object",
+        "properties": {
+          "agent_ref": {
+            "$ref": "#/components/schemas/AgentRef"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "node_name": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "backend": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "llamacpp",
+                  "codex"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "reachable": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "installation_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "portrait": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AvatarPreset"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "binding_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BindingId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "project_id": {
+                  "$ref": "#/components/schemas/ProjectId"
+                },
+                "project_name": {
+                  "type": "string"
+                },
+                "role_key": {
+                  "type": "string"
+                },
+                "role_name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "project_name",
+                "role_key",
+                "role_name"
+              ]
+            }
+          }
+        },
+        "required": [
+          "agent_ref",
+          "node_id",
+          "node_name",
+          "profile",
+          "backend",
+          "running",
+          "reachable",
+          "available",
+          "installation_version",
+          "error",
+          "display_name",
+          "portrait",
+          "binding_id",
+          "roles"
+        ]
+      },
+      "AgentRef": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._-]{1,128}~[A-Za-z0-9._-]{1,128}$"
+      },
+      "AgentTemplateBody": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "example_uses": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "soul_md": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "identity_md": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "skills": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillRef"
+            }
+          },
+          "model_hint": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runtime_req": {
+            "$ref": "#/components/schemas/RuntimeRequirement"
+          },
+          "integrations": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Integration"
+            }
+          },
+          "expected_outputs": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "avatar_preset": {
+            "$ref": "#/components/schemas/AvatarPreset"
+          }
+        },
+        "required": [
+          "name",
+          "category",
+          "purpose",
+          "example_uses",
+          "soul_md",
+          "identity_md",
+          "skills",
+          "model_hint",
+          "runtime_req",
+          "integrations",
+          "expected_outputs",
+          "avatar_preset"
+        ]
+      },
+      "AgentTemplateBodyInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "example_uses": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "soul_md": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "identity_md": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "skills": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillRefInput"
+            }
+          },
+          "model_hint": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runtime_req": {
+            "$ref": "#/components/schemas/RuntimeRequirementInput"
+          },
+          "integrations": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Integration"
+            }
+          },
+          "expected_outputs": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "avatar_preset": {
+            "$ref": "#/components/schemas/AvatarPresetInput"
+          }
+        },
+        "required": [
+          "name",
+          "category",
+          "purpose",
+          "example_uses",
+          "soul_md",
+          "identity_md",
+          "skills",
+          "model_hint",
+          "runtime_req",
+          "integrations",
+          "expected_outputs",
+          "avatar_preset"
+        ],
+        "additionalProperties": false
+      },
+      "AgentTemplateVersion": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "changelog": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "kind": {
+            "type": "string",
+            "const": "agent"
+          },
+          "body": {
+            "$ref": "#/components/schemas/AgentTemplateBody"
+          }
+        },
+        "required": [
+          "template_id",
+          "version",
+          "changelog",
+          "created_by",
+          "created_at",
+          "kind",
+          "body"
+        ]
+      },
+      "ApplyTemplateRequestInput": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "replace_draft": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "template_id",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "ArchiveTemplateRequestInput": {
+        "type": "object",
+        "properties": {
+          "archived": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssignmentRole": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "coordinator": {
+            "type": "boolean"
+          },
+          "responsibilities_md": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "instructions_md": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "contributions": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "deliverables": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "agent_template_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplateRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skills": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillRef"
+            }
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agent_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "binding_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BindingId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "knowledge": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileId"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "coordinator",
+          "responsibilities_md",
+          "instructions_md",
+          "contributions",
+          "deliverables",
+          "agent_template_ref",
+          "skills",
+          "stage",
+          "agent_ref",
+          "binding_id",
+          "knowledge"
+        ]
+      },
+      "AvatarPreset": {
+        "type": "object",
+        "properties": {
+          "preset": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,40}$"
+          },
+          "accent": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,40}$"
+          },
+          "emblem": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,40}$"
+          }
+        },
+        "required": [
+          "preset",
+          "accent",
+          "emblem"
+        ]
+      },
+      "AvatarPresetInput": {
+        "type": "object",
+        "properties": {
+          "preset": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,40}$"
+          },
+          "accent": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,40}$"
+          },
+          "emblem": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,40}$"
+          }
+        },
+        "required": [
+          "preset",
+          "accent",
+          "emblem"
+        ],
+        "additionalProperties": false
+      },
+      "BindingId": {
+        "type": "string",
+        "pattern": "^bnd_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "CreateProjectRequestInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "brief_md": {
+            "default": "",
+            "type": "string",
+            "maxLength": 100000
+          },
+          "audience": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "constraints": {
+            "default": [],
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "tags": {
+            "default": [],
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            }
+          },
+          "deliverables": {
+            "default": [],
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequestedDeliverableRequestInput"
+            }
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "CreateTemplateRequestInput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "agent"
+              },
+              "slug": {
+                "$ref": "#/components/schemas/Slug"
+              },
+              "changelog": {
+                "default": "Initial version",
+                "type": "string",
+                "maxLength": 2000
+              },
+              "body": {
+                "$ref": "#/components/schemas/AgentTemplateBodyInput"
+              }
+            },
+            "required": [
+              "kind",
+              "body"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "team"
+              },
+              "slug": {
+                "$ref": "#/components/schemas/Slug"
+              },
+              "changelog": {
+                "default": "Initial version",
+                "type": "string",
+                "maxLength": 2000
+              },
+              "body": {
+                "$ref": "#/components/schemas/TeamTemplateBodyInput"
+              }
+            },
+            "required": [
+              "kind",
+              "body"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "CreateTemplateVersionRequestInput": {
+        "type": "object",
+        "properties": {
+          "base_version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "changelog": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "body": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentTemplateBodyInput"
+              },
+              {
+                "$ref": "#/components/schemas/TeamTemplateBodyInput"
+              }
+            ]
+          }
+        },
+        "required": [
+          "base_version",
+          "changelog",
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      "DeliverableFormat": {
+        "type": "string",
+        "enum": [
+          "md",
+          "txt",
+          "docx",
+          "pdf",
+          "svg",
+          "png",
+          "jpeg",
+          "webp",
+          "csv",
+          "json"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "File": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/FileId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/FilePurpose"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "knowledge": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "$ref": "#/components/schemas/KnowledgeState"
+              },
+              "source_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revision": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "chunks": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "attempts": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "state",
+              "source_id",
+              "revision",
+              "chunks",
+              "error",
+              "attempts",
+              "updated_at"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "mime",
+          "size",
+          "sha256",
+          "purpose",
+          "created_by",
+          "created_at",
+          "knowledge"
+        ]
+      },
+      "FileId": {
+        "type": "string",
+        "pattern": "^fil_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "FilePurpose": {
+        "type": "string",
+        "enum": [
+          "reference",
+          "attachment",
+          "avatar"
+        ]
+      },
+      "HeartbeatEvent": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "seq",
+          "at"
+        ]
+      },
+      "HivememState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "ready",
+          "failed"
+        ]
+      },
+      "Integration": {
+        "type": "string",
+        "enum": [
+          "hivemem",
+          "hiveskills",
+          "emberpath"
+        ]
+      },
+      "KnowledgeState": {
+        "type": "string",
+        "enum": [
+          "not_indexed",
+          "pending",
+          "indexing",
+          "indexed",
+          "failed",
+          "unsupported"
+        ]
+      },
+      "ListAgentsResponse": {
+        "type": "object",
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Agent"
+            }
+          },
+          "available_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "magnus": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "unavailable"
+                ]
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "state",
+              "error"
+            ]
+          }
+        },
+        "required": [
+          "agents",
+          "available_count",
+          "magnus"
+        ]
+      },
+      "ListFilesResponse": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/File"
+            }
+          }
+        },
+        "required": [
+          "files"
+        ]
+      },
+      "ListProjectsResponse": {
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSummary"
+            }
+          }
+        },
+        "required": [
+          "projects"
+        ]
+      },
+      "ListTemplatesResponse": {
+        "type": "object",
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateSummary"
+            }
+          }
+        },
+        "required": [
+          "templates"
+        ]
+      },
+      "LiveResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "MessageDeltaEvent": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "text"
+        ]
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "brief_md": {
+            "type": "string"
+          },
+          "audience": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "constraints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectStatus"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "hivemem": {
+            "type": "object",
+            "properties": {
+              "workspace_id": {
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/components/schemas/HivememState"
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "workspace_id",
+              "state",
+              "error"
+            ]
+          },
+          "chattermost_channel_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_area": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectArea"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deliverables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequestedDeliverable"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "brief_md",
+          "audience",
+          "constraints",
+          "tags",
+          "status",
+          "created_by",
+          "hivemem",
+          "chattermost_channel_id",
+          "last_area",
+          "deliverables",
+          "created_at",
+          "updated_at",
+          "archived_at"
+        ]
+      },
+      "ProjectArea": {
+        "type": "string",
+        "enum": [
+          "team",
+          "room",
+          "agents",
+          "review"
+        ]
+      },
+      "ProjectEvent": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ProjectEventType"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "seq",
+          "project_id",
+          "type",
+          "at",
+          "payload"
+        ]
+      },
+      "ProjectEventType": {
+        "type": "string",
+        "enum": [
+          "project.created",
+          "project.updated",
+          "project.archived",
+          "project.reopened",
+          "file.created",
+          "file.updated",
+          "team.draft.updated",
+          "team.revision.published",
+          "layout.updated",
+          "conversation.created",
+          "conversation.updated",
+          "message.created",
+          "message.updated",
+          "presence.updated",
+          "task.created",
+          "task.updated",
+          "decision.created",
+          "decision.updated",
+          "deliverable.revision.created",
+          "review.comment.created",
+          "review.comment.updated",
+          "review.decision.created",
+          "export.created",
+          "agent.operation.updated"
+        ]
+      },
+      "ProjectId": {
+        "type": "string",
+        "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "ProjectStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "archived"
+        ]
+      },
+      "ProjectSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "audience": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "constraints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectStatus"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "hivemem": {
+            "type": "object",
+            "properties": {
+              "workspace_id": {
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/components/schemas/HivememState"
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "workspace_id",
+              "state",
+              "error"
+            ]
+          },
+          "chattermost_channel_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_area": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectArea"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "brief_excerpt": {
+            "type": "string"
+          },
+          "file_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "deliverable_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "team": {
+            "type": "object",
+            "properties": {
+              "revision": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "role_count": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "bound_count": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "revision",
+              "role_count",
+              "bound_count"
+            ]
+          },
+          "last_activity": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": [
+                  "type",
+                  "at"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "audience",
+          "constraints",
+          "tags",
+          "status",
+          "created_by",
+          "hivemem",
+          "chattermost_channel_id",
+          "last_area",
+          "created_at",
+          "updated_at",
+          "archived_at",
+          "brief_excerpt",
+          "file_count",
+          "deliverable_count",
+          "team",
+          "last_activity"
+        ]
+      },
+      "PublishTeamRequestInput": {
+        "type": "object",
+        "properties": {
+          "draft_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "draft_revision"
+        ],
+        "additionalProperties": false
+      },
+      "PutTeamDraftRequestInput": {
+        "type": "object",
+        "properties": {
+          "base_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_template": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplateRefInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "body": {
+            "$ref": "#/components/schemas/TeamDraftBodyInput"
+          }
+        },
+        "required": [
+          "base_revision",
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      "ReadyResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "not_ready"
+            ]
+          },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "database": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "unavailable"
+                    ]
+                  },
+                  "error": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "status",
+                  "error"
+                ]
+              },
+              "magnus": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "unavailable"
+                    ]
+                  },
+                  "error": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "status",
+                  "error"
+                ]
+              },
+              "hivemem": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "unavailable"
+                    ]
+                  },
+                  "error": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "status",
+                  "error"
+                ]
+              },
+              "agents": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "unavailable"
+                    ]
+                  },
+                  "available": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "status",
+                  "available"
+                ]
+              }
+            },
+            "required": [
+              "database",
+              "magnus",
+              "hivemem",
+              "agents"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ]
+      },
+      "Relationship": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "to": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "type": {
+            "$ref": "#/components/schemas/RelationshipType"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "type"
+        ]
+      },
+      "RelationshipInput": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "to": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "type": {
+            "$ref": "#/components/schemas/RelationshipType"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "type"
+        ],
+        "additionalProperties": false
+      },
+      "RelationshipType": {
+        "type": "string",
+        "enum": [
+          "reports_to",
+          "delegates_to",
+          "hands_off_to",
+          "reviews"
+        ]
+      },
+      "RequestedDeliverable": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/RequestedDeliverableId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "formats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliverableFormat"
+            }
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "producer_role_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoleKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "formats",
+          "stage",
+          "producer_role_key"
+        ]
+      },
+      "RequestedDeliverableId": {
+        "type": "string",
+        "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "RequestedDeliverableRequestInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "formats": {
+            "minItems": 1,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliverableFormat"
+            }
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "producer_role_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoleKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "formats"
+        ],
+        "additionalProperties": false
+      },
+      "ResetEvent": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "cursor_expired",
+              "cursor_ahead"
+            ]
+          }
+        },
+        "required": [
+          "seq",
+          "reason"
+        ]
+      },
+      "RoleKey": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,47}$"
+      },
+      "RuntimeRequirement": {
+        "type": "object",
+        "properties": {
+          "ardent": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "llamacpp",
+              "codex",
+              "any"
+            ]
+          }
+        },
+        "required": [
+          "ardent",
+          "backend"
+        ]
+      },
+      "RuntimeRequirementInput": {
+        "type": "object",
+        "properties": {
+          "ardent": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "llamacpp",
+              "codex",
+              "any"
+            ]
+          }
+        },
+        "required": [
+          "ardent",
+          "backend"
+        ],
+        "additionalProperties": false
+      },
+      "SaveAsTemplateRequestInput": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "default": "current",
+            "type": "string",
+            "enum": [
+              "draft",
+              "current"
+            ]
+          },
+          "template_id": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "base_version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "slug": {
+            "$ref": "#/components/schemas/Slug"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "category": {
+            "default": "custom",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "purpose": {
+            "default": "",
+            "type": "string",
+            "maxLength": 2000
+          },
+          "changelog": {
+            "default": "Saved from a project team",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "Sha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "SkillRef": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "local",
+              "hiveskills"
+            ]
+          },
+          "ref": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.:/-]{1,128}$"
+          },
+          "channel": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+          }
+        },
+        "required": [
+          "kind",
+          "ref"
+        ]
+      },
+      "SkillRefInput": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "local",
+              "hiveskills"
+            ]
+          },
+          "ref": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.:/-]{1,128}$"
+          },
+          "channel": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+          }
+        },
+        "required": [
+          "kind",
+          "ref"
+        ],
+        "additionalProperties": false
+      },
+      "Slug": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+      },
+      "SnapshotResponse": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "project": {
+            "$ref": "#/components/schemas/Project"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/File"
+            }
+          },
+          "team": {
+            "$ref": "#/components/schemas/TeamState"
+          }
+        },
+        "required": [
+          "seq",
+          "project",
+          "files",
+          "team"
+        ]
+      },
+      "Stage": {
+        "type": "string",
+        "enum": [
+          "create",
+          "research",
+          "discuss",
+          "review",
+          "revise",
+          "deliver"
+        ]
+      },
+      "TeamBody": {
+        "type": "object",
+        "properties": {
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssignmentRole"
+            }
+          },
+          "relationships": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Relationship"
+            }
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stage"
+            }
+          }
+        },
+        "required": [
+          "roles",
+          "relationships",
+          "stages"
+        ]
+      },
+      "TeamDraftBodyInput": {
+        "type": "object",
+        "properties": {
+          "roles": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamDraftRoleInput"
+            }
+          },
+          "relationships": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RelationshipInput"
+            }
+          },
+          "stages": {
+            "default": [],
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stage"
+            }
+          }
+        },
+        "required": [
+          "roles",
+          "relationships"
+        ],
+        "additionalProperties": false
+      },
+      "TeamDraftRoleInput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "coordinator": {
+            "type": "boolean"
+          },
+          "responsibilities_md": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "instructions_md": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "contributions": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "deliverables": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "agent_template_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplateRefInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skills": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillRefInput"
+            }
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agent_ref": {
+            "default": null,
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "knowledge": {
+            "default": [],
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileId"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "coordinator",
+          "responsibilities_md",
+          "instructions_md",
+          "contributions",
+          "deliverables",
+          "agent_template_ref",
+          "skills",
+          "stage"
+        ],
+        "additionalProperties": false
+      },
+      "TeamRevision": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/TeamRevisionId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "status": {
+            "$ref": "#/components/schemas/TeamRevisionStatus"
+          },
+          "source_template": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplateRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "body": {
+            "$ref": "#/components/schemas/TeamBody"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "published_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "revision",
+          "status",
+          "source_template",
+          "body",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "published_by",
+          "published_at"
+        ]
+      },
+      "TeamRevisionId": {
+        "type": "string",
+        "pattern": "^trv_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "TeamRevisionStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "published",
+          "superseded"
+        ]
+      },
+      "TeamState": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeamRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeamRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValidationResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "current",
+          "draft",
+          "validation"
+        ]
+      },
+      "TeamTemplateBody": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "example_uses": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "roles": {
+            "minItems": 1,
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateRole"
+            }
+          },
+          "relationships": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Relationship"
+            }
+          },
+          "stages": {
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stage"
+            }
+          },
+          "integrations": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Integration"
+            }
+          },
+          "runtime_req": {
+            "$ref": "#/components/schemas/RuntimeRequirement"
+          }
+        },
+        "required": [
+          "name",
+          "category",
+          "purpose",
+          "example_uses",
+          "roles",
+          "relationships",
+          "stages",
+          "integrations",
+          "runtime_req"
+        ]
+      },
+      "TeamTemplateBodyInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "example_uses": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "roles": {
+            "minItems": 1,
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateRoleInput"
+            }
+          },
+          "relationships": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RelationshipInput"
+            }
+          },
+          "stages": {
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stage"
+            }
+          },
+          "integrations": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Integration"
+            }
+          },
+          "runtime_req": {
+            "$ref": "#/components/schemas/RuntimeRequirementInput"
+          }
+        },
+        "required": [
+          "name",
+          "category",
+          "purpose",
+          "example_uses",
+          "roles",
+          "relationships",
+          "stages",
+          "integrations",
+          "runtime_req"
+        ],
+        "additionalProperties": false
+      },
+      "TeamTemplateVersion": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "changelog": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "kind": {
+            "type": "string",
+            "const": "team"
+          },
+          "body": {
+            "$ref": "#/components/schemas/TeamTemplateBody"
+          }
+        },
+        "required": [
+          "template_id",
+          "version",
+          "changelog",
+          "created_by",
+          "created_at",
+          "kind",
+          "body"
+        ]
+      },
+      "TemplateDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TemplateKind"
+          },
+          "slug": {
+            "$ref": "#/components/schemas/Slug"
+          },
+          "source": {
+            "$ref": "#/components/schemas/TemplateSource"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "latest_version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "used_by": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateVersionSummary"
+            }
+          },
+          "latest": {
+            "$ref": "#/components/schemas/TemplateVersion"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "slug",
+          "source",
+          "archived",
+          "name",
+          "category",
+          "purpose",
+          "latest_version",
+          "used_by",
+          "created_at",
+          "updated_at",
+          "versions",
+          "latest"
+        ]
+      },
+      "TemplateId": {
+        "type": "string",
+        "pattern": "^tpl_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "TemplateKind": {
+        "type": "string",
+        "enum": [
+          "agent",
+          "team"
+        ]
+      },
+      "TemplateRef": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "template_id",
+          "version"
+        ]
+      },
+      "TemplateRefInput": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "template_id",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "TemplateRole": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "coordinator": {
+            "type": "boolean"
+          },
+          "responsibilities_md": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "instructions_md": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "contributions": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "deliverables": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "agent_template_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplateRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skills": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillRef"
+            }
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "coordinator",
+          "responsibilities_md",
+          "instructions_md",
+          "contributions",
+          "deliverables",
+          "agent_template_ref",
+          "skills",
+          "stage"
+        ]
+      },
+      "TemplateRoleInput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "coordinator": {
+            "type": "boolean"
+          },
+          "responsibilities_md": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "instructions_md": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "contributions": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "deliverables": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "agent_template_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TemplateRefInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skills": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillRefInput"
+            }
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "coordinator",
+          "responsibilities_md",
+          "instructions_md",
+          "contributions",
+          "deliverables",
+          "agent_template_ref",
+          "skills",
+          "stage"
+        ],
+        "additionalProperties": false
+      },
+      "TemplateSource": {
+        "type": "string",
+        "enum": [
+          "seed",
+          "user"
+        ]
+      },
+      "TemplateSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TemplateKind"
+          },
+          "slug": {
+            "$ref": "#/components/schemas/Slug"
+          },
+          "source": {
+            "$ref": "#/components/schemas/TemplateSource"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "latest_version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "used_by": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "slug",
+          "source",
+          "archived",
+          "name",
+          "category",
+          "purpose",
+          "latest_version",
+          "used_by",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "TemplateVersion": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AgentTemplateVersion"
+          },
+          {
+            "$ref": "#/components/schemas/TeamTemplateVersion"
+          }
+        ]
+      },
+      "TemplateVersionSummary": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "changelog": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "version",
+          "changelog",
+          "created_by",
+          "created_at"
+        ]
+      },
+      "UpdateProjectRequestInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "brief_md": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "audience": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "constraints": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "tags": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            }
+          },
+          "deliverables": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequestedDeliverableRequestInput"
+            }
+          },
+          "last_area": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectArea"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chattermost_channel_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ValidateTeamRequestInput": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/TeamDraftBodyInput"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ValidationIssue": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "coordinator_count",
+              "reporting_cycle",
+              "workflow_cycle",
+              "deliverable_without_producer",
+              "duplicate_role_key",
+              "unknown_role",
+              "self_relationship",
+              "multiple_managers",
+              "coordinator_reports",
+              "unbound_role",
+              "reviewer_is_only_producer",
+              "skill_not_enabled",
+              "agent_unavailable",
+              "agent_without_hivemem",
+              "outside_reporting_tree",
+              "agent_facts_unavailable"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "role_key": {
+            "type": "string"
+          },
+          "relationship_index": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "deliverable": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "code",
+          "message"
+        ]
+      },
+      "ValidationResult": {
+        "type": "object",
+        "properties": {
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            }
+          },
+          "can_publish": {
+            "type": "boolean"
+          },
+          "can_start_room": {
+            "type": "boolean"
+          },
+          "agent_facts": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "partial",
+              "unavailable"
+            ]
+          }
+        },
+        "required": [
+          "issues",
+          "can_publish",
+          "can_start_room",
+          "agent_facts"
+        ]
+      }
+    }
+  }
+}

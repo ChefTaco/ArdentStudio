@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ardent-studio-ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  privacy:
+    name: Secrets and private data
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/scan-secrets.sh
+      - run: bash scripts/check-private-data.sh
+      # The release-workflow tests need the YAML dependency and run in verify after npm ci.
+      - run: node --test scripts/test-privacy-policy.mjs scripts/test-publish-environment.mjs
+
+  verify:
+    name: Verify (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [24.22.1, 26.13.0]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - name: Privacy, typecheck, lint, test, build, contracts and package checks
+        run: npm run verify
+
+  image:
+    name: Container image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build
+        run: docker build -t ardent-studio:ci .
+      - name: Smoke test
+        run: |
+          test "$(docker run --rm ardent-studio:ci version)" = "$(node -p "require('./package.json').version")"
+          if docker run --rm --entrypoint sh ardent-studio:ci -c 'command -v npm || command -v npx || command -v corepack || command -v apt-get'; then
+            echo "The runtime image must not contain a package manager" >&2; exit 1
+          fi
+          test "$(docker run --rm --entrypoint id ardent-studio:ci -u)" != "0"
+          cid=$(docker run -d \
+            -e OATHWEAVE_ISSUER=https://identity.example.com -e OATHWEAVE_JWKS_URL=https://identity.example.com/jwks \
+            -e OATHWEAVE_USERINFO_URL=https://identity.example.com/userinfo -e 'ARDENT_STUDIO_OATHWEAVE_IDENTITIES_JSON=[]' \
+            -e ARDENT_STUDIO_OATHWEAVE_TOKEN_URL=https://identity.example.com/token \
+            -e ARDENT_STUDIO_MAGNUS_URL=https://magnus.example.com -e ARDENT_STUDIO_MAGNUS_CLIENT_ID=ci-magnus -e ARDENT_STUDIO_MAGNUS_CLIENT_SECRET=ci-only-magnus \
+            -e ARDENT_STUDIO_HIVEMEM_URL=https://hivemem.example.com -e ARDENT_STUDIO_HIVEMEM_CLIENT_ID=ci-hivemem -e ARDENT_STUDIO_HIVEMEM_CLIENT_SECRET=ci-only-hivemem \
+            ardent-studio:ci)
+          for attempt in $(seq 1 20); do
+            if docker exec "$cid" node /app/healthcheck.mjs; then healthy=1; break; fi
+            sleep 1
+          done
+          docker logs "$cid"
+          docker rm -f "$cid" >/dev/null
+          test "${healthy:-0}" = 1

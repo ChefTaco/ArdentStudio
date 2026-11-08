@@ -1,0 +1,92 @@
+{
+  "name": "@hivemagnus/ardent-studio",
+  "version": "0.1.0",
+  "description": "Ardent Project Studio service: projects, team assignment, conversation room and deliverable review for Ardent agents managed by Magnus",
+  "keywords": [
+    "ardent",
+    "magnus",
+    "agents",
+    "multi-agent",
+    "team",
+    "project",
+    "review",
+    "hivemem",
+    "oathweave"
+  ],
+  "author": "ChefTaco",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChefTaco/ArdentStudio.git"
+  },
+  "homepage": "https://github.com/ChefTaco/ArdentStudio#readme",
+  "bugs": {
+    "url": "https://github.com/ChefTaco/ArdentStudio/issues"
+  },
+  "type": "module",
+  "bin": {
+    "ardent-studio": "dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/shared/browser.d.ts",
+      "default": "./dist/shared/browser.js"
+    }
+  },
+  "engines": {
+    "node": "^24.22.1 || ^26.13.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "docs/openapi-browser.json",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src test scripts",
+    "contracts:write": "tsx scripts/export-browser-contracts.ts --write",
+    "check:contracts": "tsx scripts/export-browser-contracts.ts --check",
+    "export:browser-contracts": "tsx scripts/export-browser-contracts.ts --output",
+    "pack:check": "node scripts/check-package.mjs",
+    "scan:secrets": "bash scripts/scan-secrets.sh",
+    "check:private": "bash scripts/check-private-data.sh",
+    "privacy:test": "node --test scripts/test-privacy-policy.mjs scripts/test-publish-environment.mjs scripts/test-publish-package.mjs",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "verify": "npm run privacy:test && npm run scan:secrets && npm run check:private && npm run typecheck && npm run lint && npm test && npm run build && npm run check:contracts && npm run pack:check"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "better-sqlite3": "^13.0.3",
+    "hono": "^4.13.17",
+    "jose": "^6.2.15",
+    "pdfjs-dist": "^6.5.438",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "^13.1.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^24.19.2",
+    "eslint": "10.14.0",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "^5.0.5",
+    "yaml": "2.9.1"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "esbuild@0.28.2": true
+  }
+}

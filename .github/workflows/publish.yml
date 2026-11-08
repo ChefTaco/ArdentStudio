@@ -1,0 +1,128 @@
+name: Publish
+
+# Publishes @hivemagnus/ardent-studio to npm with provenance, and the container image to GHCR,
+# when the version is not published yet.
+# - Push a tag vX.Y.Z (matching package.json) to publish.
+# - Run it by hand (Actions > Publish > Run workflow) for a dry run: pack and validate only.
+# Publishing waits for approval on the `npm-publish` environment, then authenticates to npm
+# through trusted publishing (OIDC). No npm token is stored in this repository.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Pack and validate only; publish nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/cheftaco/ardent-studio
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: npm-publish
+    permissions:
+      contents: read
+      actions: read # read environment protection before any publication
+      id-token: write # trusted publishing and provenance
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Require protected publication environment
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-publish-environment.mjs
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Check npm supports provenance and trusted publishing
+        run: |
+          npm --version
+          node -e 'const [a,b,c]=process.argv[1].split(".").map(Number); if (a<11||(a===11&&(b<5||(b===5&&c<1)))) { console.error("npm >= 11.5.1 is required"); process.exit(1) }' "$(npm --version)"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Gates
+        run: |
+          npm audit --omit=dev --audit-level=high
+          npm run verify
+
+      - name: Publish
+        run: node scripts/publish-package.mjs
+
+  image:
+    needs: publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: npm-publish
+    permissions:
+      contents: write # record the digest in a GitHub release
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Refuse to overwrite a published image
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test "$version" = "$(node -p "require('./package.json').version")"
+          if docker buildx imagetools inspect "$IMAGE:$version" >/dev/null 2>&1; then
+            echo "Refusing to overwrite $IMAGE:$version" >&2; exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ env.VERSION }}
+          provenance: false
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.licenses=Apache-2.0
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Record the digest in a GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
+            --notes "npm: @hivemagnus/ardent-studio@${VERSION}. Image: \`$IMAGE@$DIGEST\`"

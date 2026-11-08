@@ -1,0 +1,12 @@
+Ardent Project Studio (ArdentStudio)
+Copyright 2026 ChefTaco and contributors
+
+This product includes software developed by ChefTaco and contributors
+(https://github.com/ChefTaco/ArdentStudio).
+
+The Oathweave resource-token verification follows the pattern of the Magnus and
+HiveMem products (https://github.com/ChefTaco/magnus, https://github.com/ChefTaco/HiveMem),
+licensed under the Apache License 2.0.
+
+PDF text extraction uses pdf.js (https://github.com/mozilla/pdf.js),
+licensed under the Apache License 2.0.

@@ -1,0 +1,39 @@
+/** One server-sent event. `id` is absent for events that are not resumable. */
+export interface SseMessage {
+  event: string;
+  data: string;
+  id?: string;
+}
+
+/** Parse a text/event-stream body. Comments are skipped; a final unterminated event is dropped, as the spec says. */
+export async function* parseSse(body: ReadableStream<Uint8Array>, maxEventBytes = 4 * 1024 * 1024): AsyncGenerator<SseMessage> {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let event = '';
+  let data: string[] = [];
+  let id: string | undefined;
+  let size = 0;
+  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let newline: number;
+    while ((newline = buffer.search(/\r\n|\r|\n/)) >= 0) {
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + (buffer.startsWith('\r\n', newline) ? 2 : 1));
+      if (line === '') {
+        if (data.length) yield { event: event || 'message', data: data.join('\n'), ...(id !== undefined ? { id } : {}) };
+        event = ''; data = []; id = undefined; size = 0;
+        continue;
+      }
+      if (line.startsWith(':')) continue;
+      const colon = line.indexOf(':');
+      const field = colon < 0 ? line : line.slice(0, colon);
+      const value = colon < 0 ? '' : line.slice(colon + 1).replace(/^ /, '');
+      size += value.length;
+      if (size > maxEventBytes) throw new Error('Server-sent event exceeds the size limit');
+      if (field === 'event') event = value;
+      else if (field === 'data') data.push(value);
+      else if (field === 'id' && !value.includes('\0')) id = value;
+    }
+    if (buffer.length > maxEventBytes) throw new Error('Server-sent event exceeds the size limit');
+  }
+}
