@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import type { Project } from '../../db/repos/projects.js';
 import type { createProjectRequestSchema, listProjectsQuerySchema, projectSummarySchema, updateProjectRequestSchema } from '../../shared/browser.js';
+import { publicTask } from '../../conductor/conductor.js';
 import { validateAssignment } from '../../team/service.js';
 import { actorOf, requireActive, requireProject, type AppDeps } from '../deps.js';
 import { ApiError } from '../errors.js';
@@ -90,6 +91,14 @@ export function projectRoutes(register: ReturnType<typeof createRouter>, deps: A
     }) };
   });
 
+  const activityOf = (projectId: string) => {
+    const refs = new Map(store.team.bindings().map(binding => [binding.id, binding.agent_ref]));
+    return store.room.activity(projectId).flatMap(({ project_id: _project, binding_id, ...rest }) => {
+      const agent_ref = refs.get(binding_id);
+      return agent_ref ? [{ binding_id, agent_ref, ...rest }] : [];
+    });
+  };
+
   register('GET', '/projects/{projectId}/snapshot', async (_c, { params, principal }) => {
     const id = requireProject(store, params.projectId).id;
     // Read the records and their cursor together, so ?after=<seq> resumes exactly after this view.
@@ -99,6 +108,11 @@ export function projectRoutes(register: ReturnType<typeof createRouter>, deps: A
       files: store.files.list(id),
       current: store.team.current(id) ?? null,
       draft: store.team.draft(id) ?? null,
+      conversations: store.room.conversations(id),
+      tasks: store.tasks.active(id).map(publicTask),
+      decisions: store.room.decisions(id),
+      activity: activityOf(id),
+      layout: store.room.layout(id) ?? null,
     }))();
     const { current, draft, ...rest } = view;
     const subject = draft ?? current;

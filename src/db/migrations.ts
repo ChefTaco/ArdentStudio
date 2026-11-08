@@ -396,4 +396,48 @@ CREATE TABLE idempotency_keys (
 CREATE INDEX idempotency_created ON idempotency_keys (created_at);
 `,
   },
+  {
+    id: 2,
+    name: 'conductor',
+    sql: `
+-- Message seq is per project, so a transcript across conversations has one order.
+CREATE TABLE message_cursors (
+  project_id TEXT PRIMARY KEY REFERENCES projects (id),
+  last_seq INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX messages_project_seq ON messages (project_id, seq);
+-- A direct conversation talks to one role.
+ALTER TABLE conversations ADD COLUMN role_key TEXT;
+
+-- Where a task's reply goes and the ordering group it waits in.
+ALTER TABLE tasks ADD COLUMN conversation_id TEXT REFERENCES conversations (id);
+ALTER TABLE tasks ADD COLUMN trigger_message_id TEXT REFERENCES messages (id);
+ALTER TABLE tasks ADD COLUMN instructions_md TEXT NOT NULL DEFAULT '';
+ALTER TABLE tasks ADD COLUMN group_id TEXT;
+ALTER TABLE tasks ADD COLUMN group_position INTEGER NOT NULL DEFAULT 0;
+-- How the task reached Ardent: mission (TeamMission) or turn (task-submit with a composed prompt).
+ALTER TABLE tasks ADD COLUMN dispatch TEXT CHECK (dispatch IN ('mission', 'turn'));
+ALTER TABLE tasks ADD COLUMN submit_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN finished_at TEXT;
+CREATE INDEX tasks_group ON tasks (group_id, group_position);
+CREATE INDEX tasks_dispatch ON tasks (state, ardent_task_id);
+
+-- One Ardent session per conversation, role, agent and Ardent session context.
+CREATE TABLE agent_sessions (
+  conversation_id TEXT NOT NULL REFERENCES conversations (id),
+  role_key TEXT NOT NULL,
+  agent_ref TEXT NOT NULL,
+  context TEXT NOT NULL CHECK (context IN ('direct', 'mission')),
+  project_id TEXT NOT NULL REFERENCES projects (id),
+  session_key TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  turns INTEGER NOT NULL DEFAULT 0,
+  -- The newest project message seq the agent has been shown in this session.
+  last_seen_seq INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (conversation_id, role_key, agent_ref, context)
+);
+`,
+  },
 ];

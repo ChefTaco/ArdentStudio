@@ -9,14 +9,15 @@ A project has three areas:
 
 1. **Team Assignment**: roles, relationships and agent bindings, as draft and published revisions,
    started from versioned templates.
-2. **Team Conversation Room**: the canonical transcript, tasks and decisions (coming next).
+2. **Team Conversation Room**: the canonical transcript, live agent replies, tasks, clarifications,
+   discussions and decisions, driven by the conductor ([docs/CONDUCTOR.md](docs/CONDUCTOR.md)).
 3. **Agent Studio**: agent tuning, previews, development records and **Deliverable Review**
    (coming later).
 
-Version 0.1 is the service foundation: projects, reference files with HiveMem knowledge sync,
-templates, team assignment, agents through Magnus and the live project event stream. The schema
-for every later record (conversations, messages, tasks, deliverables, reviews, exports) is already
-in place.
+Version 0.1 covers projects, reference files with HiveMem knowledge sync, templates, team
+assignment, agents through Magnus, the conversation room with its conductor, and the live project
+event stream. The schema for the review records (deliverables, revisions, comments, exports) is
+already in place.
 
 ## Requirements
 
@@ -49,8 +50,9 @@ HiveXUI /studio/*  ── user token (audience ardentstudio) ──▶  ArdentSt
 - **Ardent owns** execution, sessions, journals, live reply text, artifacts and identity history.
 - **HiveMem owns** project knowledge (one workspace per project) and agent memory.
 
-Some Magnus routes Studio needs (missions, task streams, New Agent) are planned in Magnus and
-marked `PLANNED` in `src/clients/magnus.ts`.
+Studio uses Magnus's Ardent bridge for service identities (sessions, task streams, missions,
+pause and resume, New Agent). An agent whose Magnus node agent reports a lower Studio level still
+works through plain task submission; see [docs/CONDUCTOR.md](docs/CONDUCTOR.md).
 
 ## Quick start
 

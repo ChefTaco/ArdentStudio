@@ -15,6 +15,8 @@ import { Store } from './db/store.js';
 import { EventBus } from './events/bus.js';
 import { KnowledgeSync } from './knowledge/sync.js';
 import { createLogger, type Logger } from './logger.js';
+import { Conductor } from './conductor/conductor.js';
+import { LiveText } from './conductor/live.js';
 import { createApp } from './server/app.js';
 import { loadSeedTemplates } from './templates/seeds.js';
 
@@ -27,7 +29,8 @@ export interface Service {
   hivemem: HiveMemClient;
   chattermost: ChatterMostClient | undefined;
   knowledge: KnowledgeSync;
-  /** Start background work (knowledge sync, event compaction). */
+  conductor: Conductor;
+  /** Start background work (knowledge sync, event compaction, the conductor). */
   start(): void;
   stop(): Promise<void>;
 }
@@ -57,7 +60,9 @@ export function createService(config: Config, options: { logger?: Logger; clock?
     createOathweaveVerifier({ issuer: config.oathweave.issuer, jwksUrl: config.oathweave.jwksUrl, userinfoUrl: config.oathweave.userinfoUrl }),
     config.oathweave.identities,
   );
-  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, logger });
+  const live = new LiveText(bus);
+  const conductor = new Conductor({ store, blobs, magnus, agents, live, logger });
+  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, conductor, live, magnus, logger });
 
   let maintenance: NodeJS.Timeout | undefined;
   const maintain = () => {
@@ -72,15 +77,17 @@ export function createService(config: Config, options: { logger?: Logger; clock?
   };
 
   return {
-    app, store, magnus, hivemem, chattermost, knowledge,
+    app, store, magnus, hivemem, chattermost, knowledge, conductor,
     start() {
       knowledge.start();
+      conductor.start();
       maintain();
       maintenance = setInterval(maintain, 3600_000);
       maintenance.unref();
     },
     async stop() {
       if (maintenance) clearInterval(maintenance);
+      await conductor.stop();
       await knowledge.stop();
       db.close();
     },

@@ -2,7 +2,7 @@
 // are fsynced and renamed into place, and the stored file is hashed again before it is
 // recorded, so a recorded blob always matches its address.
 import { createHash, randomBytes } from 'node:crypto';
-import { createReadStream, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { createReadStream, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { open, rename, rm, stat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
@@ -120,6 +120,15 @@ export class BlobStore {
     const bytes = Buffer.concat(chunks);
     if (createHash('sha256').update(bytes).digest('hex') !== sha256) throw new BlobIntegrityError('Stored blob does not match its address');
     return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  }
+
+  /** A small recorded blob as UTF-8 text, verified against its address. */
+  readTextSync(sha256: string): string {
+    const record = this.get(sha256);
+    if (!record) throw new BlobIntegrityError('Blob is not recorded');
+    const bytes = readFileSync(join(this.root, record.path));
+    if (createHash('sha256').update(bytes).digest('hex') !== sha256) throw new BlobIntegrityError('Stored blob does not match its address');
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
   }
 
   /** Re-hash a recorded blob. */

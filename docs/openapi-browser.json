@@ -1764,6 +1764,1267 @@
         ]
       }
     },
+    "/api/ardentstudio/v1/projects/{projectId}/layout": {
+      "get": {
+        "operationId": "getProjectsProjectIdLayout",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LayoutResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "putProjectsProjectIdLayout",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LayoutResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Each save is a new revision. 409 when base_revision is not the latest.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutLayoutRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/conversations": {
+      "get": {
+        "operationId": "getProjectsProjectIdConversations",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListConversationsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postProjectsProjectIdConversations",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conversation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "A discussion posts its question and starts round 1 at once: one turn per participant in order, then the next round, then a coordinator summary. Needs a published team with the participants bound (409 TEAM_NOT_READY).",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConversationRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/conversations/{conversationId}/stop": {
+      "post": {
+        "operationId": "postConversationsConversationIdStop",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conversation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Unstarted turns are cancelled; started ones are cancelled through Magnus.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/conversations/{conversationId}/messages": {
+      "get": {
+        "operationId": "getConversationsConversationIdMessages",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,15}$"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,3}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListMessagesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Oldest first after ?after=<seq>; at most 200 (default 100).",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postConversationsConversationIdMessages",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostMessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Team or Coordinator starts a coordinator turn; roles or @role_key mentions start one turn per addressee in order. A direct conversation always goes to its role; a discussion takes notes without starting turns. 409 TEAM_NOT_READY without a published team and bound roles.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostMessageRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/messages/{messageId}/answer": {
+      "post": {
+        "operationId": "postMessagesMessageIdAnswer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "messageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostMessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Answers a clarification: the answer continues the same agent session. 409 when it is already answered.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/messages/{messageId}/follow-up": {
+      "post": {
+        "operationId": "postMessagesMessageIdFollowUp",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "messageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostMessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Asks the agent that wrote the message to follow up on it.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowUpRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/decisions": {
+      "get": {
+        "operationId": "getProjectsProjectIdDecisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListDecisionsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postProjectsProjectIdDecisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Decision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Pinning is a person's act; an agent can only propose.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDecisionRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/decisions/{decisionId}/supersede": {
+      "post": {
+        "operationId": "postDecisionsDecisionIdSupersede",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decisionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Decision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Creates the new decision and marks this one superseded by it. 409 when it is already superseded.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupersedeDecisionRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/tasks": {
+      "get": {
+        "operationId": "getProjectsProjectIdTasks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "active",
+                "finished",
+                "all"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "conversation_id",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^cnv_[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTasksResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postProjectsProjectIdTasks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTaskRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/tasks/{taskId}/pause": {
+      "post": {
+        "operationId": "postTasksTaskIdPause",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "taskId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "A started task pauses at its next step boundary (state pausing, then paused); an unstarted one is held. 409 AGENT_UPGRADE_REQUIRED when the agent cannot pause.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/tasks/{taskId}/resume": {
+      "post": {
+        "operationId": "postTasksTaskIdResume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "taskId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/tasks/{taskId}/cancel": {
+      "post": {
+        "operationId": "postTasksTaskIdCancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "taskId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/tasks/{taskId}/reassign": {
+      "post": {
+        "operationId": "postTasksTaskIdReassign",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "taskId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Cancels the task when it is still active and creates the same work for another role, with reassigned_from.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReassignTaskRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/ardentstudio/v1/projects/{projectId}/stream": {
       "get": {
         "operationId": "getProjectsProjectIdStream",
@@ -1831,7 +3092,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
-        "description": "Persisted events carry their seq as the SSE id and replay after ?after=. reset means the cursor is older than retained events (or ahead of them): refetch the snapshot. heartbeat every 15 s. The stream closes when the token expires or its session ends; reconnect with a fresh token.",
+        "description": "Persisted events carry their seq as the SSE id and replay after ?after=. reset means the cursor is older than retained events (or ahead of them): refetch the snapshot. message.delta (live reply text) has no id; on connect each streaming message gets one replace delta with its current text. heartbeat every 15 s. The stream closes when the token expires or its session ends; reconnect with a fresh token.",
         "security": [
           {
             "oathweave": []
@@ -1862,6 +3123,58 @@
       }
     },
     "schemas": {
+      "Activity": {
+        "type": "object",
+        "properties": {
+          "binding_id": {
+            "$ref": "#/components/schemas/BindingId"
+          },
+          "agent_ref": {
+            "$ref": "#/components/schemas/AgentRef"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ActivityState"
+          },
+          "label": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "binding_id",
+          "agent_ref",
+          "state",
+          "label",
+          "source",
+          "since"
+        ]
+      },
+      "ActivityState": {
+        "type": "string",
+        "enum": [
+          "offline",
+          "available",
+          "queued",
+          "working",
+          "reviewing",
+          "asking",
+          "waiting",
+          "paused",
+          "delivering",
+          "unknown"
+        ]
+      },
       "Agent": {
         "type": "object",
         "properties": {
@@ -2204,6 +3517,25 @@
           "body"
         ]
       },
+      "AnswerRequestInput": {
+        "type": "object",
+        "properties": {
+          "body_md": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "option": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "body_md"
+        ],
+        "additionalProperties": false
+      },
       "ApplyTemplateRequestInput": {
         "type": "object",
         "properties": {
@@ -2395,6 +3727,227 @@
         "type": "string",
         "pattern": "^bnd_[0-9A-HJKMNP-TV-Z]{26}$"
       },
+      "Conversation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ConversationId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ConversationKind"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "role_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoleKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discussion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Discussion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_message_seq": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "stopped_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "kind",
+          "parent_id",
+          "title",
+          "role_key",
+          "discussion",
+          "last_message_seq",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "stopped_at"
+        ]
+      },
+      "ConversationId": {
+        "type": "string",
+        "pattern": "^cnv_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "ConversationKind": {
+        "type": "string",
+        "enum": [
+          "team",
+          "direct",
+          "discussion"
+        ]
+      },
+      "CreateConversationRequestInput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "team"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "direct"
+              },
+              "role_key": {
+                "$ref": "#/components/schemas/RoleKey"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "kind",
+              "role_key"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "discussion"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "parent_id": {
+                "$ref": "#/components/schemas/ConversationId"
+              },
+              "question": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              },
+              "desired_output": {
+                "$ref": "#/components/schemas/DesiredOutput"
+              },
+              "participants": {
+                "minItems": 1,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RoleKey"
+                }
+              },
+              "max_rounds": {
+                "default": 2,
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4
+              }
+            },
+            "required": [
+              "kind",
+              "question",
+              "desired_output",
+              "participants"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "CreateDecisionRequestInput": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "statement_md": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "rationale_md": {
+            "default": "",
+            "type": "string",
+            "maxLength": 20000
+          },
+          "source_message_id": {
+            "$ref": "#/components/schemas/MessageId"
+          }
+        },
+        "required": [
+          "title",
+          "statement_md"
+        ],
+        "additionalProperties": false
+      },
       "CreateProjectRequestInput": {
         "type": "object",
         "properties": {
@@ -2451,6 +4004,43 @@
         },
         "required": [
           "name"
+        ],
+        "additionalProperties": false
+      },
+      "CreateTaskRequestInput": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "instructions_md": {
+            "default": "",
+            "type": "string",
+            "maxLength": 20000
+          },
+          "role_key": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "mode": {
+            "default": "assignment",
+            "type": "string",
+            "enum": [
+              "assignment",
+              "review"
+            ]
+          },
+          "conversation_id": {
+            "$ref": "#/components/schemas/ConversationId"
+          },
+          "source_message_id": {
+            "$ref": "#/components/schemas/MessageId"
+          }
+        },
+        "required": [
+          "title",
+          "role_key"
         ],
         "additionalProperties": false
       },
@@ -2539,6 +4129,77 @@
         ],
         "additionalProperties": false
       },
+      "Decision": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/DecisionId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "title": {
+            "type": "string"
+          },
+          "statement_md": {
+            "type": "string"
+          },
+          "rationale_md": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref"
+              ]
+            }
+          },
+          "decided_by": {
+            "type": "string"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "title",
+          "statement_md",
+          "rationale_md",
+          "sources",
+          "decided_by",
+          "superseded_by",
+          "created_at"
+        ]
+      },
+      "DecisionId": {
+        "type": "string",
+        "pattern": "^dec_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
       "DeliverableFormat": {
         "type": "string",
         "enum": [
@@ -2552,6 +4213,61 @@
           "webp",
           "csv",
           "json"
+        ]
+      },
+      "DesiredOutput": {
+        "type": "string",
+        "enum": [
+          "decision",
+          "short_doc",
+          "options"
+        ]
+      },
+      "Discussion": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "desired_output": {
+            "$ref": "#/components/schemas/DesiredOutput"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoleKey"
+            }
+          },
+          "max_rounds": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "round": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "state": {
+            "$ref": "#/components/schemas/DiscussionState"
+          }
+        },
+        "required": [
+          "question",
+          "desired_output",
+          "participants",
+          "max_rounds",
+          "round",
+          "state"
+        ]
+      },
+      "DiscussionState": {
+        "type": "string",
+        "enum": [
+          "running",
+          "summarizing",
+          "stopped",
+          "done"
         ]
       },
       "ErrorResponse": {
@@ -2702,6 +4418,17 @@
           "avatar"
         ]
       },
+      "FollowUpRequestInput": {
+        "type": "object",
+        "properties": {
+          "body_md": {
+            "default": "",
+            "type": "string",
+            "maxLength": 20000
+          }
+        },
+        "additionalProperties": false
+      },
       "HeartbeatEvent": {
         "type": "object",
         "properties": {
@@ -2748,6 +4475,24 @@
           "unsupported"
         ]
       },
+      "LayoutResponse": {
+        "type": "object",
+        "properties": {
+          "layout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoomLayout"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "layout"
+        ]
+      },
       "ListAgentsResponse": {
         "type": "object",
         "properties": {
@@ -2791,6 +4536,34 @@
           "magnus"
         ]
       },
+      "ListConversationsResponse": {
+        "type": "object",
+        "properties": {
+          "conversations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Conversation"
+            }
+          }
+        },
+        "required": [
+          "conversations"
+        ]
+      },
+      "ListDecisionsResponse": {
+        "type": "object",
+        "properties": {
+          "decisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Decision"
+            }
+          }
+        },
+        "required": [
+          "decisions"
+        ]
+      },
       "ListFilesResponse": {
         "type": "object",
         "properties": {
@@ -2805,6 +4578,33 @@
           "files"
         ]
       },
+      "ListMessagesResponse": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          },
+          "next_after": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "messages",
+          "next_after"
+        ]
+      },
       "ListProjectsResponse": {
         "type": "object",
         "properties": {
@@ -2817,6 +4617,20 @@
         },
         "required": [
           "projects"
+        ]
+      },
+      "ListTasksResponse": {
+        "type": "object",
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            }
+          }
+        },
+        "required": [
+          "tasks"
         ]
       },
       "ListTemplatesResponse": {
@@ -2845,6 +4659,184 @@
           "status"
         ]
       },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/MessageId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "conversation_id": {
+            "$ref": "#/components/schemas/ConversationId"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "author": {
+            "$ref": "#/components/schemas/MessageAuthor"
+          },
+          "addressees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "thread_root": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "body_md": {
+            "type": "string"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileId"
+            }
+          },
+          "links": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "ardent": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "task_id": {
+                    "type": "string"
+                  },
+                  "session_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "task_id",
+                  "session_id"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/MessageState"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "conversation_id",
+          "seq",
+          "author",
+          "addressees",
+          "reply_to",
+          "thread_root",
+          "kind",
+          "body_md",
+          "attachments",
+          "links",
+          "ardent",
+          "state",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "MessageAuthor": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "user"
+              },
+              "user_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "user_id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "agent"
+              },
+              "binding_id": {
+                "$ref": "#/components/schemas/BindingId"
+              },
+              "role_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "binding_id",
+              "role_key"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "system"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          }
+        ]
+      },
       "MessageDeltaEvent": {
         "type": "object",
         "properties": {
@@ -2853,11 +4845,120 @@
           },
           "text": {
             "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "append",
+              "replace"
+            ]
+          },
+          "step": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
           }
         },
         "required": [
           "message_id",
           "text"
+        ]
+      },
+      "MessageId": {
+        "type": "string",
+        "pattern": "^msg_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "MessageState": {
+        "type": "string",
+        "enum": [
+          "streaming",
+          "complete",
+          "failed"
+        ]
+      },
+      "Placement": {
+        "type": "object",
+        "properties": {
+          "role_key": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "seat_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,40}$"
+          }
+        },
+        "required": [
+          "role_key",
+          "seat_id"
+        ]
+      },
+      "PlacementInput": {
+        "type": "object",
+        "properties": {
+          "role_key": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "seat_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,40}$"
+          }
+        },
+        "required": [
+          "role_key",
+          "seat_id"
+        ],
+        "additionalProperties": false
+      },
+      "PostMessageRequestInput": {
+        "type": "object",
+        "properties": {
+          "body_md": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "to": {
+            "default": {
+              "kind": "team"
+            },
+            "$ref": "#/components/schemas/RecipientInput"
+          },
+          "reply_to": {
+            "$ref": "#/components/schemas/MessageId"
+          },
+          "thread_root": {
+            "$ref": "#/components/schemas/MessageId"
+          },
+          "attachments": {
+            "default": [],
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileId"
+            }
+          }
+        },
+        "required": [
+          "body_md"
+        ],
+        "additionalProperties": false
+      },
+      "PostMessageResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            }
+          }
+        },
+        "required": [
+          "message",
+          "tasks"
         ]
       },
       "Project": {
@@ -3263,6 +5364,55 @@
         ],
         "additionalProperties": false
       },
+      "PutLayoutRequestInput": {
+        "type": "object",
+        "properties": {
+          "base_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seats": {
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeatInput"
+            }
+          },
+          "placements": {
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlacementInput"
+            }
+          },
+          "zone_labels": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]{1,40}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 60
+            }
+          }
+        },
+        "required": [
+          "base_revision",
+          "seats",
+          "placements"
+        ],
+        "additionalProperties": false
+      },
       "PutTeamDraftRequestInput": {
         "type": "object",
         "properties": {
@@ -3410,6 +5560,70 @@
         "required": [
           "status",
           "checks"
+        ]
+      },
+      "ReassignTaskRequestInput": {
+        "type": "object",
+        "properties": {
+          "role_key": {
+            "$ref": "#/components/schemas/RoleKey"
+          }
+        },
+        "required": [
+          "role_key"
+        ],
+        "additionalProperties": false
+      },
+      "RecipientInput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "team"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "coordinator"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "roles"
+              },
+              "roles": {
+                "minItems": 1,
+                "maxItems": 10,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RoleKey"
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "roles"
+            ],
+            "additionalProperties": false
+          }
         ]
       },
       "Relationship": {
@@ -3614,6 +5828,57 @@
         "type": "string",
         "pattern": "^[a-z][a-z0-9_-]{0,47}$"
       },
+      "RoomLayout": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "seats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Seat"
+            }
+          },
+          "placements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Placement"
+            }
+          },
+          "zone_labels": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "project_id",
+          "revision",
+          "seats",
+          "placements",
+          "zone_labels",
+          "created_by",
+          "created_at"
+        ]
+      },
       "RuntimeRequirement": {
         "type": "object",
         "properties": {
@@ -3721,6 +5986,77 @@
         ],
         "additionalProperties": false
       },
+      "Seat": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,40}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "desk",
+              "discussion",
+              "review",
+              "shelf",
+              "wall"
+            ]
+          },
+          "x": {
+            "type": "number",
+            "minimum": -1000,
+            "maximum": 1000
+          },
+          "y": {
+            "type": "number",
+            "minimum": -1000,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "x",
+          "y"
+        ]
+      },
+      "SeatInput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,40}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "desk",
+              "discussion",
+              "review",
+              "shelf",
+              "wall"
+            ]
+          },
+          "x": {
+            "type": "number",
+            "minimum": -1000,
+            "maximum": 1000
+          },
+          "y": {
+            "type": "number",
+            "minimum": -1000,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "x",
+          "y"
+        ],
+        "additionalProperties": false
+      },
       "Sha256": {
         "type": "string",
         "pattern": "^[a-f0-9]{64}$"
@@ -3797,13 +6133,52 @@
           },
           "team": {
             "$ref": "#/components/schemas/TeamState"
+          },
+          "conversations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Conversation"
+            }
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            }
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Decision"
+            }
+          },
+          "activity": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Activity"
+            }
+          },
+          "layout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoomLayout"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "seq",
           "project",
           "files",
-          "team"
+          "team",
+          "conversations",
+          "tasks",
+          "decisions",
+          "activity",
+          "layout"
         ]
       },
       "Stage": {
@@ -3815,6 +6190,252 @@
           "review",
           "revise",
           "deliver"
+        ]
+      },
+      "SupersedeDecisionRequestInput": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "statement_md": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "rationale_md": {
+            "default": "",
+            "type": "string",
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "title",
+          "statement_md"
+        ],
+        "additionalProperties": false
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/TaskId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "title": {
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/TaskMode"
+          },
+          "role_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "binding_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BindingId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "assignment_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trigger_message_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instructions_md": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "state": {
+            "$ref": "#/components/schemas/TaskState"
+          },
+          "dispatch": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "mission",
+                  "turn"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ardent": {
+            "type": "object",
+            "properties": {
+              "agent_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "task_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "session_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "agent_ref",
+              "task_id",
+              "session_id"
+            ]
+          },
+          "outcome": {},
+          "reassigned_from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "group_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group_position": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "title",
+          "mode",
+          "role_key",
+          "binding_id",
+          "assignment_revision",
+          "conversation_id",
+          "trigger_message_id",
+          "instructions_md",
+          "source",
+          "state",
+          "dispatch",
+          "ardent",
+          "outcome",
+          "reassigned_from",
+          "group_id",
+          "group_position",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "finished_at"
+        ]
+      },
+      "TaskId": {
+        "type": "string",
+        "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "TaskMode": {
+        "type": "string",
+        "enum": [
+          "turn",
+          "assignment",
+          "discussion_turn",
+          "revision",
+          "review",
+          "team_proposal"
+        ]
+      },
+      "TaskState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "input_required",
+          "pausing",
+          "paused",
+          "completed",
+          "partial",
+          "failed",
+          "cancelled",
+          "unknown"
         ]
       },
       "TeamBody": {

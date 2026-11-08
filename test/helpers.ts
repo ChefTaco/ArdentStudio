@@ -2,12 +2,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exportJWK, generateKeyPair, SignJWT, createLocalJWKSet, type JWTVerifyGetKey } from 'jose';
-import { AgentDirectory, type MagnusAgentApi } from '../src/agents/directory.js';
+import { AgentDirectory } from '../src/agents/directory.js';
 import type { IdentityLink } from '../src/auth/links.js';
 import { createAuthenticator, createOathweaveVerifier } from '../src/auth/oathweave.js';
 import { BlobStore } from '../src/blobs/store.js';
 import type { KnowledgeSyncRequest, KnowledgeSyncResponse } from '../src/clients/hivemem.js';
-import type { MagnusArdentProfile } from '../src/clients/magnus.js';
+import { MagnusClient } from '../src/clients/magnus.js';
+import { Conductor, type ConductorOptions } from '../src/conductor/conductor.js';
+import { LiveText } from '../src/conductor/live.js';
 import { openDatabase } from '../src/db/database.js';
 import type { Clock } from '../src/db/json.js';
 import { Store } from '../src/db/store.js';
@@ -17,6 +19,7 @@ import { silentLogger } from '../src/logger.js';
 import { createApp } from '../src/server/app.js';
 import { ARDENT_STUDIO_API_PREFIX, ARDENT_STUDIO_PERMISSIONS, IDEMPOTENCY_HEADER } from '../src/shared/browser.js';
 import { loadSeedTemplates } from '../src/templates/seeds.js';
+import { fakeProfile, FakeMagnusServer } from './fake-magnus.js';
 
 export const ISSUER = 'https://identity.example.com';
 export const JWKS_URL = 'https://identity.example.com/jwks';
@@ -70,28 +73,8 @@ export const LINKS: IdentityLink[] = [
   { issuer: ISSUER, subject: 'subject-viewer', localUserId: 'viewer', permissions: ['ardentstudio:projects:read', 'ardentstudio:templates:read'] },
 ];
 
-export function profile(nodeId: string, id: string, overrides: Partial<MagnusArdentProfile> = {}): MagnusArdentProfile {
-  return {
-    id, name: id, backend: 'llamacpp', apiPort: 8700, running: true, a2aEnabled: false, channels: {}, error: null,
-    nodeId, nodeName: `Node ${nodeId}`, hostname: `${nodeId}.example.com`, installationVersion: '2.2.0', reachable: true, ...overrides,
-  };
-}
-
-export class FakeMagnus implements MagnusAgentApi {
-  profiles: MagnusArdentProfile[] = [profile('node1', 'lead'), profile('node1', 'scout'), profile('node2', 'mapper')];
-  fail = false;
-  memory = new Map<string, 'ready' | 'degraded'>();
-  skillMap = new Map<string, Array<{ name: string; enabled: boolean }>>();
-  calls: Array<{ method: string; actingSubject: string | undefined }> = [];
-
-  listProfiles = async (context: { actingSubject?: string | undefined } = {}) => {
-    this.calls.push({ method: 'listProfiles', actingSubject: context.actingSubject });
-    if (this.fail) throw new Error('Magnus unavailable');
-    return this.profiles;
-  };
-  memoryStatus = async (ref: string) => ({ status: this.memory.get(ref) ?? 'ready', agent_id: ref, workspace_id: 'default', retrieval: null, storage: null, reason: null });
-  skills = async (ref: string) => this.skillMap.get(ref) ?? [];
-}
+export const profile = fakeProfile;
+export { FakeMagnusServer };
 
 export class FakeHiveMem {
   workspaces = new Map<string, unknown>();
@@ -127,19 +110,22 @@ export interface TestContext {
   blobs: BlobStore;
   bus: EventBus;
   app: ReturnType<typeof createApp>;
-  magnus: FakeMagnus;
+  magnus: FakeMagnusServer;
+  magnusClient: MagnusClient;
+  conductor: Conductor;
+  live: LiveText;
   hivemem: FakeHiveMem;
   knowledge: KnowledgeSync;
   keys: Keys;
   revoked: Set<string>;
   token: (claims?: Parameters<typeof signToken>[1]) => Promise<string>;
   call: (method: string, path: string, options?: { token?: string | null; body?: unknown; raw?: BodyInit; headers?: Record<string, string>; key?: string | null }) => Promise<Response>;
-  close: () => void;
+  close: () => Promise<void>;
 }
 
 let keyCache: Promise<Keys> | undefined;
 
-export async function createTestContext(options: { clock?: Clock; maxBlobBytes?: number; heartbeatMs?: number; streamRecheckMs?: number; seed?: boolean } = {}): Promise<TestContext> {
+export async function createTestContext(options: { clock?: Clock; maxBlobBytes?: number; heartbeatMs?: number; streamRecheckMs?: number; seed?: boolean; conductor?: Partial<ConductorOptions> } = {}): Promise<TestContext> {
   const dir = mkdtempSync(join(tmpdir(), 'ardent-studio-test-'));
   const clock = options.clock ?? { now: () => new Date() };
   const db = openDatabase(join(dir, 'studio.sqlite'));
@@ -151,11 +137,15 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
   const revoked = new Set<string>();
   const authenticate = createAuthenticator(
     createOathweaveVerifier({ issuer: ISSUER, jwksUrl: JWKS_URL, userinfoUrl: USERINFO_URL }, { keys: keys.jwks, fetch: userinfoFetch(revoked) }), LINKS);
-  const magnus = new FakeMagnus();
+  const magnus = await new FakeMagnusServer().start();
+  const magnusClient = new MagnusClient({ baseUrl: magnus.url, tokens: { token: async () => 'fixture-service-token', invalidate: () => undefined }, timeoutMs: 5_000 });
   const hivemem = new FakeHiveMem();
   const knowledge = new KnowledgeSync(store, blobs, hivemem, silentLogger);
-  const agents = new AgentDirectory(magnus, store, { cacheMs: 0 });
-  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: silentLogger,
+  const agents = new AgentDirectory(magnusClient, store, { cacheMs: 0 });
+  const live = new LiveText(bus);
+  const conductor = new Conductor({ store, blobs, magnus: magnusClient, agents, live, logger: silentLogger, presenceMs: 3_600_000, submitRetryMs: 20,
+    follower: { pollMinMs: 20, pollMaxMs: 50, pollWindowMs: 300, reconnectMs: 10 }, ...options.conductor });
+  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: silentLogger, conductor, live, magnus: magnusClient,
     ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}), ...(options.streamRecheckMs ? { streamRecheckMs: options.streamRecheckMs } : {}) });
   let counter = 0;
   const token = (claims?: Parameters<typeof signToken>[1]) => signToken(keys, claims);
@@ -170,8 +160,8 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
     return app.request(`${ARDENT_STUDIO_API_PREFIX}${path}`, { method, headers, ...(body !== undefined ? { body } : {}) });
   };
   return {
-    dir, store, blobs, bus, app, magnus, hivemem, knowledge, keys, revoked, token, call,
-    close: () => { db.close(); rmSync(dir, { recursive: true, force: true }); },
+    dir, store, blobs, bus, app, magnus, magnusClient, conductor, live, hivemem, knowledge, keys, revoked, token, call,
+    close: async () => { await conductor.stop(); await magnus.close(); db.close(); rmSync(dir, { recursive: true, force: true }); },
   };
 }
 
@@ -186,4 +176,41 @@ export async function createProject(ctx: TestContext, body: Record<string, unkno
   // Workspace creation runs in the background; wait for its outcome so event counts are stable.
   for (let attempt = 0; attempt < 100 && ctx.store.projects.get(project.id)?.hivemem.state === 'pending'; attempt++) await new Promise(resolve => setTimeout(resolve, 5));
   return project;
+}
+
+/** Poll until the check passes (or throws its last failure). */
+export async function waitFor<T>(check: () => T | undefined | null | false | Promise<T | undefined | null | false>, timeoutMs = 3000): Promise<T> {
+  const until = Date.now() + timeoutMs;
+  let last: unknown;
+  for (;;) {
+    try {
+      const value = await check();
+      if (value) return value;
+    } catch (error) { last = error; }
+    if (Date.now() > until) throw last instanceof Error ? last : new Error('waitFor timed out');
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
+
+export function teamRole(key: string, name: string, agentRef: string | null, extra: Record<string, unknown> = {}) {
+  return { key, name, coordinator: false, responsibilities_md: `${name} responsibilities.`, instructions_md: `${name} project instructions.`, contributions: [], deliverables: [],
+    agent_template_ref: null, skills: [], stage: null, agent_ref: agentRef, knowledge: [], ...extra };
+}
+
+/** A published three-role team: lead (coordinator, node1~lead) delegates to writer (node1~scout) and mapper (node2~mapper); writer hands off to mapper. */
+export async function publishTeam(ctx: TestContext, projectId: string, body?: { roles: unknown[]; relationships: unknown[] }): Promise<void> {
+  const team = body ?? {
+    roles: [teamRole('lead', 'Story Lead', 'node1~lead', { coordinator: true }), teamRole('writer', 'Worldbuilder', 'node1~scout'), teamRole('mapper', 'Cartographer', 'node2~mapper')],
+    relationships: [
+      { from: 'writer', to: 'lead', type: 'reports_to' }, { from: 'mapper', to: 'lead', type: 'reports_to' },
+      { from: 'lead', to: 'writer', type: 'delegates_to' }, { from: 'lead', to: 'mapper', type: 'delegates_to' },
+      { from: 'writer', to: 'mapper', type: 'hands_off_to', stage: 'create' },
+    ],
+  };
+  const current = ctx.store.team.pointers(projectId).current;
+  const saved = await ctx.call('PUT', `/projects/${projectId}/team/draft`, { body: { base_revision: current, body: { ...team, stages: [] } } });
+  if (saved.status !== 200) throw new Error(`team draft failed: ${saved.status} ${await saved.text()}`);
+  const draft = (await json(saved)).draft.revision as number;
+  const published = await ctx.call('POST', `/projects/${projectId}/team/publish`, { body: { draft_revision: draft } });
+  if (published.status !== 200) throw new Error(`team publish failed: ${published.status} ${await published.text()}`);
 }

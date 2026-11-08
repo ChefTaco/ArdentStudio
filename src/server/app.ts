@@ -8,9 +8,11 @@ import { agentRoutes } from './routes/agents.js';
 import { fileRoutes } from './routes/files.js';
 import { healthRoutes } from './routes/health.js';
 import { projectRoutes } from './routes/projects.js';
+import { roomRoutes } from './routes/room.js';
 import { streamRoutes } from './routes/stream.js';
 import { teamRoutes } from './routes/team.js';
 import { templateRoutes } from './routes/templates.js';
+import { workRoutes } from './routes/work.js';
 
 /** The ArdentStudio HTTP API under /api/ardentstudio/v1. */
 export function createApp(deps: AppDeps): Hono<AppEnv> {
@@ -32,6 +34,8 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   templateRoutes(register, deps);
   teamRoutes(register, deps);
   agentRoutes(register, deps);
+  roomRoutes(register, deps);
+  workRoutes(register, deps);
   streamRoutes(register, deps);
   return app;
 }

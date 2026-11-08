@@ -6,7 +6,7 @@ export { openDatabase, migrate, type Db } from './db/database.js';
 export { MIGRATIONS } from './db/migrations.js';
 export { Store } from './db/store.js';
 export { BlobStore, BlobIntegrityError, BlobTooLargeError } from './blobs/store.js';
-export { MagnusClient, MagnusError, parseAgentRef, agentRef, PLANNED_ACTIONS, RELEASED_ACTIONS } from './clients/magnus.js';
+export { MagnusClient, MagnusError, parseAgentRef, agentRef, STUDIO_ACTIONS, RELEASED_ACTIONS, ARDENT_STUDIO_CAPABILITY } from './clients/magnus.js';
 export { HiveMemClient, HiveMemError } from './clients/hivemem.js';
 export { ChatterMostClient } from './clients/chattermost.js';
 export { ServiceTokenProvider } from './clients/service-token.js';
