@@ -225,6 +225,19 @@ describe('conductor following', () => {
     await waitFor(() => studioTask(posted.tasks[0].id).state === 'completed');
     expect(ctx.store.room.messageForArdentTask(ardent!.id)!.body_md).toBe('Proposed a scale.');
   });
+  it('finishes a task whose journal pages Magnus cannot relay', async () => {
+    const { team } = await room();
+    const posted = await post(team.id, { body_md: 'Outline it.' });
+    const [ardent] = await ctx.magnus.submitted(1);
+    await followed(posted.tasks[0].id);
+    ctx.magnus.failStreams = true;
+    ctx.magnus.failEvents = true;
+    ctx.magnus.dropStreams(ardent!.id);
+    await waitFor(() => ctx.conductor.followerOf(posted.tasks[0].id)?.mode === 'poll');
+    ctx.magnus.finish(ardent!.id, { state: 'failed', error: 'CONTEXT_BUDGET_EXCEEDED' });
+    await waitFor(() => studioTask(posted.tasks[0].id).state === 'failed');
+    expect(ctx.store.room.messageForArdentTask(ardent!.id)?.body_md ?? '').toContain('CONTEXT_BUDGET_EXCEEDED');
+  });
 });
 
 describe('agent requests', () => {

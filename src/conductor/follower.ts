@@ -110,13 +110,22 @@ export class TaskFollower {
     let interval = this.pollMin;
     while (!this.stopped && Date.now() < until) {
       try {
-        const events = await this.magnus.taskEvents(this.agentRef, this.ardentTaskId, this.hooks.cursor(), { signal: this.abort.signal });
+        // A journal page Magnus cannot relay (an error, or a page over its size limit) must not
+        // hide that the task finished: the task record is read either way.
+        let events: Awaited<ReturnType<FollowerMagnus['taskEvents']>> = [];
+        let unreadable: unknown;
+        try { events = await this.magnus.taskEvents(this.agentRef, this.ardentTaskId, this.hooks.cursor(), { signal: this.abort.signal }); }
+        catch (error) {
+          if (error instanceof MagnusError && error.status === 404) throw error;
+          unreadable = error;
+        }
         for (const event of events) if (await this.hooks.event(event)) return true;
         const task = await this.magnus.task(this.agentRef, this.ardentTaskId, { signal: this.abort.signal });
         if ((ARDENT_FINISHED as readonly string[]).includes(task.state)) {
           await this.hooks.done(task);
           return true;
         }
+        if (unreadable !== undefined) throw unreadable;
         interval = events.length ? this.pollMin : Math.min(this.pollMax, interval * 2);
       } catch (error) {
         if (this.stopped) return false;
