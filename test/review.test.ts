@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { unzipSync } from 'fflate';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { DocxConverter } from '../src/review/docx.js';
-import { createProject, createTestContext, json, publishTeam, waitFor, type TestContext } from './helpers.js';
+import { createProject, createTestContext, json, publishTeam, teamRole, waitFor, type TestContext } from './helpers.js';
 
 let ctx: TestContext;
 afterEach(async () => { await ctx?.close(); });
@@ -61,6 +61,23 @@ describe('artifact importer', () => {
     ctx.importer.kick();
     await ctx.importer.settled();
     expect(ctx.store.review.revisions(deliverable.id)).toHaveLength(1);
+  });
+
+  it('files an artifact under the requested deliverable its role lists in Team Assignment', async () => {
+    ctx = await createTestContext();
+    const project = await createProject(ctx, { deliverables: [{ name: 'Region Map', kind: 'map', formats: ['svg'] }, { name: 'Adventure Text', kind: 'document', formats: ['pdf'] }] });
+    await publishTeam(ctx, project.id, {
+      roles: [teamRole('lead', 'Story Lead', 'node1~lead', { coordinator: true, deliverables: ['Adventure Text'] }), teamRole('mapper', 'Cartographer', 'node2~mapper', { deliverables: ['Region Map'] })],
+      relationships: [{ from: 'mapper', to: 'lead', type: 'reports_to' }, { from: 'lead', to: 'mapper', type: 'delegates_to' }],
+    });
+    const team = await json(await ctx.call('POST', `/projects/${project.id}/conversations`, { body: { kind: 'team' } }));
+    await ctx.call('POST', `/conversations/${team.id}/messages`, { body: { body_md: '@mapper draw the valley' } });
+    const [ardent] = await ctx.magnus.submitted(1);
+    await waitFor(() => ctx.magnus.openStreams(ardent!.id));
+    register(ardent!.id, 'valley.svg', 'image/svg+xml', SVG);
+    const deliverables = await waitFor(async () => { const list = await json(await ctx.call('GET', `/projects/${project.id}/deliverables`)); return list.deliverables.length ? list.deliverables : undefined; });
+    expect(deliverables).toHaveLength(1);
+    expect(deliverables[0]).toMatchObject({ name: 'Region Map', requested_deliverable_id: project.deliverables[0].id, producer_role: 'mapper' });
   });
 
   it('refuses bytes that do not match the registered SHA-256 and says so in the room', async () => {

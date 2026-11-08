@@ -158,7 +158,11 @@ export class ArtifactImporter {
       const project = this.store.projects.get(row.project_id)!;
       const supersedes = typeof row.manifest.supersedes_sha256 === 'string' ? row.manifest.supersedes_sha256 : null;
       const format = MIME_FORMATS[row.mime];
-      const requested = project.deliverables.filter(item => item.producer_role_key === task.role_key && format && (item.formats as string[]).includes(format));
+      // A role produces a requested deliverable when the deliverable names it, or when the role lists
+      // the deliverable in its team revision (how Team Assignment assigns producers).
+      const listed = new Set(this.roleOf(task)?.deliverables ?? []);
+      const requested = project.deliverables.filter(item => (item.producer_role_key === task.role_key || listed.has(item.name))
+        && format && (item.formats as string[]).includes(format));
       const existing = (supersedes ? this.deliverableOf(this.store.review.revisionByBlob(project.id, supersedes)?.deliverable_id) : undefined)
         ?? this.deliverableOf(typeof task.source.deliverable_id === 'string' ? task.source.deliverable_id : undefined)
         ?? this.store.review.deliverableByName(project.id, row.name)
@@ -194,10 +198,15 @@ export class ArtifactImporter {
     return id ? this.store.review.deliverable(id) : undefined;
   }
 
+  /** The task's role in the team revision it runs under, else in the current team. */
+  private roleOf(task: StudioTask) {
+    const revision = task.assignment_revision ? this.store.team.revision(task.project_id, task.assignment_revision) : this.store.team.current(task.project_id);
+    return revision?.body.roles.find(role => role.key === task.role_key);
+  }
+
   private roleName(task: StudioTask | undefined): string {
     if (!task) return 'an agent';
-    const revision = task.assignment_revision ? this.store.team.revision(task.project_id, task.assignment_revision) : undefined;
-    return revision?.body.roles.find(role => role.key === task.role_key)?.name ?? task.role_key ?? 'an agent';
+    return this.roleOf(task)?.name ?? task.role_key ?? 'an agent';
   }
 
   publicImport(id: number) {
