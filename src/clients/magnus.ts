@@ -265,10 +265,6 @@ export class MagnusClient {
     return this.action(ref, 'task-cancel', { target: uuid(taskId) }, context);
   }
 
-  async memorySearch(ref: string, query: string, context: CallContext = {}): Promise<unknown> {
-    return this.action(ref, 'memory-search', { body: { query } }, context);
-  }
-
   /** Ardent rejects a stale revision with 409, so concurrent edits never overwrite each other. */
   async saveIdentity(ref: string, kind: 'soul' | 'identity', body: { text: string; revision: string }, context: CallContext = {}): Promise<ArdentIdentityFile> {
     return ardentIdentityFileSchema.parse(await this.action(ref, 'identity-save', { target: kind, body: validated(ardentIdentityEditSchema, body, 'identity-save') }, context));

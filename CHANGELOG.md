@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
   checks that every Magnus route and action the client calls is in that service contract.
   Agent operations are now read with Magnus's full operation shape.
 
+### Removed
+
+- `MagnusClient.memorySearch()`. Magnus does not allow the `memory-search` action for a service
+  identity, so every call answered 403; project knowledge is read from HiveMem directly.
+
 ## [0.1.0] - 2026-11-08
 
 ### Added
