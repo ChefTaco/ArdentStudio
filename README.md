@@ -12,12 +12,11 @@ A project has three areas:
 2. **Team Conversation Room**: the canonical transcript, live agent replies, tasks, clarifications,
    discussions and decisions, driven by the conductor ([docs/CONDUCTOR.md](docs/CONDUCTOR.md)).
 3. **Agent Studio**: agent tuning, previews, development records and **Deliverable Review**
-   (coming later).
+   (verified deliverable revisions, anchored comments, revision requests, decisions and exports).
 
 Version 0.1 covers projects, reference files with HiveMem knowledge sync, templates, team
-assignment, agents through Magnus, the conversation room with its conductor, and the live project
-event stream. The schema for the review records (deliverables, revisions, comments, exports) is
-already in place.
+assignment, agents through Magnus, the conversation room with its conductor, Deliverable Review
+and the live project event stream.
 
 ## Requirements
 

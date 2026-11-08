@@ -40,6 +40,8 @@ export interface ConductorOptions {
 
 /** Hooks later features attach to journal events (the artifact importer). Called inside the event's transaction. */
 export type JournalHook = (task: StudioTask, event: ArdentTaskEvent) => void;
+/** Extra context for a task's turn (review comments for a revision task). */
+export type ContextProvider = (task: StudioTask) => Array<{ title: string; text: string; mime?: string }>;
 
 export class ConductorError extends Error {
   override name = 'ConductorError';
@@ -94,6 +96,7 @@ export class Conductor {
   /** Last presence probe per agent: true reachable and running, false not. Absent until probed. */
   private readonly presence = new Map<string, boolean>();
   private readonly hooks: JournalHook[] = [];
+  private readonly contextProviders: ContextProvider[] = [];
   private pumping: Promise<void> | undefined;
   private pumpAgain = false;
   private retryTimer: NodeJS.Timeout | undefined;
@@ -110,6 +113,11 @@ export class Conductor {
   /** Register a journal hook (for example the artifact importer). */
   onJournalEvent(hook: JournalHook): void {
     this.hooks.push(hook);
+  }
+
+  /** Register extra turn context (for example the review comments of a revision task). */
+  addContextProvider(provider: ContextProvider): void {
+    this.contextProviders.push(provider);
   }
 
   /** Resume following every accepted task from its stored cursor, finish discussions a restart interrupted, and start dispatching. */
@@ -295,7 +303,8 @@ export class Conductor {
       const file = this.store.files.get(id);
       return file ? [this.attachmentText(file)] : [];
     });
-    const composed = composeTurn({ project, team: revision.body, role, task, firstTurn, unseen, trigger, names, attachments, discussion });
+    const extra = this.contextProviders.flatMap(provider => provider(task));
+    const composed = composeTurn({ project, team: revision.body, role, task, firstTurn, unseen, trigger, names, attachments, discussion, extra });
     const seen = [...unseen, ...(trigger ? [trigger] : []), ...(discussion?.transcript ?? [])].reduce((max, message) => Math.max(max, message.seq), lastSeen);
     return { composed, seenSeq: seen };
   }
@@ -795,6 +804,11 @@ export class Conductor {
     if (asking) { write('asking', `Asking: ${excerpt(asking.title)}`, { task_id: asking.id, kind: 'task' }); return; }
     if (this.presence.get(binding.agent_ref) === true) write('available', 'Available', { kind: 'presence' });
     else write('unknown', 'Status not checked yet', { kind: 'presence' });
+  }
+
+  /** Record an activity a real record shows (a delivered file). Call inside a transaction. */
+  noteActivity(task: StudioTask, state: 'delivering', label: string, source: Record<string, unknown>): void {
+    this.setActivity(task, state, label, source);
   }
 
   private setActivity(task: StudioTask, state: string, label: string, source: Record<string, unknown>): void {

@@ -48,8 +48,8 @@ export function fileRoutes(register: ReturnType<typeof createRouter>, deps: AppD
 
   register('GET', '/blobs/{sha256}', c => {
     const sha = sha256Schema.safeParse(c.req.param('sha256'));
-    // Only blobs a project file references are served; other stored bytes stay private.
-    const opened = sha.success && store.files.blobReferenced(sha.data) ? blobs.open(sha.data) : undefined;
+    // Only blobs a project file, a revision or an export references are served; other stored bytes (DOCX conversions) stay private.
+    const opened = sha.success && (store.files.blobReferenced(sha.data) || store.review.blobReferenced(sha.data)) ? blobs.open(sha.data) : undefined;
     if (!opened) throw notFound('Blob');
     return new Response(Readable.toWeb(opened.stream) as ReadableStream, {
       status: 200,

@@ -69,6 +69,7 @@
   "dependencies": {
     "@hono/node-server": "^2.1.5",
     "better-sqlite3": "^13.0.3",
+    "fflate": "^0.8.3",
     "hono": "^4.13.17",
     "jose": "^6.2.15",
     "pdfjs-dist": "^6.5.438",

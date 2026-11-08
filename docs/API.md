@@ -31,7 +31,7 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | `ardentstudio:projects:write` | Create and change projects, upload and reindex files, edit and publish teams, post messages, pin decisions, create and control tasks |
 | `ardentstudio:templates:read` | Read templates and versions |
 | `ardentstudio:templates:write` | Create templates, add versions, archive; save a project team as a template |
-| `ardentstudio:review:write` | Review decisions and comments (with Deliverable Review) |
+| `ardentstudio:review:write` | Comment on, accept, reject and finalize deliverables; request revisions (with projects:write); export |
 | `ardentstudio:agents:admin` | New Agent through Magnus (with Agent Studio; Magnus also requires an ADMIN person) |
 
 ## Routes
@@ -58,9 +58,10 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | | `POST /projects/:id/decisions`, `POST /decisions/:id/supersede` | projects:write |
 | Tasks | `GET /projects/:id/tasks?state=&conversation_id=` | projects:read |
 | | `POST /projects/:id/tasks`, `POST /tasks/:id/pause`, `…/resume`, `…/cancel`, `…/reassign` | projects:write |
+| Review | `GET /projects/:id/deliverables`, `GET /deliverables/:id`, `GET /revisions/:id`, `GET /revisions/:id/comments`, `GET /projects/:id/exports`, `GET /files/:id/docx`, `GET /revisions/:id/docx` | projects:read |
+| | `POST /revisions/:id/comments`, `POST /comments/:id/resolve`, `POST /revisions/:id/decisions`, `POST /deliverables/:id/final`, `POST /projects/:id/exports` | review:write |
+| | `POST /projects/:id/revision-requests` | review:write + projects:write |
 | Stream | `GET /projects/:id/stream?after=<seq>` | projects:read |
-
-Review and exports arrive in a later release; their records already exist in the schema.
 
 ## Projects
 
@@ -158,6 +159,43 @@ for a role. Pause takes effect at Ardent's next step boundary (`pausing`, then `
 whose Magnus node agent predates pausing answers `409 AGENT_UPGRADE_REQUIRED`. An unstarted task is
 held instead. `reassign` cancels an active task and creates the same work for another role with
 `reassigned_from`.
+
+## Deliverable review
+
+- **Receiving files.** When an agent's task journals `artifact_registered`, ArdentStudio streams the
+  bytes from Magnus into its blob store and checks them against the registered SHA-256. Only a
+  verified file becomes a **deliverable revision**; a mismatch, an oversized file or a refused
+  transfer is retried, then recorded as a failed import (`imports` in `GET
+  /projects/:id/deliverables`) with a room note. The task's state, the file's receipt and the
+  review status are separate records.
+- **Deliverables.** A registration that revises an earlier file (`supersedes_sha256`), comes from a
+  revision task, has the same name, or matches the role's single requested deliverable joins that
+  deliverable as revision n+1, which `supersedes` revision n (an unreviewed n becomes `superseded`).
+  Otherwise it starts a new deliverable. Bytes download through `GET /blobs/:sha256`.
+- **Comments.** Anchors: `text` (`start`, `end` as UTF-16 offsets into the file decoded as UTF-8,
+  `quote`, `source_sha256`; for Markdown, text, CSV, JSON and SVG source), `docx` (`paragraph_id`,
+  `start`, `end`, `quote`, from the stored conversion), `pdf` (`page`, optional `rect` and
+  `quote`), `image` (normalized `x`, `y`, `w`, `h`, optional SVG `viewbox`) and `file`. A text
+  quote must match the revision (`422 ANCHOR_MISMATCH`) and its digest (`409 ANCHOR_STALE`); an
+  anchor that does not fit the file type is `422 ANCHOR_KIND`. Resolving is always a person's act.
+- **Decisions.** `accepted`, `changes_requested` (needs a note or an open comment) or `rejected` on a
+  revision. `POST /deliverables/:id/final` picks one final revision per deliverable.
+- **Revision requests.** `POST /projects/:id/revision-requests` takes `comment_ids` (one
+  deliverable), an optional `role_key` (default: the producer role) and `instructions_md`. It posts
+  a `revision_request` message, starts a `revision` task whose context items quote each anchored
+  comment (and, for small text files, the current revision), and links the comments
+  (`revision_task_id`). The revised file arrives as the next revision; its comments get
+  `addressed_in_revision_id`.
+- **Exports.** `POST /projects/:id/exports` zips each deliverable's final revision with
+  `manifest.json`: per file the path, SHA-256, size, revision, producer, the Ardent manifest,
+  `acceptance_status` (`approved`, `partial`, `rejected`, `unreviewed`) and the review record, plus
+  the excluded deliverables and the project's current decisions. The zip is stored and listed, and
+  downloads through `GET /blobs/:sha256`.
+- **DOCX.** `GET /files/:id/docx` and `GET /revisions/:id/docx` return the neutral Word exchange
+  document and paragraph index from the canvas Word codec. The codec assigns new paragraph ids on
+  every conversion, so each file or revision is converted once and stored; anchors use those ids.
+  Until the codec package is published these routes answer `501 DOCX_CONVERTER_UNAVAILABLE`, and
+  DOCX revisions take whole-file comments.
 
 ## Stream
 

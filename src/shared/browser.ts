@@ -39,6 +39,11 @@ export const conversationIdSchema = prefixedId('cnv');
 export const messageIdSchema = prefixedId('msg');
 export const taskIdSchema = prefixedId('tsk');
 export const decisionIdSchema = prefixedId('dec');
+export const deliverableIdSchema = prefixedId('dlv');
+export const revisionIdSchema = prefixedId('drv');
+export const commentIdSchema = prefixedId('cmt');
+export const reviewDecisionIdSchema = prefixedId('rvd');
+export const exportIdSchema = prefixedId('exp');
 /** A Magnus-managed Ardent profile: `<nodeId>~<profile>`, the same reference Magnus uses. */
 export const agentRefSchema = z.string().regex(/^[A-Za-z0-9._-]{1,128}~[A-Za-z0-9._-]{1,128}$/);
 export const roleKeySchema = z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/);
@@ -648,6 +653,144 @@ export const activitySchema = z.object({
   since: isoDate,
 });
 
+
+// ── Deliverable review ──
+/** A received revision's review status. Distinct from the task that produced it and from the file's receipt. */
+export const reviewStatusSchema = z.enum(['unreviewed', 'changes_requested', 'accepted', 'rejected', 'superseded']);
+export const deliverableRevisionSchema = z.object({
+  id: revisionIdSchema,
+  deliverable_id: deliverableIdSchema,
+  revision: z.number().int(),
+  /** Download through GET /blobs/{sha256}. */
+  blob_sha256: sha256Schema,
+  mime: z.string(),
+  size: z.number().int(),
+  producer_binding_id: bindingIdSchema.nullable(),
+  source_task_id: taskIdSchema.nullable(),
+  source_message_id: messageIdSchema.nullable(),
+  /** The Ardent registration: agent_ref, artifact_id, task_id and the full artifact manifest. */
+  ardent: z.record(z.string(), z.unknown()).nullable(),
+  supersedes_revision_id: revisionIdSchema.nullable(),
+  received_at: isoDate,
+  review_status: reviewStatusSchema,
+});
+export const deliverableSchema = z.object({
+  id: deliverableIdSchema,
+  project_id: projectIdSchema,
+  requested_deliverable_id: requestedDeliverableIdSchema.nullable(),
+  name: z.string(),
+  kind: z.string(),
+  producer_role: z.string().nullable(),
+  final_revision_id: revisionIdSchema.nullable(),
+  created_at: isoDate,
+  updated_at: isoDate,
+  revisions: z.array(deliverableRevisionSchema),
+  comments: z.object({ open: z.number().int(), resolved: z.number().int() }),
+});
+/** An artifact an agent registered. pending: being streamed in; failed: not stored (error says why, such as a digest mismatch). */
+export const artifactImportSchema = z.object({
+  artifact_id: z.string(),
+  task_id: taskIdSchema,
+  agent_ref: agentRefSchema,
+  name: z.string(),
+  mime: z.string(),
+  size: z.number().int(),
+  sha256: sha256Schema,
+  state: z.enum(['pending', 'imported', 'failed']),
+  attempts: z.number().int(),
+  error: z.string().nullable(),
+  revision_id: revisionIdSchema.nullable(),
+  updated_at: isoDate,
+});
+export const listDeliverablesResponseSchema = z.object({ deliverables: z.array(deliverableSchema), imports: z.array(artifactImportSchema) });
+export const deliverableResponseSchema = deliverableSchema;
+
+const unit = z.number().min(0).max(1);
+/**
+ * Where a comment points. text: UTF-16 offsets into the revision decoded as UTF-8, with the quoted
+ * text and the revision digest (Markdown, plain text, CSV, JSON, SVG source). docx: a paragraph of
+ * the stored conversion. pdf: a page, with an optional normalized rectangle and quote. image: a
+ * normalized region, with SVG viewBox coordinates when known. file: the whole file.
+ */
+export const commentAnchorSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('text'), start: z.number().int().min(0), end: z.number().int().min(0), quote: z.string().max(4_000), source_sha256: sha256Schema }).strict(),
+  z.object({ kind: z.literal('docx'), paragraph_id: z.string().regex(/^[A-Za-z0-9_:-]{1,128}$/), start: z.number().int().min(0), end: z.number().int().min(0), quote: z.string().max(4_000) }).strict(),
+  z.object({ kind: z.literal('pdf'), page: z.number().int().min(1).max(10_000), rect: z.object({ x: unit, y: unit, w: unit, h: unit }).strict().optional(), quote: z.string().max(4_000).optional() }).strict(),
+  z.object({ kind: z.literal('image'), x: unit, y: unit, w: unit, h: unit,
+    viewbox: z.object({ x: z.number(), y: z.number(), w: z.number().positive(), h: z.number().positive() }).strict().optional() }).strict(),
+  z.object({ kind: z.literal('file') }).strict(),
+]);
+export const reviewCommentSchema = z.object({
+  id: commentIdSchema,
+  project_id: projectIdSchema,
+  revision_id: revisionIdSchema,
+  anchor: commentAnchorSchema,
+  body_md: z.string(),
+  author: z.string(),
+  state: z.enum(['open', 'resolved']),
+  /** The revision task this comment was sent with. */
+  revision_task_id: taskIdSchema.nullable(),
+  /** The revision that came back from that task. Resolving stays a person's choice. */
+  addressed_in_revision_id: revisionIdSchema.nullable(),
+  created_at: isoDate,
+  resolved_at: isoDate.nullable(),
+  updated_at: isoDate.nullable(),
+});
+export const createCommentRequestSchema = z.object({ anchor: commentAnchorSchema, body_md: z.string().trim().min(1).max(20_000) }).strict();
+export const listCommentsResponseSchema = z.object({ comments: z.array(reviewCommentSchema) });
+export const commentResponseSchema = reviewCommentSchema;
+export const reviewDecisionKindSchema = z.enum(['accepted', 'changes_requested', 'rejected']);
+export const reviewDecisionSchema = z.object({
+  id: reviewDecisionIdSchema,
+  project_id: projectIdSchema,
+  revision_id: revisionIdSchema,
+  decision: reviewDecisionKindSchema,
+  note_md: z.string(),
+  decided_by: z.string(),
+  created_at: isoDate,
+});
+export const createReviewDecisionRequestSchema = z.object({ decision: reviewDecisionKindSchema, note_md: z.string().max(20_000).default('') }).strict();
+export const reviewDecisionResponseSchema = reviewDecisionSchema;
+export const revisionDetailResponseSchema = z.object({
+  revision: deliverableRevisionSchema,
+  deliverable: deliverableSchema,
+  comments: z.array(reviewCommentSchema),
+  decisions: z.array(reviewDecisionSchema),
+});
+export const setFinalRequestSchema = z.object({ revision_id: revisionIdSchema }).strict();
+export const revisionRequestSchema = z.object({
+  /** Comments on revisions of one deliverable. */
+  comment_ids: z.array(commentIdSchema).min(1).max(50).refine(value => new Set(value).size === value.length, 'Duplicate comment'),
+  /** Defaults to the deliverable's producer role. */
+  role_key: roleKeySchema.optional(),
+  instructions_md: z.string().max(20_000).default(''),
+}).strict();
+export const revisionRequestResponseSchema = z.object({ message: messageSchema, task: taskSchema, comments: z.array(reviewCommentSchema) });
+export const exportRecordSchema = z.object({
+  id: exportIdSchema,
+  project_id: projectIdSchema,
+  revision_ids: z.array(revisionIdSchema),
+  /** The zip: download through GET /blobs/{sha256}. */
+  blob_sha256: sha256Schema,
+  manifest: z.record(z.string(), z.unknown()),
+  created_by: z.string(),
+  created_at: isoDate,
+});
+export const createExportRequestSchema = z.object({ deliverable_ids: z.array(deliverableIdSchema).min(1).max(200).optional() }).strict();
+export const listExportsResponseSchema = z.object({ exports: z.array(exportRecordSchema) });
+export const exportResponseSchema = exportRecordSchema;
+/** A DOCX converted by the canvas Word codec, stored once per file or revision so paragraph ids stay stable. */
+export const docxDocumentResponseSchema = z.object({
+  source: z.object({ kind: z.enum(['file', 'revision']), id: z.string() }),
+  blob_sha256: sha256Schema,
+  codec: z.string(),
+  codec_version: z.string(),
+  document_sha256: sha256Schema,
+  paragraphs: z.array(z.object({ id: z.string(), text: z.string() })),
+  /** The exchange document and canvas-editor value. */
+  document: z.unknown(),
+});
+
 // ── Project snapshot and stream ──
 export const snapshotResponseSchema = z.object({
   /** The stream cursor this snapshot is consistent with: reconnect with ?after=<seq>. */
@@ -670,7 +813,7 @@ export const PROJECT_EVENT_TYPES = [
   'layout.updated', 'conversation.created', 'conversation.updated', 'message.created', 'message.updated',
   'presence.updated', 'task.created', 'task.updated', 'decision.created', 'decision.updated',
   'deliverable.revision.created', 'review.comment.created', 'review.comment.updated', 'review.decision.created',
-  'export.created', 'agent.operation.updated',
+  'export.created', 'agent.operation.updated', 'deliverable.updated', 'artifact.import.updated',
 ] as const;
 export const projectEventTypeSchema = z.enum(PROJECT_EVENT_TYPES);
 /** A persisted event. The SSE `id` is its seq. */
@@ -728,6 +871,7 @@ const READ = ['ardentstudio:projects:read'] as const;
 const WRITE = ['ardentstudio:projects:write'] as const;
 const TEMPLATES_READ = ['ardentstudio:templates:read'] as const;
 const TEMPLATES_WRITE = ['ardentstudio:templates:write'] as const;
+const REVIEW = ['ardentstudio:review:write'] as const;
 
 export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   // Health
@@ -746,7 +890,7 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   // Files
   { method: 'POST', path: '/projects/{projectId}/files', query: uploadFileQuerySchema, requestBody: 'raw', response: fileResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Raw body up to ARDENT_STUDIO_MAX_BLOB_BYTES (default 64 MiB) with an allowed Content-Type (UPLOAD_MIME_TYPES). References are indexed into the project HiveMem workspace.' },
   { method: 'GET', path: '/projects/{projectId}/files', query: listFilesQuerySchema, response: listFilesResponseSchema, permissions: READ, idempotent: false },
-  { method: 'GET', path: '/blobs/{sha256}', response: null, permissions: READ, idempotent: false, note: 'Bytes as application/octet-stream with Content-Disposition attachment; the recorded type is in X-Blob-Mime. Only blobs that a project file references are served.' },
+  { method: 'GET', path: '/blobs/{sha256}', response: null, permissions: READ, idempotent: false, note: 'Bytes as application/octet-stream with Content-Disposition attachment; the recorded type is in X-Blob-Mime. Only blobs that a project file, a deliverable revision or an export references are served.' },
   { method: 'POST', path: '/files/{fileId}/reindex', response: fileResponseSchema, permissions: WRITE, idempotent: true, note: 'Queues the file for HiveMem sync again.' },
 
   // Templates
@@ -789,6 +933,21 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'POST', path: '/tasks/{taskId}/resume', response: taskResponseSchema, permissions: WRITE, idempotent: true },
   { method: 'POST', path: '/tasks/{taskId}/cancel', response: taskResponseSchema, permissions: WRITE, idempotent: true },
   { method: 'POST', path: '/tasks/{taskId}/reassign', requestBody: 'json', request: reassignTaskRequestSchema, response: taskResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Cancels the task when it is still active and creates the same work for another role, with reassigned_from.' },
+
+  // Deliverable review
+  { method: 'GET', path: '/projects/{projectId}/deliverables', response: listDeliverablesResponseSchema, permissions: READ, idempotent: false, note: 'Deliverables with every revision, plus artifact imports that are still pending or failed.' },
+  { method: 'GET', path: '/deliverables/{deliverableId}', response: deliverableResponseSchema, permissions: READ, idempotent: false },
+  { method: 'GET', path: '/revisions/{revisionId}', response: revisionDetailResponseSchema, permissions: READ, idempotent: false },
+  { method: 'GET', path: '/revisions/{revisionId}/comments', response: listCommentsResponseSchema, permissions: READ, idempotent: false },
+  { method: 'POST', path: '/revisions/{revisionId}/comments', requestBody: 'json', request: createCommentRequestSchema, response: commentResponseSchema, permissions: REVIEW, idempotent: true, successStatus: 201, note: 'The anchor kind must fit the revision type (422 ANCHOR_KIND). A text anchor must quote the revision exactly (422 ANCHOR_MISMATCH) and name its digest (409 ANCHOR_STALE). A docx anchor needs the stored conversion (409 DOCX_NOT_CONVERTED).' },
+  { method: 'POST', path: '/comments/{commentId}/resolve', response: commentResponseSchema, permissions: REVIEW, idempotent: true },
+  { method: 'POST', path: '/revisions/{revisionId}/decisions', requestBody: 'json', request: createReviewDecisionRequestSchema, response: reviewDecisionResponseSchema, permissions: REVIEW, idempotent: true, successStatus: 201, note: 'changes_requested needs a note or an open comment (422 NOTE_REQUIRED).' },
+  { method: 'POST', path: '/deliverables/{deliverableId}/final', requestBody: 'json', request: setFinalRequestSchema, response: deliverableResponseSchema, permissions: REVIEW, idempotent: true, note: 'One final revision per deliverable; a rejected revision cannot be final (409).' },
+  { method: 'POST', path: '/projects/{projectId}/revision-requests', requestBody: 'json', request: revisionRequestSchema, response: revisionRequestResponseSchema, permissions: ['ardentstudio:review:write', 'ardentstudio:projects:write'], idempotent: true, successStatus: 201, note: 'Starts a revision task for the producer role with the anchored comments as context, and links the comments to it. The revised file comes back as the next revision, superseding this one.' },
+  { method: 'GET', path: '/projects/{projectId}/exports', response: listExportsResponseSchema, permissions: READ, idempotent: false },
+  { method: 'POST', path: '/projects/{projectId}/exports', requestBody: 'json', request: createExportRequestSchema, response: exportResponseSchema, permissions: REVIEW, idempotent: true, successStatus: 201, note: 'A zip of the final revisions with manifest.json (Ardent manifest fields, review status and decisions). Deliverables without a final revision are listed as excluded; none at all answers 409 NOTHING_FINAL.' },
+  { method: 'GET', path: '/files/{fileId}/docx', response: docxDocumentResponseSchema, permissions: READ, idempotent: false, note: 'Answers 501 DOCX_CONVERTER_UNAVAILABLE until the canvas Word codec package is installed.' },
+  { method: 'GET', path: '/revisions/{revisionId}/docx', response: docxDocumentResponseSchema, permissions: READ, idempotent: false, note: 'Answers 501 DOCX_CONVERTER_UNAVAILABLE until the canvas Word codec package is installed.' },
 
   // Stream
   {

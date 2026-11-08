@@ -4,7 +4,7 @@ import type { Logger } from '../logger.js';
 
 export class ApiError extends Error {
   override name = 'ApiError';
-  constructor(readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 422 | 500 | 502 | 503, readonly code: string, message: string, readonly details?: unknown) {
+  constructor(readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 422 | 500 | 501 | 502 | 503, readonly code: string, message: string, readonly details?: unknown) {
     super(message);
   }
 }
