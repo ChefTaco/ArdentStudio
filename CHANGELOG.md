@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The Magnus client takes its route, action and answer schemas from the published
+  `@hivemagnus/magnus-contracts` 2.2.0 (`./ardent-service`) instead of local copies, and a test
+  checks that every Magnus route and action the client calls is in that service contract.
+  Agent operations are now read with Magnus's full operation shape.
+
 ## [0.1.0] - 2026-11-08
 
 ### Added

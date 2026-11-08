@@ -4,7 +4,7 @@
 // every 1 to 5 seconds, then tries the stream again.
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
-import { ardentTaskDoneEventSchema, ardentTaskEventSchema, ardentTaskTextEventSchema, MagnusError, type ArdentTaskEvent, type MagnusClient } from '../clients/magnus.js';
+import { ardentTaskDoneEventSchema, ardentTaskJournalEventSchema, ardentTaskTextEventSchema, MagnusError, type ArdentTaskEvent, type MagnusClient } from '../clients/magnus.js';
 import type { Logger } from '../logger.js';
 
 export type FollowerMagnus = Pick<MagnusClient, 'streamTask' | 'taskEvents' | 'task'>;
@@ -92,7 +92,7 @@ export class TaskFollower {
         const parsed = ardentTaskTextEventSchema.safeParse(parseJson(message.data));
         if (parsed.success) this.hooks.text(parsed.data.step, parsed.data.text, message.event === 'task.text' ? 'replace' : 'append');
       } else if (message.event === 'task.event') {
-        const parsed = ardentTaskEventSchema.safeParse(parseJson(message.data));
+        const parsed = ardentTaskJournalEventSchema.safeParse(parseJson(message.data));
         if (!parsed.success) continue;
         if (await this.hooks.event(parsed.data)) return true;
       } else if (message.event === 'task.done') {

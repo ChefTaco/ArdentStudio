@@ -6,7 +6,7 @@ import type { z } from 'zod';
 import { ConfigEditError, configuredSkills, editConfig, modelPath } from '../../agents/config-edit.js';
 import { operationView } from '../../agents/operations.js';
 import {
-  agentOperationSchema, ARDENT_SERVICE_CAN_RESTART, ardentTaskDoneEventSchema, ardentTaskEventSchema, ardentTaskTextEventSchema, MagnusError, parseAgentRef,
+  ardentAgentOperationSchema, ARDENT_SERVICE_CAN_RESTART, ardentTaskDoneEventSchema, ardentTaskJournalEventSchema, ardentTaskTextEventSchema, MagnusError, parseAgentRef,
   type MagnusAgentOperation,
 } from '../../clients/magnus.js';
 import { ARDENT_FINISHED } from '../../conductor/follower.js';
@@ -67,7 +67,7 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
       deps.operations.apply(record.id, current);
       return { body: operationView(store.agents.operation(record.id)!, current) };
     } catch {
-      const stored = agentOperationSchema.safeParse(record.operation);
+      const stored = ardentAgentOperationSchema.safeParse(record.operation);
       return { body: operationView(record, stored.success ? stored.data : undefined) };
     }
   });
@@ -201,7 +201,7 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
               const text = ardentTaskTextEventSchema.safeParse(JSON.parse(message.data) as unknown);
               if (text.success) await send(message.event === 'task.text' ? 'preview.text' : 'preview.delta', text.data);
             } else if (message.event === 'task.event') {
-              const event = ardentTaskEventSchema.safeParse(JSON.parse(message.data) as unknown);
+              const event = ardentTaskJournalEventSchema.safeParse(JSON.parse(message.data) as unknown);
               if (!event.success) continue;
               cursor = event.data.sequence;
               await send('preview.event', { sequence: event.data.sequence, kind: event.data.kind });
