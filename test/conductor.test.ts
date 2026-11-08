@@ -77,6 +77,15 @@ describe('conductor dispatch', () => {
     expect((mapper!.body as { objective: string }).objective).toContain('[Worldbuilder] Fenmarch, Saltreach and the Drowned Steps.');
   });
 
+  it('sends a mission even when the fleet profile list cannot be read', async () => {
+    const { team } = await room();
+    ctx.magnus.failProfiles = true;
+    const posted = await post(team.id, { body_md: 'Outline the adventure.' });
+    const [mission] = await ctx.magnus.submitted(1);
+    expect(mission!.context).toBe('mission');
+    await waitFor(() => studioTask(posted.tasks[0].id).dispatch === 'mission');
+  });
+
   it('falls back to task-submit with a composed prompt on agents without missions, and without a session below studio 1', async () => {
     const { project, team } = await room();
     ctx.magnus.studio.set('node1', 1);

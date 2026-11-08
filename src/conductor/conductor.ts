@@ -122,7 +122,7 @@ export class Conductor {
   private readonly followers = new Map<string, TaskFollower>();
   private readonly submitting = new Set<string>();
   private readonly retryAt = new Map<string, number>();
-  private readonly capabilities = new Map<string, { level: number; at: number }>();
+  private readonly capabilities = new Map<string, { level: number; version: string | null; at: number }>();
   /** Last presence probe per agent. Absent until probed. */
   private readonly presence = new Map<string, ProbeResult>();
   /** Re-derive an agent's activity when its Delivering window ends, per project and binding. */
@@ -230,23 +230,22 @@ export class Conductor {
     return { project, revision, role, agentRef: role.agent_ref, bindingId };
   }
 
-  /** Studio level and whether the agent runs an Ardent with missions. Cached briefly. */
+  /**
+   * Studio level and whether the agent runs an Ardent with missions, both from the node's one
+   * installation record (every profile on a node runs its one Ardent package). Cached briefly.
+   * A failed or stale agent list never decides this, so a mission is not silently sent as a
+   * plain task without its tools.
+   */
   private async capability(agentRef: string): Promise<{ level: number; missions: boolean }> {
-    const { nodeId, profile } = parseAgentRef(agentRef);
-    const cached = this.capabilities.get(nodeId);
-    let level: number;
-    if (cached && Date.now() - cached.at < (this.options.capabilityCacheMs ?? 60_000)) level = cached.level;
-    else {
-      level = (await this.magnus.getInstallation(nodeId)).capabilities?.studio ?? 0;
-      this.capabilities.set(nodeId, { level, at: Date.now() });
+    const { nodeId } = parseAgentRef(agentRef);
+    let cached = this.capabilities.get(nodeId);
+    if (!cached || Date.now() - cached.at >= (this.options.capabilityCacheMs ?? 60_000)) {
+      const installation = await this.magnus.getInstallation(nodeId);
+      cached = { level: installation.capabilities?.studio ?? 0, version: installation.version, at: Date.now() };
+      this.capabilities.set(nodeId, cached);
     }
-    let missions = level >= ARDENT_STUDIO_CAPABILITY.missions;
-    if (missions) {
-      const profiles = await this.options.agents.profiles().catch(() => undefined);
-      const found = profiles?.find(item => item.nodeId === nodeId && item.id === profile);
-      missions = Boolean(found && versionAtLeast(found.installationVersion, [2, 2, 0]));
-    }
-    return { level, missions };
+    const { level, version } = cached;
+    return { level, missions: level >= ARDENT_STUDIO_CAPABILITY.missions && versionAtLeast(version, [2, 2, 0]) };
   }
 
   /** A room turn: the role's agent under the task's team revision, with an Ardent session when the node supports one. */

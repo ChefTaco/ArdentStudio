@@ -35,6 +35,8 @@ export class FakeMagnusServer {
   /** Node agent Studio level per node (default 2). */
   studio = new Map<string, number>();
   fail = false;
+  /** Answer only the fleet profile list with 503. */
+  failProfiles = false;
   memory = new Map<string, 'ready' | 'degraded'>();
   skillMap = new Map<string, Array<{ name: string; enabled: boolean }>>();
   calls: Array<{ method: string; path: string; actingSubject: string | undefined; body?: unknown }> = [];
@@ -227,7 +229,7 @@ export class FakeMagnusServer {
     const path = url.pathname;
     if (this.fail) return fail(response, 503, 'DEPENDENCY_UNAVAILABLE', 'Magnus unavailable');
 
-    if (request.method === 'GET' && path === '/api/v1/ardent/profiles') return ok(response, this.profiles);
+    if (request.method === 'GET' && path === '/api/v1/ardent/profiles') return this.failProfiles ? fail(response, 503, 'DEPENDENCY_UNAVAILABLE', 'Fleet inventory unavailable') : ok(response, this.profiles);
     if (request.method === 'POST' && path === '/api/v1/ardent/agents') {
       if (!actingSubject || !this.admins.has(actingSubject)) return fail(response, 403, 'ACTING_ADMIN_REQUIRED', 'The acting person is not a Magnus ADMIN');
       const input = body as Record<string, unknown>;
