@@ -11,8 +11,8 @@ export interface ServiceClientConfig {
   url: string;
   clientId: string;
   clientSecret: string;
-  /** Optional OAuth scope for the client_credentials request. Oathweave's client policy applies when absent. */
-  scope: string | undefined;
+  /** OAuth scope for the client_credentials request. Oathweave grants nothing without one. */
+  scope: string;
 }
 
 export interface Config {
@@ -57,11 +57,11 @@ export const ENV_CATALOG: ReadonlyArray<{ name: string; required: boolean; secre
   { name: 'ARDENT_STUDIO_MAGNUS_URL', required: true, secret: false, description: 'Magnus control API base URL (the origin that serves /api/v1).' },
   { name: 'ARDENT_STUDIO_MAGNUS_CLIENT_ID', required: true, secret: false, description: 'Oathweave machine client whose tokens carry the audience magnus.' },
   { name: 'ARDENT_STUDIO_MAGNUS_CLIENT_SECRET', required: true, secret: true, description: 'Secret of the Magnus machine client.' },
-  { name: 'ARDENT_STUDIO_MAGNUS_SCOPE', required: false, secret: false, description: 'Optional scope for Magnus service tokens.' },
+  { name: 'ARDENT_STUDIO_MAGNUS_SCOPE', required: false, secret: false, description: 'Scope for Magnus service tokens. Default magnus:ardent.' },
   { name: 'ARDENT_STUDIO_HIVEMEM_URL', required: true, secret: false, description: 'HiveMem base URL (the origin that serves /v1).' },
   { name: 'ARDENT_STUDIO_HIVEMEM_CLIENT_ID', required: true, secret: false, description: 'Oathweave machine client whose tokens carry the audience hivemem.' },
   { name: 'ARDENT_STUDIO_HIVEMEM_CLIENT_SECRET', required: true, secret: true, description: 'Secret of the HiveMem machine client.' },
-  { name: 'ARDENT_STUDIO_HIVEMEM_SCOPE', required: false, secret: false, description: 'Optional scope for HiveMem service tokens.' },
+  { name: 'ARDENT_STUDIO_HIVEMEM_SCOPE', required: false, secret: false, description: 'Scope for HiveMem service tokens. Default "hivemem:workspaces:write hivemem:memories:write".' },
   { name: 'ARDENT_STUDIO_CHATTERMOST_WEBHOOK_URL', required: false, secret: true, description: 'Optional ChatterMost incoming-webhook URL for one-way announcements. The URL contains its secret.' },
   { name: 'ARDENT_STUDIO_ALLOW_PLAINTEXT_SERVICES', required: false, secret: false, description: 'true allows http:// service URLs on non-loopback hosts (isolated container networks only). Default false.' },
 ];
@@ -136,11 +136,12 @@ export function loadConfig(env: Env = process.env): Config {
     }
   }
 
+  const defaultScopes = { MAGNUS: 'magnus:ardent', HIVEMEM: 'hivemem:workspaces:write hivemem:memories:write' } as const;
   const service = (prefix: 'MAGNUS' | 'HIVEMEM'): ServiceClientConfig => ({
     url: url(`ARDENT_STUDIO_${prefix}_URL`, false),
     clientId: required(`ARDENT_STUDIO_${prefix}_CLIENT_ID`),
     clientSecret: required(`ARDENT_STUDIO_${prefix}_CLIENT_SECRET`),
-    scope: value(`ARDENT_STUDIO_${prefix}_SCOPE`),
+    scope: value(`ARDENT_STUDIO_${prefix}_SCOPE`) ?? defaultScopes[prefix],
   });
   const magnus = service('MAGNUS');
   const hivemem = service('HIVEMEM');

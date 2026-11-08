@@ -31,6 +31,9 @@ describe('configuration', () => {
     expect(config.magnus.url).toBe('https://magnus.example.com');
     expect(config.oathweave.identities).toHaveLength(1);
     expect(config.chattermost).toBeUndefined();
+    expect(config.magnus.scope).toBe('magnus:ardent');
+    expect(config.hivemem.scope).toBe('hivemem:workspaces:write hivemem:memories:write');
+    expect(loadConfig({ ...base, ARDENT_STUDIO_MAGNUS_SCOPE: 'magnus:custom' }).magnus.scope).toBe('magnus:custom');
   });
 
   it('fails fast naming every missing required variable', () => {
