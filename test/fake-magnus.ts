@@ -4,7 +4,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { changedConfigPaths } from '../src/agents/config-edit.js';
+import { parseDocument } from 'yaml';
+import { changedConfigPaths, configuredSkills } from '../src/agents/config-edit.js';
 import { ARDENT_SERVICE_CONFIG_PATHS, type MagnusArdentProfile } from '../src/clients/magnus.js';
 
 export interface FakeTask {
@@ -38,6 +39,10 @@ export class FakeMagnusServer {
   /** Answer only the fleet profile list with 503. */
   failProfiles = false;
   memory = new Map<string, 'ready' | 'degraded'>();
+  /**
+   * The skill list as Ardent reports it: the running profile's state. skill-set and skill-install
+   * change the saved configuration (skills.enabled) only; restart() loads it, as a profile restart does.
+   */
   skillMap = new Map<string, Array<{ name: string; enabled: boolean }>>();
   calls: Array<{ method: string; path: string; actingSubject: string | undefined; body?: unknown }> = [];
   tasks = new Map<string, FakeTask>();
@@ -194,6 +199,22 @@ export class FakeMagnusServer {
       this.configs.set(ref, value);
     }
     return value;
+  }
+
+  /** The configuration with a skill switched in skills.enabled, keeping the given revision. */
+  private switchSkill(ref: string, name: string, enabled: boolean, revision: string): void {
+    const config = this.configOf(ref);
+    const selected = new Set(configuredSkills(config.text));
+    if (enabled) selected.add(name); else selected.delete(name);
+    const document = parseDocument(config.text);
+    document.setIn(['skills', 'enabled'], [...selected]);
+    this.configs.set(ref, { text: String(document), revision });
+  }
+
+  /** A profile restart: the running skills follow the saved configuration. */
+  restart(ref: string): void {
+    const configured = new Set(configuredSkills(this.configOf(ref).text));
+    this.skillMap.set(ref, (this.skillMap.get(ref) ?? []).map(skill => ({ ...skill, enabled: configured.has(skill.name) })));
   }
 
   /** The acting-ADMIN check Magnus runs for ARDENT_SERVICE_ADMIN_ACTIONS and the config read. Answers the refusal, or undefined. */
@@ -391,10 +412,9 @@ export class FakeMagnusServer {
         const config = this.configOf(ref);
         if (input.revision !== config.revision) return fail(response, 409, 'CONFLICT', 'stale configuration revision');
         if (action === 'skill-set') {
-          const skills = this.skillMap.get(ref) ?? [];
-          this.skillMap.set(ref, skills.map(skill => skill.name === body.target ? { ...skill, enabled: Boolean(input.enabled) } : skill));
+          if (!(this.skillMap.get(ref) ?? []).some(skill => skill.name === body.target)) return fail(response, 404, 'NOT_FOUND', 'Skill not found');
           const revision = createHash('sha256').update(`${config.revision}:${String(body.target)}`).digest('hex');
-          this.configs.set(ref, { text: config.text, revision });
+          this.switchSkill(ref, String(body.target), Boolean(input.enabled), revision);
           return ok(response, { revision, activation_required: true });
         }
         if (typeof input.text !== 'string' || !input.text) return fail(response, 400, 'VALIDATION_ERROR', 'text is required');
@@ -414,7 +434,8 @@ export class FakeMagnusServer {
         const sha256 = this.skillReleases.get(`${name}@${String(input.version)}`);
         if (!sha256) return fail(response, 409, 'SKILL_VERSION_UNAVAILABLE', `${name} ${String(input.version)} is not the release promoted on the stable channel`);
         const skills = this.skillMap.get(ref) ?? [];
-        let enabled = skills.find(skill => skill.name === name)?.enabled ?? false;
+        const running = skills.find(skill => skill.name === name)?.enabled ?? false;
+        let enabled = configuredSkills(this.configOf(ref).text).includes(name);
         let revision: string | null = null;
         let enableError: string | null = null;
         if (input.enable && !enabled) {
@@ -422,11 +443,12 @@ export class FakeMagnusServer {
           if (input.revision !== config.revision) enableError = 'The Ardent configuration changed since it was read; enable the skill from the list';
           else {
             revision = createHash('sha256').update(`${config.revision}:${name}`).digest('hex');
-            this.configs.set(ref, { text: config.text, revision });
+            this.switchSkill(ref, name, true, revision);
             enabled = true;
           }
         }
-        this.skillMap.set(ref, [...skills.filter(skill => skill.name !== name), { name, enabled }]);
+        // The skill directory is listed live; whether it runs waits for a restart.
+        this.skillMap.set(ref, [...skills.filter(skill => skill.name !== name), { name, enabled: running }]);
         return ok(response, { source: 'hiveskills', name, version: input.version, sha256, files: 2, changed: true, enabled, revision,
           enable_error: enableError, activation_required: true });
       }
