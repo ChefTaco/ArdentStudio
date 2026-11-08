@@ -989,7 +989,7 @@ export const agentDraftBodySchema = z.object({
 export const agentDraftBaseSchema = z.object({
   soul_revision: sha256Schema.optional(),
   identity_revision: sha256Schema.optional(),
-  /** Ardent's configuration revision, needed to change skills. */
+  /** Ardent's configuration revision, needed to change skills and the model. */
   config_revision: sha256Schema.optional(),
 }).strict();
 export const agentDraftSchema = z.object({
@@ -1002,7 +1002,10 @@ export const agentDraftSchema = z.object({
 });
 export const agentDraftResponseSchema = z.object({ draft: agentDraftSchema.nullable() });
 export const putAgentDraftRequestSchema = z.object({
-  /** Omitted soul and identity revisions are read from the agent through Magnus. */
+  /**
+   * Omitted soul and identity revisions are read from the agent through Magnus, and the configuration
+   * revision too when the draft changes skills or the model (reading it needs a Magnus ADMIN).
+   */
   base: agentDraftBaseSchema.default({}),
   draft: agentDraftBodySchema,
 }).strict();
@@ -1023,14 +1026,22 @@ export const APPLY_PARTS = ['soul', 'identity', 'skills', 'model'] as const;
 export const applyRequestSchema = z.object({
   parts: z.array(z.enum(APPLY_PARTS)).min(1).max(APPLY_PARTS.length).refine(value => new Set(value).size === value.length, 'Duplicate part'),
 }).strict();
+/**
+ * Codes of a failed part besides Magnus's own: ACTING_ADMIN_REQUIRED and ACTING_SUBJECT_UNLINKED (the
+ * person is not a linked Magnus ADMIN), CONFIG_PATH_FORBIDDEN, CONFLICT (the agent changed since the
+ * draft's base revision), INVALID_INPUT (Magnus or Ardent rejected the value), BASE_REVISION_MISSING,
+ * CONFIG_REVISION_REQUIRED, UNKNOWN_SKILL and CONFIG_UNREADABLE.
+ */
 export const applyResultSchema = z.object({
   part: z.enum(APPLY_PARTS),
   /** applied; unchanged (the draft has no change for it); failed (error and code say why); unsupported (Studio cannot change it; use the Magnus console). */
   status: z.enum(['applied', 'unchanged', 'failed', 'unsupported']),
   error: z.string().nullable(),
   code: z.string().nullable(),
-  /** The new Ardent revision when applied. */
+  /** The new Ardent revision when applied (the identity file's, or the configuration's for skills and model). */
   revision: z.string().nullable(),
+  /** The applied change takes effect only after the agent's profile restarts (skills and model). */
+  activation_required: z.boolean(),
 });
 export const applyResponseSchema = z.object({
   results: z.array(applyResultSchema),
@@ -1039,6 +1050,13 @@ export const applyResponseSchema = z.object({
   note: z.string().nullable(),
   /** What is left of the draft: applied parts are removed from it. */
   draft: agentDraftSchema.nullable(),
+  /** Some applied change waits for a profile restart. */
+  activation_required: z.boolean(),
+  /**
+   * Whether Studio can restart the profile. Magnus does not let Studio's service identity run
+   * service-restart, so available is false and reason says to restart it from the Magnus console.
+   */
+  restart: z.object({ available: z.boolean(), reason: z.string().nullable() }),
 });
 export const developmentQuerySchema = z.object({
   after: z.string().regex(/^[A-Za-z0-9_-]{1,400}$/).optional(),
@@ -1276,7 +1294,7 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
     events: { 'preview.accepted': previewAcceptedEventSchema, 'preview.text': previewTextEventSchema, 'preview.delta': previewTextEventSchema, 'preview.event': previewJournalEventSchema, 'preview.done': previewDoneEventSchema, 'preview.error': previewErrorEventSchema },
     note: 'Streams a side-effect-free Ardent preview task (no memory writes, no mission tools, no identity changes, artifacts expire). Needs the agent\'s Magnus node agent at studio level 2: otherwise 409 PREVIEW_UNAVAILABLE. Sending x-idempotency-key again streams the same preview task.',
   },
-  { method: 'POST', path: '/agents/{agentRef}/apply', requestBody: 'json', request: applyRequestSchema, response: applyResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, note: 'Applies parts of the calling person\'s draft through Magnus (identity-save, skill-set) with the acting person, each against its base revision. Results are per part; running tasks keep their instructions.' },
+  { method: 'POST', path: '/agents/{agentRef}/apply', requestBody: 'json', request: applyRequestSchema, response: applyResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, note: 'Applies parts of the calling person\'s draft through Magnus with the acting person, who must be a linked Magnus ADMIN: soul and identity with identity-save, skills with chained skill-set, the model with config-save of the agent\'s config.yaml changing only the model setting. Each part is checked against its base revision. Results are per part; skill and model changes report activation_required (a profile restart, which Studio cannot run). Running tasks keep their instructions.' },
   { method: 'GET', path: '/agents/{agentRef}/development', query: developmentQuerySchema, response: developmentResponseSchema, permissions: READ, idempotent: false },
   { method: 'POST', path: '/agents/{agentRef}/development/{recordId}/comments', requestBody: 'json', request: createDevelopmentCommentRequestSchema, response: createDevelopmentCommentResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201 },
 

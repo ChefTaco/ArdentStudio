@@ -4,7 +4,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { MagnusArdentProfile } from '../src/clients/magnus.js';
+import { changedConfigPaths } from '../src/agents/config-edit.js';
+import { ARDENT_SERVICE_CONFIG_PATHS, type MagnusArdentProfile } from '../src/clients/magnus.js';
 
 export interface FakeTask {
   id: string; ref: string; context: 'direct' | 'mission' | 'preview'; session_id: string | null; prompt: string; body: Record<string, unknown>;
@@ -50,9 +51,14 @@ export class FakeMagnusServer {
   /** Serve these bytes instead of the stored ones (a corrupted relay). */
   artifactOverride = new Map<string, Uint8Array>();
   /** Real Magnus refuses identity-save and skill-set from a service identity; set true to model a Magnus that allows them. */
-  allowAgentEdits = false;
+  /** False: a Magnus that predates service agent changes (403 FORBIDDEN for identity-save, skill-set, config-save, config). */
+  allowAgentEdits = true;
   identities = new Map<string, { text: string; revision: string }>();
-  skillRevision = 'c'.repeat(64);
+  configs = new Map<string, { text: string; revision: string }>();
+  /** Subjects Magnus knows but has not linked to a Magnus user. */
+  unlinked = new Set<string>();
+  /** Answer config-save with 403 CONFIG_PATH_FORBIDDEN regardless of the change. */
+  forbidConfig = false;
   development = new Map<string, Array<Record<string, unknown>>>();
   notes: Array<{ ref: string; body: Record<string, unknown>; actingSubject: string | undefined }> = [];
   /** Oathweave subjects that are Magnus ADMINs. */
@@ -160,6 +166,36 @@ export class FakeMagnusServer {
     return value;
   }
 
+  configOf(ref: string): { text: string; revision: string } {
+    let value = this.configs.get(ref);
+    if (!value) {
+      const text = [
+        '# Ardent profile configuration',
+        'execution:',
+        '  backend: llamacpp # the model runtime',
+        'providers:',
+        '  llamacpp:',
+        '    base_url: http://127.0.0.1:8080/v1',
+        '    api_key_env: LLAMACPP_API_KEY',
+        '    model: fixture-model',
+        'skills:',
+        '  enabled: [mapping]',
+        '',
+      ].join('\n');
+      value = { text, revision: 'c'.repeat(64) };
+      this.configs.set(ref, value);
+    }
+    return value;
+  }
+
+  /** The acting-ADMIN check Magnus runs for ARDENT_SERVICE_ADMIN_ACTIONS and the config read. Answers the refusal, or undefined. */
+  private adminRefusal(actingSubject: string | undefined): [number, string, string] | undefined {
+    if (!this.allowAgentEdits) return undefined;
+    if (actingSubject && this.unlinked.has(actingSubject)) return [403, 'ACTING_SUBJECT_UNLINKED', 'The acting subject is not linked to a Magnus user'];
+    if (!actingSubject || !this.admins.has(actingSubject)) return [403, 'ACTING_ADMIN_REQUIRED', 'The acting person is not a Magnus ADMIN'];
+    return undefined;
+  }
+
   /** Change a New Agent operation and push it to open operation streams. */
   updateOperation(id: string, patch: Record<string, unknown>): void {
     const next: Record<string, unknown> = { ...this.operations.get(id)!, ...patch, updatedAt: new Date().toISOString() };
@@ -234,6 +270,12 @@ export class FakeMagnusServer {
     if (rest === 'memory/status') return ok(response, { status: this.memory.get(ref) ?? 'ready', agent_id: ref, workspace_id: 'default', retrieval: null, storage: null, reason: null });
     if (rest === 'skills') return ok(response, { skills: this.skillMap.get(ref) ?? [] });
     if (rest === 'status') return ok(response, { version: '2.2.0', profile, backend: 'llamacpp', tasks: this.tasks.size });
+    if (rest === 'config') {
+      if (!this.allowAgentEdits) return fail(response, 403, 'FORBIDDEN', 'Resource config is not allowed for this identity');
+      const refusal = this.adminRefusal(actingSubject);
+      if (refusal) return fail(response, ...refusal);
+      return ok(response, this.configOf(ref));
+    }
     match = /^identity\/(soul|identity)$/.exec(rest);
     if (match) return ok(response, { kind: match[1], name: `${match[1]!.toUpperCase()}.md`, ...this.identityOf(ref, match[1]!) });
     if (rest === 'development') {
@@ -324,21 +366,34 @@ export class FakeMagnusServer {
         this.event(task.id, action === 'task-pause' ? 'pause_requested' : 'resumed', { state: task.state });
         return ok(response, { task_id: task.id, state: task.state, admission: action === 'task-pause' ? 'paused' : 'open' });
       }
-      case 'identity-save': case 'skill-set': {
+      case 'identity-save': case 'skill-set': case 'config-save': {
         if (!this.allowAgentEdits) break;
+        const refusal = this.adminRefusal(actingSubject);
+        if (refusal) return fail(response, ...refusal);
         if (action === 'identity-save') {
+          if (typeof input.text !== 'string' || !input.text || input.text.length > 128 * 1024) return fail(response, 400, 'VALIDATION_ERROR', 'text must be 1 to 131072 characters');
           const current = this.identityOf(ref, String(body.target));
           if (input.revision !== current.revision) return fail(response, 409, 'CONFLICT', 'Ardent refused the request in the task\'s current state');
-          const text = String(input.text);
+          const text = input.text;
           const next = { text, revision: createHash('sha256').update(text).digest('hex') };
           this.identities.set(`${ref}|${String(body.target)}`, next);
           return ok(response, { kind: body.target, name: 'x.md', ...next });
         }
-        if (input.revision !== this.skillRevision) return fail(response, 409, 'CONFLICT', 'stale configuration revision');
-        const skills = this.skillMap.get(ref) ?? [];
-        this.skillMap.set(ref, skills.map(skill => skill.name === body.target ? { ...skill, enabled: Boolean(input.enabled) } : skill));
-        this.skillRevision = createHash('sha256').update(`${this.skillRevision}:${String(body.target)}`).digest('hex');
-        return ok(response, { revision: this.skillRevision, activation_required: true });
+        const config = this.configOf(ref);
+        if (input.revision !== config.revision) return fail(response, 409, 'CONFLICT', 'stale configuration revision');
+        if (action === 'skill-set') {
+          const skills = this.skillMap.get(ref) ?? [];
+          this.skillMap.set(ref, skills.map(skill => skill.name === body.target ? { ...skill, enabled: Boolean(input.enabled) } : skill));
+          const revision = createHash('sha256').update(`${config.revision}:${String(body.target)}`).digest('hex');
+          this.configs.set(ref, { text: config.text, revision });
+          return ok(response, { revision, activation_required: true });
+        }
+        if (typeof input.text !== 'string' || !input.text) return fail(response, 400, 'VALIDATION_ERROR', 'text is required');
+        const outside = changedConfigPaths(config.text, input.text).filter(path => !(ARDENT_SERVICE_CONFIG_PATHS as readonly string[]).includes(path));
+        if (this.forbidConfig || outside.length) return fail(response, 403, 'CONFIG_PATH_FORBIDDEN', `A service may not change ${outside.join(', ') || 'this value'}`);
+        const revision = createHash('sha256').update(input.text).digest('hex');
+        this.configs.set(ref, { text: input.text, revision });
+        return ok(response, { revision, activation_required: true });
       }
       case 'development-note': {
         if (needs(2)) return;

@@ -84,17 +84,21 @@ describe('preview', () => {
 });
 
 describe('apply', () => {
+  const action = (call: { body?: unknown }) => (call.body as { action?: string } | undefined)?.action;
+
   it('reports each part: Magnus refusals as they are, and applied parts against their base revisions', async () => {
     ctx = await createTestContext();
+    ctx.magnus.allowAgentEdits = false;
     ctx.magnus.skillMap.set(REF, [{ name: 'research', enabled: false }, { name: 'mapping', enabled: true }]);
     await ctx.call('PUT', `/agents/${REF}/draft`, { body: { base: { config_revision: 'c'.repeat(64) }, draft: { soul: 'Calm and exact.', skills_enabled: ['research'], model: 'fixture-alias' } } });
-    const refused = await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['soul', 'identity', 'skills', 'model'] } }));
+    const refused = await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['model', 'soul', 'identity', 'skills'] } }));
     expect(refused.results).toEqual([
-      { part: 'soul', status: 'failed', error: 'Action identity-save is not allowed for this identity', code: 'FORBIDDEN', revision: null },
-      { part: 'identity', status: 'unchanged', error: null, code: null, revision: null },
-      { part: 'skills', status: 'failed', error: 'Action skill-set is not allowed for this identity', code: 'FORBIDDEN', revision: null },
-      { part: 'model', status: 'unsupported', error: expect.stringContaining('Magnus console'), code: 'MODEL_NOT_APPLICABLE', revision: null },
+      { part: 'soul', status: 'failed', error: 'Action identity-save is not allowed for this identity', code: 'FORBIDDEN', revision: null, activation_required: false },
+      { part: 'identity', status: 'unchanged', error: null, code: null, revision: null, activation_required: false },
+      { part: 'skills', status: 'failed', error: 'Action skill-set is not allowed for this identity', code: 'FORBIDDEN', revision: null, activation_required: false },
+      { part: 'model', status: 'failed', error: 'Resource config is not allowed for this identity', code: 'FORBIDDEN', revision: null, activation_required: false },
     ]);
+    expect(refused).toMatchObject({ activation_required: false, restart: { available: false, reason: expect.stringContaining('Magnus console') } });
     expect(refused.draft.draft).toEqual({ soul: 'Calm and exact.', skills_enabled: ['research'], model: 'fixture-alias' });
 
     ctx.magnus.allowAgentEdits = true;
@@ -102,20 +106,72 @@ describe('apply', () => {
     await publishTeam(ctx, project.id);
     await ctx.call('POST', `/projects/${project.id}/tasks`, { body: { title: 'Plan', role_key: 'lead' } });
     await waitFor(() => ctx.store.tasks.list(project.id)[0]!.ardent.task_id);
+    const mark = ctx.magnus.calls.length;
     const applied = await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['soul', 'skills'] } }));
-    expect(applied.results).toMatchObject([{ part: 'soul', status: 'applied', revision: digest('Calm and exact.') }, { part: 'skills', status: 'applied' }]);
+    expect(applied.results).toMatchObject([{ part: 'soul', status: 'applied', revision: digest('Calm and exact.'), activation_required: false },
+      { part: 'skills', status: 'applied', revision: ctx.magnus.configOf(REF).revision, activation_required: true }]);
     expect(ctx.magnus.identityOf(REF, 'soul').text).toBe('Calm and exact.');
     expect(ctx.magnus.skillMap.get(REF)).toEqual([{ name: 'research', enabled: true }, { name: 'mapping', enabled: false }]);
-    expect(ctx.magnus.calls.filter(call => (call.body as { action?: string } | undefined)?.action === 'skill-set').every(call => call.actingSubject === 'subject-operator')).toBe(true);
+    // Each skill change is based on the revision the previous one answered.
+    const skillCalls = ctx.magnus.calls.slice(mark).filter(call => action(call) === 'skill-set');
+    expect(skillCalls.map(call => (call.body as { body: { revision: string } }).body.revision)).toEqual(['c'.repeat(64), digest(`${'c'.repeat(64)}:research`)]);
+    expect(skillCalls.every(call => call.actingSubject === 'subject-operator')).toBe(true);
     expect(applied.active_tasks).toBe(1);
-    expect(applied.note).toBe('Applies from the agent\'s next turn; 1 running task keeps current instructions.');
-    expect(applied.draft.draft).toEqual({ model: 'fixture-alias' });
+    expect(applied.activation_required).toBe(true);
+    expect(applied.note).toBe('Applies from the agent\'s next turn; 1 running task keeps current instructions. Skill and model changes take effect after the agent\'s profile restarts; restart it from the Magnus console.');
+    // The model is still to apply, now based on the revision the skill changes produced.
+    expect(applied.draft).toMatchObject({ draft: { model: 'fixture-alias' }, base: { config_revision: ctx.magnus.configOf(REF).revision } });
+    expect(ctx.magnus.calls.some(call => action(call) === 'service-restart')).toBe(false);
 
     await ctx.call('PUT', `/agents/${REF}/draft`, { body: { base: { soul_revision: 'a'.repeat(64) }, draft: { soul: 'Stale edit.' } } });
     const stale = await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['soul'] } }));
-    expect(stale.results[0]).toMatchObject({ part: 'soul', status: 'failed', code: 'CONFLICT' });
+    expect(stale.results[0]).toMatchObject({ part: 'soul', status: 'failed', code: 'CONFLICT', error: expect.stringContaining('changed since this draft was saved') });
     expect(ctx.magnus.identityOf(REF, 'soul').text).toBe('Calm and exact.');
     expect((await ctx.call('POST', '/agents/node2~mapper/apply', { body: { parts: ['soul'] } })).status).toBe(409);
+  });
+
+  it('applies the model with config-save, changing only the model setting of the configured backend', async () => {
+    ctx = await createTestContext();
+    const saved = await json(await ctx.call('PUT', `/agents/${REF}/draft`, { body: { draft: { model: 'emberpath/story-large' } } }));
+    expect(saved.draft.base).toEqual({ config_revision: 'c'.repeat(64) });
+    expect(ctx.magnus.calls.find(call => call.path.endsWith('/config'))?.actingSubject).toBe('subject-operator');
+    const before = ctx.magnus.configOf(REF).text;
+    const applied = await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['model'] } }));
+    const after = ctx.magnus.configOf(REF);
+    expect(applied.results).toEqual([{ part: 'model', status: 'applied', error: null, code: null, revision: after.revision, activation_required: true }]);
+    expect(applied).toMatchObject({ activation_required: true, draft: null, restart: { available: false } });
+    expect(after.text).toBe(before.replace('model: fixture-model', 'model: emberpath/story-large'));
+    const call = ctx.magnus.calls.find(item => action(item) === 'config-save')!;
+    expect(call).toMatchObject({ actingSubject: 'subject-operator', body: { body: { revision: 'c'.repeat(64) } } });
+
+    // Codex profiles keep their model under providers.codex; a stale base is refused before anything is sent.
+    ctx.magnus.configs.set('node1~scout', { text: 'execution:\n  backend: codex\nproviders:\n  codex:\n    command: codex\n', revision: 'd'.repeat(64) });
+    await ctx.call('PUT', '/agents/node1~scout/draft', { body: { base: { config_revision: 'e'.repeat(64) }, draft: { model: 'gpt-fixture' } } });
+    const stale = await json(await ctx.call('POST', '/agents/node1~scout/apply', { body: { parts: ['model'] } }));
+    expect(stale.results[0]).toMatchObject({ status: 'failed', code: 'CONFLICT' });
+    expect(ctx.magnus.calls.filter(item => action(item) === 'config-save')).toHaveLength(1);
+    await ctx.call('PUT', '/agents/node1~scout/draft', { body: { base: { config_revision: 'd'.repeat(64) }, draft: { model: 'gpt-fixture' } } });
+    expect((await json(await ctx.call('POST', '/agents/node1~scout/apply', { body: { parts: ['model'] } }))).results[0].status).toBe('applied');
+    expect(ctx.magnus.configOf('node1~scout').text).toBe('execution:\n  backend: codex\nproviders:\n  codex:\n    command: codex\n    model: gpt-fixture\n');
+  });
+
+  it('explains Magnus refusals of agent changes', async () => {
+    ctx = await createTestContext();
+    ctx.magnus.skillMap.set(REF, [{ name: 'web.search', enabled: false }]);
+    await ctx.call('PUT', `/agents/${REF}/draft`, { body: { draft: { soul: 'Calm.', model: 'fixture-alias', skills_enabled: ['web.search'] } } });
+    ctx.magnus.forbidConfig = true;
+    const results = (await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['skills', 'model'] } }))).results;
+    expect(results).toMatchObject([{ part: 'skills', status: 'failed', code: 'INVALID_INPUT' },
+      { part: 'model', status: 'failed', code: 'CONFIG_PATH_FORBIDDEN', error: 'Magnus refused a configuration change outside the settings Studio may change.' }]);
+
+    ctx.magnus.admins.clear();
+    expect((await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['soul'] } }))).results[0])
+      .toMatchObject({ code: 'ACTING_ADMIN_REQUIRED', error: expect.stringContaining('Magnus ADMIN') });
+    ctx.magnus.unlinked.add('subject-operator');
+    expect((await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['soul'] } }))).results[0]).toMatchObject({ code: 'ACTING_SUBJECT_UNLINKED' });
+    // Without a readable configuration the draft has no configuration base, and Apply says so.
+    await ctx.call('PUT', `/agents/${REF}/draft`, { body: { draft: { model: 'other-alias' } } });
+    expect((await json(await ctx.call('POST', `/agents/${REF}/apply`, { body: { parts: ['model'] } }))).results[0]).toMatchObject({ code: 'CONFIG_REVISION_REQUIRED' });
   });
 });
 

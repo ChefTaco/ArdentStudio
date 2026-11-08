@@ -3,13 +3,17 @@
 // skills, model) lives in Ardent and changes only through Magnus, as the acting person.
 import { streamSSE } from 'hono/streaming';
 import type { z } from 'zod';
+import { ConfigEditError, editConfig, modelPath } from '../../agents/config-edit.js';
 import { operationView } from '../../agents/operations.js';
-import { agentOperationSchema, ardentTaskDoneEventSchema, ardentTaskEventSchema, ardentTaskTextEventSchema, MagnusError, parseAgentRef, type MagnusAgentOperation } from '../../clients/magnus.js';
+import {
+  agentOperationSchema, ARDENT_SERVICE_CAN_RESTART, ardentTaskDoneEventSchema, ardentTaskEventSchema, ardentTaskTextEventSchema, MagnusError, parseAgentRef,
+  type MagnusAgentOperation,
+} from '../../clients/magnus.js';
 import { ARDENT_FINISHED } from '../../conductor/follower.js';
 import type { AgentDraft } from '../../db/repos/agents.js';
 import type { AgentTemplateBody } from '../../db/repos/templates.js';
 import {
-  agentRefSchema, IDEMPOTENCY_HEADER, idempotencyKeySchema,
+  agentRefSchema, APPLY_PARTS, IDEMPOTENCY_HEADER, idempotencyKeySchema,
   type applyRequestSchema, type applyResultSchema, type createDevelopmentCommentRequestSchema, type developmentQuerySchema, type newAgentRequestSchema,
   type previewRequestSchema, type putAgentDraftRequestSchema, type putPresentationRequestSchema,
 } from '../../shared/browser.js';
@@ -19,6 +23,15 @@ import type { createRouter } from '../routing.js';
 
 type ApplyResult = z.infer<typeof applyResultSchema>;
 const ACTIVE = ['queued', 'running', 'pausing', 'paused'];
+
+/** What Magnus's refusals of an agent change mean for the person applying it. */
+const APPLY_REFUSALS: Readonly<Record<string, string>> = {
+  ACTING_ADMIN_REQUIRED: 'Magnus applies agent changes only for a Magnus ADMIN. Ask an ADMIN to apply this draft.',
+  ACTING_SUBJECT_UNLINKED: 'Your sign-in is not linked to a Magnus account, so Magnus cannot apply changes for you.',
+  CONFIG_PATH_FORBIDDEN: 'Magnus refused a configuration change outside the settings Studio may change.',
+  CONFLICT: 'The agent changed since this draft was saved. Reload the agent and save the draft again.',
+};
+const RESTART_UNAVAILABLE = 'Studio cannot restart an agent: Magnus does not let its service identity run service-restart. Restart the profile from the Magnus console.';
 
 function requireRef(value: string | undefined): string {
   const parsed = agentRefSchema.safeParse(value);
@@ -124,9 +137,13 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
     for (const kind of ['soul', 'identity'] as const) {
       if (input.draft[kind] === undefined || base[`${kind}_revision`]) continue;
       try {
-        const current = await magnus.identity(ref, kind, { actingSubject: actor.subject }) as { revision?: unknown };
-        if (typeof current.revision === 'string' && /^[a-f0-9]{64}$/.test(current.revision)) base[`${kind}_revision`] = current.revision;
+        base[`${kind}_revision`] = (await magnus.identity(ref, kind, { actingSubject: actor.subject })).revision;
       } catch { /* Saved without a base: Apply will ask for one rather than guess. */ }
+    }
+    if ((input.draft.skills_enabled !== undefined || input.draft.model !== undefined) && !base.config_revision) {
+      try {
+        base.config_revision = (await magnus.config(ref, { actingSubject: actor.subject })).revision;
+      } catch { /* Reading the configuration needs a Magnus ADMIN; Apply reports CONFIG_REVISION_REQUIRED without it. */ }
     }
     const saved = store.tx(() => {
       const draft = store.agents.saveDraft({ agentRef: ref, userId: actor.userId, base, draft: input.draft });
@@ -217,45 +234,76 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
     const draft = { ...saved.draft } as Record<string, unknown>;
     const base = { ...saved.base } as Record<string, unknown>;
     const context = { actingSubject: actor.subject };
-    const failed = (part: ApplyResult['part'], error: unknown, code?: string): ApplyResult => ({ part, status: 'failed',
-      error: error instanceof Error ? error.message.slice(0, 300) : String(error), code: code ?? (error instanceof MagnusError ? error.code : 'FAILED'), revision: null });
+    const failed = (part: ApplyResult['part'], error: unknown, code?: string): ApplyResult => {
+      if (error instanceof MagnusError) {
+        const mapped = error.status === 400 ? 'INVALID_INPUT' : error.code;
+        const explained = APPLY_REFUSALS[mapped];
+        return { part, status: 'failed', error: explained ?? error.message.slice(0, 300), code: mapped, revision: null, activation_required: false };
+      }
+      if (error instanceof ConfigEditError) return { part, status: 'failed', error: error.message.slice(0, 300), code: error.code, revision: null, activation_required: false };
+      return { part, status: 'failed', error: error instanceof Error ? error.message.slice(0, 300) : String(error), code: code ?? 'FAILED', revision: null, activation_required: false };
+    };
+    const unchanged = (part: ApplyResult['part']): ApplyResult => ({ part, status: 'unchanged', error: null, code: null, revision: null, activation_required: false });
+    // Skills and the model share the configuration revision: each change answers the next one.
+    let configRevision = typeof base.config_revision === 'string' ? base.config_revision : undefined;
     const results: ApplyResult[] = [];
-    for (const part of parts) {
+    for (const part of APPLY_PARTS.filter(item => parts.includes(item))) {
       if (part === 'soul' || part === 'identity') {
         const text = draft[part];
-        if (typeof text !== 'string') { results.push({ part, status: 'unchanged', error: null, code: null, revision: null }); continue; }
+        if (typeof text !== 'string') { results.push(unchanged(part)); continue; }
         const revision = base[`${part}_revision`];
         if (typeof revision !== 'string') { results.push(failed(part, `The draft has no base ${part} revision; reload the agent and save the draft again`, 'BASE_REVISION_MISSING')); continue; }
         try {
-          const answer = await magnus.saveIdentity(ref, part, { text, revision }, context) as { revision?: unknown };
-          results.push({ part, status: 'applied', error: null, code: null, revision: typeof answer.revision === 'string' ? answer.revision : null });
+          const answer = await magnus.saveIdentity(ref, part, { text, revision }, context);
+          results.push({ part, status: 'applied', error: null, code: null, revision: answer.revision, activation_required: false });
           delete draft[part];
           delete base[`${part}_revision`];
         } catch (error) { results.push(failed(part, error)); }
       } else if (part === 'skills') {
         const wanted = draft.skills_enabled;
-        if (!Array.isArray(wanted)) { results.push({ part, status: 'unchanged', error: null, code: null, revision: null }); continue; }
-        const configRevision = base.config_revision;
-        if (typeof configRevision !== 'string') { results.push(failed(part, 'Changing skills needs the agent\'s configuration revision (base.config_revision)', 'CONFIG_REVISION_REQUIRED')); continue; }
-        let revision: string = configRevision;
+        if (!Array.isArray(wanted)) { results.push(unchanged(part)); continue; }
+        if (!configRevision) { results.push(failed(part, 'Changing skills needs the agent\'s configuration revision (base.config_revision)', 'CONFIG_REVISION_REQUIRED')); continue; }
+        let activation = false;
+        let changed = 0;
         try {
           const current = await magnus.skills(ref, context);
           const changes = current.filter(skill => skill.enabled !== wanted.includes(skill.name));
           const unknown = (wanted as string[]).filter(name => !current.some(skill => skill.name === name));
           if (unknown.length) { results.push(failed(part, `The agent has no skills named ${unknown.join(', ')}`, 'UNKNOWN_SKILL')); continue; }
           for (const skill of changes) {
-            const answer = await magnus.setSkill(ref, skill.name, { enabled: !skill.enabled, revision }, context) as { revision?: unknown };
-            if (typeof answer.revision === 'string') revision = answer.revision;
+            const answer = await magnus.setSkill(ref, skill.name, { enabled: !skill.enabled, revision: configRevision }, context);
+            configRevision = answer.revision;
+            activation ||= answer.activation_required;
+            changed++;
           }
-          results.push({ part, status: changes.length ? 'applied' : 'unchanged', error: null, code: null, revision: changes.length ? revision : null });
+          results.push(changed ? { part, status: 'applied', error: null, code: null, revision: configRevision, activation_required: activation } : unchanged(part));
           delete draft.skills_enabled;
-          delete base.config_revision;
-        } catch (error) { results.push(failed(part, error)); }
+        } catch (error) {
+          // Skills already switched stay switched: the draft keeps the rest, based on the newest revision.
+          const result = failed(part, error);
+          results.push(changed ? { ...result, error: `${result.error ?? ''} ${changed} skill change${changed === 1 ? ' was' : 's were'} applied before this.`.trim(), activation_required: activation } : result);
+        }
       } else {
-        results.push(draft.model === undefined ? { part, status: 'unchanged', error: null, code: null, revision: null }
-          : { part, status: 'unsupported', error: 'Studio cannot change an agent\'s model; change it in the Magnus console. Previews can still use the draft model.', code: 'MODEL_NOT_APPLICABLE', revision: null });
+        const model = draft.model;
+        if (typeof model !== 'string') { results.push(unchanged(part)); continue; }
+        if (!configRevision) { results.push(failed(part, 'Changing the model needs the agent\'s configuration revision (base.config_revision)', 'CONFIG_REVISION_REQUIRED')); continue; }
+        try {
+          const config = await magnus.config(ref, context);
+          if (config.revision !== configRevision) throw new MagnusError('The configuration revision is stale', 409, 'CONFLICT');
+          const path = modelPath(config.text);
+          const text = editConfig(config.text, { [path]: model });
+          if (text === config.text) { results.push(unchanged(part)); delete draft.model; continue; }
+          const answer = await magnus.saveConfig(ref, { text, revision: configRevision }, context);
+          configRevision = answer.revision;
+          results.push({ part, status: 'applied', error: null, code: null, revision: answer.revision, activation_required: answer.activation_required });
+          delete draft.model;
+        } catch (error) { results.push(failed(part, error)); }
       }
     }
+    // A draft that still changes configuration is based on the newest revision Studio produced.
+    if (draft.skills_enabled !== undefined || draft.model !== undefined) {
+      if (configRevision) base.config_revision = configRevision;
+    } else delete base.config_revision;
     const binding = store.team.binding(ref);
     const active = binding ? (store.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE binding_id = ? AND state IN (${ACTIVE.map(() => '?').join(', ')})`)
       .get(binding.id, ...ACTIVE) as { n: number }).n : 0;
@@ -267,8 +315,13 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
       return left;
     });
     const applied = results.some(item => item.status === 'applied');
-    return { body: { results, active_tasks: active, draft: draftView(remaining),
-      note: applied && active ? `Applies from the agent's next turn; ${active} running task${active === 1 ? '' : 's'} keep${active === 1 ? 's' : ''} current instructions.` : null } };
+    const activation = results.some(item => item.activation_required);
+    const notes = [
+      applied && active ? `Applies from the agent's next turn; ${active} running task${active === 1 ? '' : 's'} keep${active === 1 ? 's' : ''} current instructions.` : '',
+      activation ? 'Skill and model changes take effect after the agent\'s profile restarts; restart it from the Magnus console.' : '',
+    ].filter(Boolean);
+    return { body: { results, active_tasks: active, draft: draftView(remaining), note: notes.length ? notes.join(' ') : null,
+      activation_required: activation, restart: { available: ARDENT_SERVICE_CAN_RESTART, reason: ARDENT_SERVICE_CAN_RESTART ? null : RESTART_UNAVAILABLE } } };
   });
 
   register('GET', '/agents/{agentRef}/development', async (_c, { params, query, principal }) => {

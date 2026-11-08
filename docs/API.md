@@ -191,7 +191,8 @@ Agent Studio (`:ref` is `<nodeId>~<profile>`):
 - **Presentation** is Studio-only: display name, portrait preset or an `avatar` file.
 - **Drafts.** Each person has one draft per agent: `soul`, `identity`, `skills_enabled` (the complete
   enabled set) and `model`, with the `base` revisions it was made from. Omitted soul and identity
-  revisions are read from the agent through Magnus when the draft is saved.
+  revisions are read from the agent through Magnus when the draft is saved, and the configuration
+  revision too when the draft changes skills or the model (Magnus lets only an ADMIN read it).
 - **Preview** (`POST /agents/:ref/preview`, `prompt`, `use_draft`, `new_session`) streams an Ardent
   preview task as server-sent events: `preview.accepted` (`task_id`, `session_id`),
   `preview.text`/`preview.delta` (live reply text), `preview.event` (journal `sequence` and `kind`
@@ -200,13 +201,25 @@ Agent Studio (`:ref` is `<nodeId>~<profile>`):
   expire. It needs the agent's Magnus node agent at Studio level 2 with Ardent 2.2.0; otherwise
   `409 PREVIEW_UNAVAILABLE`. Sending the same `x-idempotency-key` again streams the same task.
 - **Apply** (`POST /agents/:ref/apply`, `parts`) writes parts of the draft through Magnus as the
-  acting person: `soul` and `identity` with `identity-save` against the base revision (a newer
-  revision is a `CONFLICT`), `skills` with `skill-set` against `base.config_revision`. Results are
-  per part: `applied`, `unchanged`, `failed` (with Magnus's code and message) or `unsupported`
-  (`model`: change it in the Magnus console). Applied parts leave the draft. `active_tasks` counts
-  Studio tasks still running on the agent; they keep the instructions they started with. Released
-  Magnus refuses `identity-save` and `skill-set` from a service identity, and Apply reports that
-  refusal for each part.
+  acting person, whom Magnus requires to be a linked Magnus ADMIN, in the order soul, identity,
+  skills, model:
+  - `soul` and `identity`: `identity-save` against the base revision.
+  - `skills`: one `skill-set` per skill that changes, each against the configuration revision the
+    previous change answered (the first against `base.config_revision`).
+  - `model`: reads `config.yaml` through Magnus, refuses when its revision is not the draft's base,
+    sets only `providers.llamacpp.model` (or `providers.codex.model` when `execution.backend` is
+    `codex`) with a YAML edit that keeps the rest of the document, checks that nothing outside
+    Magnus's allowed settings changed, and sends it with `config-save`.
+
+  Results are per part: `applied`, `unchanged` or `failed` with a code: `ACTING_ADMIN_REQUIRED`,
+  `ACTING_SUBJECT_UNLINKED`, `CONFIG_PATH_FORBIDDEN`, `CONFLICT` (the agent changed since the draft
+  was saved), `INVALID_INPUT` (Magnus or Ardent rejected the value), `CONFIG_REVISION_REQUIRED`,
+  `BASE_REVISION_MISSING`, `UNKNOWN_SKILL`, or Magnus's own code. Applied parts leave the draft; a
+  draft that still changes configuration is rebased on the newest configuration revision.
+  Skill and model changes take effect after the profile restarts: their results and the response
+  carry `activation_required`. Magnus does not let Studio's service identity run `service-restart`,
+  so `restart.available` is `false` and the restart is done from the Magnus console. `active_tasks`
+  counts Studio tasks still running on the agent; they keep the instructions they started with.
 - **Development** (`GET /agents/:ref/development?after=&limit=&kind=`) lists the agent's Ardent
   development records (`author`, `epistemic` such as `agent_reported`, sources) with Studio comments.
   A runtime that does not publish them answers `supported: false` with the reason. A comment with
