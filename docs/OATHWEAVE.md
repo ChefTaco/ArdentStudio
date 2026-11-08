@@ -57,7 +57,9 @@ replaces it before it expires; nothing renews it by hand.
 
 - **Magnus** links the client to a Magnus service user that may use the Studio routes. For work a
   person asked for, ArdentStudio forwards the person's Oathweave subject in `x-acting-subject`;
-  Magnus verifies it and records both in its audit. New Agent runs only when that person is a
-  Magnus ADMIN. (The service-identity role and the acting-subject check are planned in Magnus.)
+  Magnus verifies it and records both in its audit. New Agent, reading an agent's configuration
+  and the agent changes Apply makes (`identity-save`, `skill-set`, `config-save`) run only when that
+  person is a linked Magnus ADMIN; `config-save` may change only Magnus's allowed settings (backend,
+  model settings, enabled skills, artifact size). The service identity cannot restart a profile.
 - **HiveMem** links the client in `HIVEMEM_OATHWEAVE_SERVICES_JSON` with the issuer that signs
   client-credentials tokens, a `localId`, and the scopes `workspaces:write` and `memories:write`.

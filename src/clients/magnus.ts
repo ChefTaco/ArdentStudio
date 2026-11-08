@@ -8,6 +8,8 @@
 // development) are typed here from Magnus's `packages/contracts/src/ardent-service.ts`
 // (`ardentServiceRoutes`) and `browser.ts`, because the published @hivemagnus/magnus-contracts
 // does not contain them yet. Switch these local schemas to that package once a release ships them.
+// The agent changes (identity-save, skill-set, config-save and reading config) need an acting
+// Magnus ADMIN in x-acting-subject; their shapes are typed here from the same file.
 // A node agent reports `capabilities.studio`: 1 for sessions, streams and artifacts, 2 for missions,
 // pause and resume, previews and development; below that Magnus answers 409 AGENT_UPGRADE_REQUIRED.
 import { z } from 'zod';
@@ -106,6 +108,32 @@ export const RELEASED_ACTIONS = ['profile-create', 'config-validate', 'config-sa
 /** Actions added for Ardent Project Studio. session-open needs studio >= 1, the others studio >= 2 and Ardent 2.2.0. */
 export const STUDIO_ACTIONS = ['session-open', 'mission-submit', 'task-pause', 'task-resume', 'preview-submit', 'development-note'] as const;
 export type MagnusArdentAction = typeof RELEASED_ACTIONS[number] | typeof STUDIO_ACTIONS[number];
+/**
+ * Agent changes Magnus runs for a service identity only with x-acting-subject naming a linked Magnus
+ * ADMIN (Magnus ARDENT_SERVICE_ADMIN_ACTIONS). Without one: 403 ACTING_ADMIN_REQUIRED; an unlinked
+ * subject: 403 ACTING_SUBJECT_UNLINKED. A stale revision answers 409 CONFLICT. Reading config needs
+ * the same acting ADMIN.
+ */
+export const ARDENT_SERVICE_ADMIN_ACTIONS = ['identity-save', 'skill-set', 'config-save'] as const;
+/**
+ * The only configuration values a service's config-save may change (Magnus ARDENT_SERVICE_CONFIG_PATHS).
+ * A change anywhere else answers 403 CONFIG_PATH_FORBIDDEN. An array is one value.
+ */
+export const ARDENT_SERVICE_CONFIG_PATHS = [
+  'execution.backend',
+  'providers.llamacpp.model', 'providers.llamacpp.request_timeout_seconds', 'providers.llamacpp.context_window_tokens',
+  'providers.llamacpp.max_output_tokens', 'providers.llamacpp.reasoning_effort',
+  'providers.codex.model',
+  'skills.enabled',
+  'artifacts.max_bytes',
+] as const;
+export type ArdentServiceConfigPath = typeof ARDENT_SERVICE_CONFIG_PATHS[number];
+/**
+ * Whether Magnus lets the Studio service identity run service-restart. It does not: a service may run
+ * only the session, task, mission, preview, development and ARDENT_SERVICE_ADMIN_ACTIONS actions, so a
+ * profile restart stays a person's act in the Magnus console.
+ */
+export const ARDENT_SERVICE_CAN_RESTART = false;
 /** Node agent Studio levels (Magnus ARDENT_STUDIO_CAPABILITY). */
 export const ARDENT_STUDIO_CAPABILITY = { bridge: 1, missions: 2 } as const;
 /** Journal event kinds Ardent 2.2.0 adds. Others appear too; readers accept unknown kinds. */
@@ -121,6 +149,22 @@ const missionTexts = (minimum = 0) => z.array(missionText(1000)).min(minimum).ma
 
 export const ardentSessionContextSchema = z.enum(['direct', 'mission', 'preview']);
 export type ArdentSessionContext = z.infer<typeof ardentSessionContextSchema>;
+/** GET …/identity/soul and …/identity/identity, and the identity-save answer. */
+export const ardentIdentityFileSchema = z.object({ kind: z.enum(['soul', 'identity']), name: z.string(), text: z.string(), revision: digest });
+export type ArdentIdentityFile = z.infer<typeof ardentIdentityFileSchema>;
+/** GET …/config: the raw config.yaml and its revision (the base for skill-set and config-save). Secrets appear only as environment variable names. */
+export const ardentConfigFileSchema = z.object({ revision: digest, text: z.string() });
+export type ArdentConfigFile = z.infer<typeof ardentConfigFileSchema>;
+/** The skill-set and config-save answer: the new configuration revision. The change applies once the profile restarts. */
+export const ardentConfigSavedSchema = z.object({ revision: digest, activation_required: z.boolean() });
+export type ArdentConfigSaved = z.infer<typeof ardentConfigSavedSchema>;
+/** action identity-save */
+export const ardentIdentityEditSchema = z.object({ text: z.string().min(1).max(128 * 1024), revision: digest }).strict();
+/** action skill-set: revision is the configuration revision. */
+export const ardentSkillEditSchema = z.object({ enabled: z.boolean(), revision: digest }).strict();
+export const ardentSkillTargetSchema = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
+/** action config-save: the whole config.yaml and the configuration revision it replaces. */
+export const ardentConfigEditSchema = z.object({ text: z.string().min(1).max(200_000), revision: digest }).strict();
 /** action session-open */
 export const ardentSessionOpenSchema = z.object({ key: z.string().trim().min(1).max(256), reset: z.boolean().optional(), context: ardentSessionContextSchema.optional() }).strict();
 export const ardentSessionSchema = z.object({ id: guid, caller: z.string(), context: z.string(), key: z.string(), created_ms: z.number(), updated_ms: z.number() });
@@ -316,8 +360,13 @@ export class MagnusClient {
     return z.object({ events: z.array(ardentTaskEventSchema) }).parse(await this.resource(ref, `tasks/${uuid(taskId)}/events`, { ...context, query: { after } })).events;
   }
 
-  async identity(ref: string, kind: 'soul' | 'identity', context: CallContext = {}): Promise<unknown> {
-    return this.resource(ref, `identity/${kind}`, context);
+  async identity(ref: string, kind: 'soul' | 'identity', context: CallContext = {}): Promise<ArdentIdentityFile> {
+    return ardentIdentityFileSchema.parse(await this.resource(ref, `identity/${kind}`, context));
+  }
+
+  /** The profile's config.yaml and its revision. Needs an acting Magnus ADMIN. */
+  async config(ref: string, context: CallContext = {}): Promise<ArdentConfigFile> {
+    return ardentConfigFileSchema.parse(await this.resource(ref, 'config', context));
   }
 
   /** Artifact bytes, buffered (Magnus caps them; see MAGNUS_AGENT_ARDENT_ARTIFACT_MAX_BYTES). Prefer artifactStream for large files. */
@@ -362,16 +411,19 @@ export class MagnusClient {
   }
 
   /** Ardent rejects a stale revision with 409, so concurrent edits never overwrite each other. */
-  async saveIdentity(ref: string, kind: 'soul' | 'identity', body: { text: string; revision: string }, context: CallContext = {}): Promise<unknown> {
-    return this.action(ref, 'identity-save', { target: kind, body }, context);
+  async saveIdentity(ref: string, kind: 'soul' | 'identity', body: { text: string; revision: string }, context: CallContext = {}): Promise<ArdentIdentityFile> {
+    return ardentIdentityFileSchema.parse(await this.action(ref, 'identity-save', { target: kind, body: validated(ardentIdentityEditSchema, body, 'identity-save') }, context));
   }
 
-  async setSkill(ref: string, name: string, body: { enabled: boolean; revision: string }, context: CallContext = {}): Promise<unknown> {
-    return this.action(ref, 'skill-set', { target: name, body }, context);
+  /** Each change answers the next configuration revision: chain it into the next skill-set or config-save. */
+  async setSkill(ref: string, name: string, body: { enabled: boolean; revision: string }, context: CallContext = {}): Promise<ArdentConfigSaved> {
+    const target = validated(ardentSkillTargetSchema, name, 'skill-set');
+    return ardentConfigSavedSchema.parse(await this.action(ref, 'skill-set', { target, body: validated(ardentSkillEditSchema, body, 'skill-set') }, context));
   }
 
-  async saveConfig(ref: string, body: unknown, context: CallContext = {}): Promise<unknown> {
-    return this.action(ref, 'config-save', { body }, context);
+  /** Magnus refuses (403 CONFIG_PATH_FORBIDDEN) a text that changes anything outside ARDENT_SERVICE_CONFIG_PATHS. */
+  async saveConfig(ref: string, body: { text: string; revision: string }, context: CallContext = {}): Promise<ArdentConfigSaved> {
+    return ardentConfigSavedSchema.parse(await this.action(ref, 'config-save', { body: validated(ardentConfigEditSchema, body, 'config-save') }, context));
   }
 
   // ── Studio routes (typed locally; see the header) ──
@@ -505,6 +557,12 @@ export class MagnusClient {
     const message = parsed.success ? parsed.data.error.message.slice(0, 300) : `Magnus answered HTTP ${response.status}`;
     throw new MagnusError(message, response.status, parsed.success ? parsed.data.error.code : `HTTP_${response.status}`);
   }
+}
+
+function validated<T>(schema: z.ZodType<T>, value: unknown, action: string): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) throw new MagnusError(`The ${action} request is invalid: ${parsed.error.issues[0]?.message ?? 'invalid'}`, 400, 'VALIDATION_ERROR');
+  return parsed.data;
 }
 
 function operationIdOf(value: string): string {

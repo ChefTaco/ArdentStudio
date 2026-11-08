@@ -50,5 +50,9 @@ All notable changes to this project are documented here. The format follows
 - Team proposals: `POST /projects/:id/team/propose` asks the coordinator or a chosen agent for a
   validated `TeamProposal` (one retry with the validation error), stores it with a draft body and
   streams `team.proposal.updated`; nothing is applied.
+- Agent Studio Apply uses the Magnus service routes for an acting ADMIN: typed identity, skill and
+  configuration calls, chained configuration revisions, the model applied with `config-save` through
+  a comment-preserving YAML edit limited to Magnus's allowed settings, explained refusals and
+  `activation_required` with the restart left to the Magnus console.
 - Container image (non-root, no package managers at runtime, `/data` volume), CI and a
   publish workflow for npm trusted publishing and GHCR.
