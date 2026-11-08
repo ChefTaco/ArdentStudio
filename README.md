@@ -114,6 +114,12 @@ docker run --env-file ./studio.env -v ardentstudio-data:/data -p 127.0.0.1:8097:
 The image runs as `node`, ships no package manager and keeps all state in the `/data` volume.
 Back up that volume; see [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
+Each release is published to npm as `@hivemagnus/ardent-studio` (with provenance) and as the
+image `ghcr.io/cheftaco/ardent-studio:<version>` for `linux/amd64` and `linux/arm64`. There is no
+`latest` tag; the [GitHub release](https://github.com/ChefTaco/ArdentStudio/releases) records
+the image digest. In the Hive suite, `hive.sh` installs ArdentStudio as an optional product and
+pins the image by digest from a signed release manifest.
+
 ## Development
 
 ```bash
