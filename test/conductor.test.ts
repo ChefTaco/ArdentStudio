@@ -277,6 +277,18 @@ describe('agent requests', () => {
     expect((await ctx.call('POST', `/messages/${clarification.id}/answer`, { body: { body_md: 'Again' } })).status).toBe(409);
   });
 
+  it('does not repeat the question as a reply when Ardent summarizes the turn with it', async () => {
+    const { team } = await room();
+    const posted = await post(team.id, { body_md: 'Outline it.' });
+    const [ardent] = await ctx.magnus.submitted(1);
+    await followed(posted.tasks[0].id);
+    ctx.magnus.event(ardent!.id, 'team_ask_user', { question: 'Which tone: grim or hopeful?', options: ['Grim', 'Hopeful'] });
+    await waitFor(() => ctx.store.room.messages(team.id).find(message => message.kind === 'clarification'));
+    ctx.magnus.finish(ardent!.id, { state: 'completed', result: JSON.stringify({ outcome: 'input_required', summary: 'Which tone: grim or hopeful?' }) });
+    await waitFor(() => studioTask(posted.tasks[0].id).state === 'input_required');
+    expect(ctx.store.room.messages(team.id).map(message => message.kind)).toEqual(['message', 'clarification']);
+  });
+
   it('records a proposal as a card that only a person pins', async () => {
     const { project, team } = await room();
     const posted = await post(team.id, { body_md: 'Pick a map scale.' });

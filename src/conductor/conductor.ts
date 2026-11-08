@@ -591,7 +591,11 @@ export class Conductor {
     const state: TaskState = ardentState === 'missing' ? 'unknown'
       : (ardentState === 'completed' || ardentState === 'partial') ? (asked ? 'input_required' : ardentState)
         : (['failed', 'cancelled', 'unknown', 'input_required'] as const).find(item => item === ardentState) ?? 'unknown';
-    const reply = (teamResult?.summary ?? result ?? '').trim();
+    const answer = (teamResult?.summary ?? result ?? '').trim();
+    // Ardent summarizes a turn that ended with team_ask_user as the question itself, which the
+    // clarification card already shows: posting it again as a reply would repeat the question.
+    const question = typeof outcome.clarification_message_id === 'string' ? this.store.room.message(outcome.clarification_message_id)?.body_md.trim() : undefined;
+    const reply = asked && question !== undefined && answer === question ? '' : answer;
     const error = typeof record.error === 'string' && record.error ? record.error.slice(0, 2000) : null;
     const handler = this.modes.get(task.mode);
     if (handler) { this.completeHandled(task, handler, { ardentState, reply, error, outcome }); return; }
