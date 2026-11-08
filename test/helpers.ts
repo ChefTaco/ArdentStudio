@@ -132,7 +132,7 @@ export interface TestContext {
 
 let keyCache: Promise<Keys> | undefined;
 
-export async function createTestContext(options: { clock?: Clock; maxBlobBytes?: number; heartbeatMs?: number; streamRecheckMs?: number; seed?: boolean; conductor?: Partial<ConductorOptions>; docx?: DocxConverter } = {}): Promise<TestContext> {
+export async function createTestContext(options: { clock?: Clock; maxBlobBytes?: number; heartbeatMs?: number; streamRecheckMs?: number; seed?: boolean; conductor?: Partial<ConductorOptions>; docx?: DocxConverter; agentCacheMs?: number } = {}): Promise<TestContext> {
   const dir = mkdtempSync(join(tmpdir(), 'ardent-studio-test-'));
   const clock = options.clock ?? { now: () => new Date() };
   const db = openDatabase(join(dir, 'studio.sqlite'));
@@ -148,13 +148,13 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
   const magnusClient = new MagnusClient({ baseUrl: magnus.url, tokens: { token: async () => 'fixture-service-token', invalidate: () => undefined }, timeoutMs: 5_000 });
   const hivemem = new FakeHiveMem();
   const knowledge = new KnowledgeSync(store, blobs, hivemem, silentLogger);
-  const agents = new AgentDirectory(magnusClient, store, { cacheMs: 0 });
+  const agents = new AgentDirectory(magnusClient, store, { cacheMs: options.agentCacheMs ?? 0 });
   const live = new LiveText(bus);
   const conductor = new Conductor({ store, blobs, magnus: magnusClient, agents, live, logger: silentLogger, presenceMs: 3_600_000, submitRetryMs: 20,
     follower: { pollMinMs: 20, pollMaxMs: 50, pollWindowMs: 300, reconnectMs: 10 }, ...options.conductor });
   const importer = attachReview({ store, blobs, magnus: magnusClient, conductor, logger: silentLogger, retryMs: 20, maxAttempts: 2 });
   importer.start();
-  const operations = new OperationRelay(store, magnusClient, silentLogger, { pollMs: 20 });
+  const operations = new OperationRelay(store, magnusClient, silentLogger, { pollMs: 20, onFinished: () => agents.invalidate() });
   const proposer = new TeamProposer(store, agents, conductor);
   const app = createApp({ operations, proposer, store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: silentLogger, conductor, live, magnus: magnusClient, docx: options.docx,
     ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}), ...(options.streamRecheckMs ? { streamRecheckMs: options.streamRecheckMs } : {}) });

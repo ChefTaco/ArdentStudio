@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseSse, type SseMessage } from '../src/clients/sse.js';
 import { ARDENT_STUDIO_API_PREFIX } from '../src/shared/browser.js';
-import { createProject, createTestContext, json, publishTeam, waitFor, type TestContext } from './helpers.js';
+import { createProject, createTestContext, json, profile, publishTeam, waitFor, type TestContext } from './helpers.js';
 
 let ctx: TestContext;
 afterEach(async () => { await ctx?.close(); });
@@ -201,6 +201,21 @@ describe('development records', () => {
 });
 
 describe('New Agent', () => {
+  it('lists an agent New Agent created as soon as the operation finishes, not after the profile cache expires', async () => {
+    ctx = await createTestContext({ agentCacheMs: 60_000 });
+    const project = await createProject(ctx);
+    const refs = async () => (await json(await ctx.call('GET', '/agents'))).agents.map((agent: { agent_ref: string }) => agent.agent_ref) as string[];
+    expect(await refs()).not.toContain('node3~cartographer');
+    const operation = await json(await ctx.call('POST', '/agents', { body: { node_id: 'node3', profile: 'cartographer', soul_md: 'S', identity_md: 'I',
+      model: { emberpath_alias: 'fixture' }, project_id: project.id } }));
+    await waitFor(() => ctx.magnus.calls.some(call => call.path.endsWith(`/operations/${operation.id}/stream`)));
+    ctx.magnus.profiles = [...ctx.magnus.profiles, profile('node3', 'cartographer')];
+    expect(await refs()).not.toContain('node3~cartographer');
+    ctx.magnus.updateOperation(operation.id, { status: 'succeeded', completedAt: new Date().toISOString() });
+    await waitFor(() => ctx.store.agents.operation(operation.id)!.status === 'succeeded');
+    expect(await refs()).toContain('node3~cartographer');
+  });
+
   it('creates an agent through Magnus for an ADMIN person and relays the operation to the project stream', async () => {
     ctx = await createTestContext();
     const project = await createProject(ctx);

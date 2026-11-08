@@ -26,7 +26,7 @@ export class OperationRelay {
   private stopped = false;
 
   constructor(private readonly store: Store, private readonly magnus: OperationMagnus, private readonly logger: Logger,
-    private readonly options: { pollMs?: number; maxPolls?: number } = {}) {}
+    private readonly options: { pollMs?: number; maxPolls?: number; onFinished?: (operation: MagnusAgentOperation) => void } = {}) {}
 
   start(): void {
     this.stopped = false;
@@ -56,7 +56,9 @@ export class OperationRelay {
       const updated = this.store.agents.operation(id)!;
       if (updated.project_id) this.store.emit(updated.project_id, 'agent.operation.updated', { operation: operationView(updated, operation) });
     });
-    return operation.status !== 'running';
+    const finished = operation.status !== 'running';
+    if (finished) this.options.onFinished?.(operation);
+    return finished;
   }
 
   private async run(id: string, signal: AbortSignal): Promise<void> {
