@@ -67,6 +67,7 @@
     "verify": "npm run privacy:test && npm run scan:secrets && npm run check:private && npm run typecheck && npm run lint && npm test && npm run build && npm run check:contracts && npm run pack:check"
   },
   "dependencies": {
+    "@hivemagnus/magnus-contracts": "2.2.0",
     "@hono/node-server": "^2.1.5",
     "better-sqlite3": "^13.0.3",
     "fflate": "^0.8.3",

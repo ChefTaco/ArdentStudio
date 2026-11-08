@@ -1,3 +1,4 @@
+import { ardentServiceActionRequestSchema, ardentServiceRoutes } from '@hivemagnus/magnus-contracts/ardent-service';
 import { describe, expect, it } from 'vitest';
 import { ChatterMostClient } from '../src/clients/chattermost.js';
 import { HiveMemClient, HiveMemError } from '../src/clients/hivemem.js';
@@ -134,6 +135,47 @@ describe('Magnus client', () => {
   it('parses agent references strictly', () => {
     expect(parseAgentRef('node-1~lead_2')).toEqual({ nodeId: 'node-1', profile: 'lead_2' });
     for (const bad of ['node1', 'node1~', '~lead', 'a~b~c', 'node/1~lead', '../x~y']) expect(() => parseAgentRef(bad), bad).toThrow();
+  });
+
+  it('calls only routes and actions the published Magnus service contract allows', async () => {
+    const { calls, fetcher } = recorder(() => Response.json({ success: false, error: { code: 'NOT_FOUND', message: 'fixture' } }, { status: 404 }));
+    const client = new MagnusClient({ baseUrl: 'https://magnus.example.com', tokens: fixedTokens, fetch: fetcher });
+    const ref = 'node1~lead';
+    const acting = { actingSubject: 'subject-operator' };
+    const revision = 'a'.repeat(64);
+    const mission = { id: 'tsk_1', revision: 1, parent_task: null, constraints: [], allowed_actions: ['observe' as const], resources: ['tool:team_ask_user'],
+      deadline: 4_000_000_000, acceptance_criteria: ['Reply'], expected_artifacts: [] };
+    const attempts: Array<() => Promise<unknown>> = [
+      () => client.listProfiles(), () => client.listInstallations(), () => client.getInstallation('node1'),
+      () => client.status(ref), () => client.memoryStatus(ref), () => client.task(ref, TASK), () => client.skills(ref), () => client.taskEvents(ref, TASK),
+      () => client.identity(ref, 'soul'), () => client.config(ref, acting), () => client.artifact(ref, revision),
+      () => client.submitTask(ref, { prompt: 'Draft', idempotency_key: TASK }), () => client.cancelTask(ref, TASK),
+      () => client.saveIdentity(ref, 'soul', { text: 'Soul', revision }, acting), () => client.setSkill(ref, 'research', { enabled: true, revision }, acting),
+      () => client.installSkill(ref, { source: 'hiveskills', name: 'research', version: '1.0.0' }, acting),
+      () => client.saveConfig(ref, { text: 'execution: {}', revision }, acting),
+      () => client.openSession(ref, { key: 'studio:k' }), () => client.submitMission(ref, { objective: 'Draft', mission, idempotency_key: 'tsk_1' }),
+      () => client.pauseTask(ref, TASK), () => client.resumeTask(ref, TASK), () => client.submitPreview(ref, { prompt: 'Hello' }, acting),
+      () => client.addDevelopmentNote(ref, { kind: 'note', title: 'T', body: 'B' }, acting),
+      () => client.taskArtifacts(ref, TASK), () => client.artifactManifest(ref, revision), () => client.development(ref, { limit: 5 }),
+      async () => { for await (const _ of client.streamTask(ref, TASK)) break; },
+      () => client.createAgent({ nodeId: 'node1', profile: 'mapper', soul_md: 'Soul', identity_md: 'Identity', model: { emberpath_alias: 'fixture' }, hivemem: true }, acting),
+      () => client.agentOperation('op-1'), async () => { for await (const _ of client.streamAgentOperation('op-1')) break; },
+      () => client.resumeAgentOperation('op-1', acting),
+    ];
+    for (const attempt of attempts) await expect(attempt()).rejects.toBeInstanceOf(MagnusError);
+    expect(calls).toHaveLength(attempts.length);
+
+    const routes = ardentServiceRoutes.map(route => ({
+      method: route.method,
+      pattern: new RegExp(`^/api/v1${route.path.replace('{resource}', '.+').replace(/\{[A-Za-z]+\}/g, '[^/]+')}$`),
+    }));
+    const actions = new Set(ardentServiceActionRequestSchema.options.map(option => option.shape.action.value));
+    for (const call of calls) {
+      const url = new URL(call.url);
+      expect(routes.some(route => route.method === call.init.method && route.pattern.test(url.pathname)), `${call.init.method} ${url.pathname}`).toBe(true);
+      if (url.pathname.endsWith('/action')) expect(actions.has(JSON.parse(String(call.init.body)).action)).toBe(true);
+    }
+    for (const action of STUDIO_ACTIONS) expect(actions.has(action), action).toBe(true);
   });
 });
 

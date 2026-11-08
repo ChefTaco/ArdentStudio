@@ -3,7 +3,7 @@
 // its step receipts as `agent.operation.updated` events, from Magnus's operation stream, or by
 // polling when the stream fails. Running operations are picked up again after a restart.
 import { setTimeout as delay } from 'node:timers/promises';
-import { agentOperationSchema, type MagnusAgentOperation, type MagnusClient } from '../clients/magnus.js';
+import { ardentAgentOperationSchema, type MagnusAgentOperation, type MagnusClient } from '../clients/magnus.js';
 import type { AgentOperationRecord } from '../db/repos/agents.js';
 import type { Store } from '../db/store.js';
 import type { Logger } from '../logger.js';
@@ -67,7 +67,7 @@ export class OperationRelay {
       try {
         for await (const message of this.magnus.streamAgentOperation(id, { signal })) {
           if (message.event !== 'operation' && message.event !== 'done') continue;
-          const parsed = agentOperationSchema.safeParse(JSON.parse(message.data) as unknown);
+          const parsed = ardentAgentOperationSchema.safeParse(JSON.parse(message.data) as unknown);
           if (parsed.success && this.apply(id, parsed.data)) return;
         }
       } catch {
