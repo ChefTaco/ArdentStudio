@@ -61,6 +61,16 @@ export function streamRoutes(register: ReturnType<typeof createRouter>, deps: Ap
         } else {
           last = await sendEvents(requested);
         }
+        // Live reply text is never replayed: give each streaming message its current text once.
+        // Deltas queued before this snapshot are already part of it.
+        const snapshot = deps.live.snapshot(projectId);
+        for (let index = queue.length - 1; index >= 0; index--) {
+          const queued = queue[index]!;
+          if (queued.kind === 'ephemeral' && queued.type === 'message.delta') queue.splice(index, 1);
+        }
+        for (const live of snapshot) {
+          await stream.writeSSE({ event: 'message.delta', data: JSON.stringify({ message_id: live.message_id, text: live.text, mode: 'replace', step: live.step }) });
+        }
 
         while (!closed) {
           if (!queue.length) await new Promise<void>(resolve => { wake = resolve; });

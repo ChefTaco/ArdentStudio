@@ -23,5 +23,14 @@ All notable changes to this project are documented here. The format follows
   the project event stream (SSE with replay, heartbeat and reset).
 - Zod browser contract (`src/shared/browser.ts`) and the generated
   `docs/openapi-browser.json`, with a staleness check.
+- Conversation room: team, direct and discussion conversations, the canonical transcript with a
+  per-project message seq, decisions, the Studio task mirror (pause, resume, cancel, reassign) and
+  room layout revisions.
+- The conductor: dispatch by Team, Coordinator, role or @mention with ordering groups, Ardent
+  missions through Magnus (task submission with a composed prompt on older agents), one task
+  stream per active task with cursor resume and polling fallback, live `message.delta` relay,
+  idempotent final messages, hand-off enforcement on team edges, clarifications that continue the
+  same session, decision proposals, discussion rounds with a coordinator summary, presence
+  probing and activity from journal events, and restart safety.
 - Container image (non-root, no package managers at runtime, `/data` volume), CI and a
   publish workflow for npm trusted publishing and GHCR.

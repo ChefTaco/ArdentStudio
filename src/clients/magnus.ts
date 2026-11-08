@@ -3,8 +3,13 @@
 // for, forwards that person's Oathweave subject in x-acting-subject so Magnus can check
 // and audit both. ArdentStudio never talks to nodes or Ardent directly and holds no Ardent token.
 //
-// Methods marked PLANNED call routes from the Ardent Project Studio plan (§5.3) that released
-// Magnus does not serve yet; until it does they fail with MagnusError (usually 400 or 404).
+// Released Magnus 2.1.x serves the profile, installation, resource and action routes. The Studio
+// routes (sessions, task streams, streamed artifacts, New Agent, missions, pause, previews,
+// development) are typed here from Magnus's `packages/contracts/src/ardent-service.ts`
+// (`ardentServiceRoutes`) and `browser.ts`, because the published @hivemagnus/magnus-contracts
+// does not contain them yet. Switch these local schemas to that package once a release ships them.
+// A node agent reports `capabilities.studio`: 1 for sessions, streams and artifacts, 2 for missions,
+// pause and resume, previews and development; below that Magnus answers 409 AGENT_UPGRADE_REQUIRED.
 import { z } from 'zod';
 import { parseSse, type SseMessage } from './sse.js';
 import type { ServiceTokenProvider } from './service-token.js';
@@ -64,6 +69,8 @@ export const magnusArdentInstallationSchema = z.object({
   hostname: z.string(),
   reachable: z.boolean(),
   error: z.string().nullable(),
+  /** The node agent's Studio level (ARDENT_STUDIO_CAPABILITY). Absent on agents that predate it. */
+  capabilities: z.object({ studio: z.number().int().min(0).optional() }).loose().optional(),
 });
 export type MagnusArdentInstallation = z.infer<typeof magnusArdentInstallationSchema>;
 
@@ -81,39 +88,175 @@ export const ardentMemoryStatusSchema = z.object({
   retrieval: z.string().nullable(), storage: z.string().nullable(), reason: z.string().nullable(),
 });
 export const ardentSkillSchema = z.object({ name: z.string(), enabled: z.boolean() }).loose();
-export const ardentAcceptedTaskSchema = z.object({ task_id: z.string(), state: ardentTaskStateSchema });
+/** Admission of task-submit, mission-submit and preview-submit: durable acceptance, never completion. */
+export const ardentAcceptedTaskSchema = z.object({ task_id: z.string(), state: z.string() });
 
 /** Profile resources released Magnus lets a caller read (routes/ardent.ts allow-list). */
 export type ArdentResource =
   | 'openapi' | 'status' | 'profile' | 'config' | 'config/schema' | 'providers' | 'channels' | 'peers' | 'peers/config'
   | 'memory/status' | 'skills' | 'sessions' | 'tasks' | `tasks/${string}` | `tasks/${string}/events` | `sessions/${string}/messages`
-  | 'identity/soul' | 'identity/identity' | 'identity/soul/history' | 'identity/identity/history';
+  | 'identity/soul' | 'identity/identity' | 'identity/soul/history' | 'identity/identity/history'
+  // studio >= 2
+  | `tasks/${string}/artifacts` | `artifacts/${string}/manifest` | 'development';
 
-/** Actions released Magnus accepts on POST …/action. */
+/** Actions released Magnus accepts on POST …/action (an ADMIN person; a service identity gets the Studio subset below). */
 export const RELEASED_ACTIONS = ['profile-create', 'config-validate', 'config-save', 'peer-validate', 'peer-save', 'identity-save', 'identity-restore',
   'provider-test', 'channel-test', 'peer-test', 'memory-search', 'task-submit', 'task-cancel', 'skill-set', 'service-start', 'service-stop',
   'service-restart', 'package-install', 'context-stage', 'context-adopt', 'context-rollback'] as const;
-/** PLANNED actions (§5.3). */
-export const PLANNED_ACTIONS = ['session-open', 'mission-submit', 'task-pause', 'task-resume', 'preview-submit', 'development-note'] as const;
-export type MagnusArdentAction = typeof RELEASED_ACTIONS[number] | typeof PLANNED_ACTIONS[number];
+/** Actions added for Ardent Project Studio. session-open needs studio >= 1, the others studio >= 2 and Ardent 2.2.0. */
+export const STUDIO_ACTIONS = ['session-open', 'mission-submit', 'task-pause', 'task-resume', 'preview-submit', 'development-note'] as const;
+export type MagnusArdentAction = typeof RELEASED_ACTIONS[number] | typeof STUDIO_ACTIONS[number];
+/** Node agent Studio levels (Magnus ARDENT_STUDIO_CAPABILITY). */
+export const ARDENT_STUDIO_CAPABILITY = { bridge: 1, missions: 2 } as const;
+/** Journal event kinds Ardent 2.2.0 adds. Others appear too; readers accept unknown kinds. */
+export const ARDENT_STUDIO_EVENT_KINDS = ['mission', 'team_handoff', 'team_ask_user', 'team_propose_decision', 'artifact_registered', 'development_note',
+  'team_result', 'team_result_rejected', 'pause_requested', 'paused', 'resumed', 'preview'] as const;
 
-/** PLANNED New Agent request (§5.3, POST /api/v1/ardent/agents). Templates never carry secrets. */
-export interface NewAgentRequest {
-  nodeId: string;
-  profile: string;
-  apiPort?: number;
-  soul_md: string;
-  identity_md: string;
-  model: { emberpath_alias: string } | { base_url: string; model: string };
-  skills: string[];
-  hivemem: true;
-  artifacts_max_bytes?: number;
-}
+const utf8Length = (value: string) => Buffer.byteLength(value, 'utf8');
+const guid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const boundedId = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/);
+const missionText = (bytes: number) => z.string().trim().min(1).refine(value => utf8Length(value) <= bytes, `Exceeds ${bytes} bytes`);
+const missionTexts = (minimum = 0) => z.array(missionText(1000)).min(minimum).max(32).refine(value => new Set(value).size === value.length, 'Duplicate entries');
+
+export const ardentSessionContextSchema = z.enum(['direct', 'mission', 'preview']);
+export type ArdentSessionContext = z.infer<typeof ardentSessionContextSchema>;
+/** action session-open */
+export const ardentSessionOpenSchema = z.object({ key: z.string().trim().min(1).max(256), reset: z.boolean().optional(), context: ardentSessionContextSchema.optional() }).strict();
+export const ardentSessionSchema = z.object({ id: guid, caller: z.string(), context: z.string(), key: z.string(), created_ms: z.number(), updated_ms: z.number() });
+/** action task-submit */
+export const ardentTaskSubmitSchema = z.object({ prompt: z.string().trim().min(1).max(16_000), idempotency_key: guid, session_id: guid.optional() }).strict();
+/** Ardent TeamMission 1.0 (src/team-contract.ts). */
+export const ardentTeamMissionSchema = z.object({
+  id: boundedId,
+  revision: z.number().int().min(1).max(2_147_483_647),
+  parent_task: boundedId.nullable(),
+  constraints: missionTexts(),
+  allowed_actions: z.array(z.enum(['observe', 'analyze', 'create_artifact', 'create_draft', 'reversible_change', 'deploy', 'external_publish', 'destructive_response']))
+    .min(1).max(8).refine(value => new Set(value).size === value.length, 'Duplicate action'),
+  /** Tool and memory grants, such as tool:artifact_write or project:<id>. */
+  resources: missionTexts(1),
+  /** Unix seconds. */
+  deadline: z.number().int().min(1).max(253_402_300_799),
+  acceptance_criteria: missionTexts(1),
+  expected_artifacts: missionTexts(),
+}).strict();
+export type ArdentTeamMission = z.infer<typeof ardentTeamMissionSchema>;
+export const ARDENT_CONTEXT_ITEMS_MAX_BYTES = 64 * 1024;
+export const ardentContextItemSchema = z.object({
+  title: z.string().trim().min(1).max(200), mime: z.string().regex(/^[a-z]+\/[A-Za-z0-9.+-]+$/).max(100).optional(), text: z.string().min(1),
+}).strict();
+export type ArdentContextItem = z.infer<typeof ardentContextItemSchema>;
+/** action mission-submit (the whole action body is at most 200 KB). The session must have context mission. */
+export const ardentMissionSubmitSchema = z.object({
+  session_id: guid.optional(),
+  objective: z.string().trim().min(1).max(16_000),
+  mission: ardentTeamMissionSchema,
+  context_items: z.array(ardentContextItemSchema).max(64).optional()
+    .refine(items => utf8Length((items ?? []).map(item => item.title + item.text).join('')) <= ARDENT_CONTEXT_ITEMS_MAX_BYTES, 'Context items exceed 64 KiB'),
+  labels: z.record(z.string().regex(/^[a-z][a-z0-9._:-]{0,63}$/), z.string().max(256)).refine(value => Object.keys(value).length <= 32, 'At most 32 labels').optional(),
+  idempotency_key: z.string().min(1).max(128),
+}).strict();
+export type ArdentMissionSubmit = z.infer<typeof ardentMissionSubmitSchema>;
+/** action preview-submit (at most 300 KB). Needs x-acting-subject. */
+export const ardentPreviewOverridesSchema = z.object({
+  soul: z.string().min(1).max(131_072).optional(),
+  identity: z.string().min(1).max(131_072).optional(),
+  skills_enabled: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/)).max(100).optional(),
+  model: z.string().trim().min(1).max(200).optional(),
+}).strict();
+export const ardentPreviewSubmitSchema = z.object({
+  prompt: z.string().trim().min(1).max(16_000),
+  overrides: ardentPreviewOverridesSchema.optional(),
+  session_id: guid.optional(),
+  idempotency_key: z.string().min(1).max(128).optional(),
+}).strict();
+export type ArdentPreviewSubmit = z.infer<typeof ardentPreviewSubmitSchema>;
+/** action development-note. Needs x-acting-subject. */
+export const ardentDevelopmentNoteSchema = z.object({
+  kind: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
+  title: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(1).max(8000),
+  sources: z.array(z.object({ kind: z.enum(['task', 'artifact', 'memory', 'url', 'identity', 'skill', 'note']), ref: z.string().trim().min(1).max(512) }).strict()).max(16).optional(),
+  author: z.enum(['operator', 'agent']).optional(),
+}).strict();
+export const ardentDevelopmentRecordSchema = z.object({
+  id: z.string(), agent_ref: z.string(), kind: z.string(), title: z.string(), body: z.string(),
+  author: z.enum(['agent', 'operator', 'runtime']), epistemic: z.enum(['agent_reported', 'operator_reported', 'observed']),
+  before_sha256: digest.nullable(), after_sha256: digest.nullable(),
+  sources: z.array(z.object({ kind: z.string(), ref: z.string() })), created_at: z.string(),
+});
+export type ArdentDevelopmentRecord = z.infer<typeof ardentDevelopmentRecordSchema>;
+export const ardentDevelopmentPageSchema = z.object({ records: z.array(ardentDevelopmentRecordSchema), next: z.string().nullable() });
+/** actions task-pause and task-resume. A finished task answers 409. */
+export const ardentTaskPauseStateSchema = z.object({ task_id: z.string(), state: z.string(), admission: z.enum(['open', 'paused']) });
+/** Ardent artifact manifest 1.0 (key fields; Ardent adds others). */
+export const ardentArtifactManifestSchema = z.looseObject({
+  schema_version: z.string(), name: z.string(), mime: z.string(), sha256: digest, size: z.number().int().min(0),
+  revision: z.number().int(), supersedes_sha256: digest.nullable(),
+  acceptance_status: z.enum(['unreviewed', 'approved', 'partial', 'rejected']), created_at: z.number(), expires_at: z.number().optional(),
+});
+export type ArdentArtifactManifest = z.infer<typeof ardentArtifactManifestSchema>;
+export const ardentArtifactRecordSchema = z.object({ task_id: z.string(), superseded_by_sha256: digest.nullable(), manifest: ardentArtifactManifestSchema });
+export const ardentTaskArtifactsSchema = z.object({ artifacts: z.array(ardentArtifactRecordSchema) });
+
+// Task stream events (GET …/tasks/:taskId/stream).
+/** task.text: the current step's visible reply text (on connect and when a step starts). task.delta appends to it. Never replayed. */
+export const ardentTaskTextEventSchema = z.object({ step: z.number().int(), text: z.string() });
+/** task.event: one journal event; its SSE id is the sequence to resume after. */
+export const ardentTaskJournalEventSchema = ardentTaskEventSchema;
+/** task.done: the final task record. */
+export const ardentTaskDoneEventSchema = z.object({ id: z.string(), state: z.string(), result: z.string().nullable().optional(), error: z.string().nullable().optional() }).loose();
+export type ArdentTaskEvent = z.infer<typeof ardentTaskEventSchema>;
+
+// New Agent (POST /ardent/agents) and its operations.
+const credentialFreeUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
+  } catch { return false; }
+};
+const identityText = z.string().max(131_072).refine(value => value.trim().length > 0 && utf8Length(value) <= 131_072, 'Identity text must be 1 to 128 KiB');
+/** An Emberpath alias or an OpenAI-compatible endpoint and model. Never credentials. */
+export const ardentAgentModelSchema = z.union([
+  z.object({ emberpath_alias: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/) }).strict(),
+  z.object({ base_url: z.string().max(2048).refine(credentialFreeUrl, 'Expected an HTTP(S) URL without credentials, query or fragment'), model: z.string().min(1).max(200) }).strict(),
+]);
+export const ardentAgentDeployRequestSchema = z.object({
+  nodeId: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  profile: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  apiPort: z.number().int().min(1024).max(65535).optional(),
+  soul_md: identityText,
+  identity_md: identityText,
+  model: ardentAgentModelSchema,
+  skills: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,100}$/)).max(100).default([]),
+  hivemem: z.literal(true),
+  artifacts_max_bytes: z.number().int().min(1024).max(67_108_864).optional(),
+}).strict();
+export type NewAgentRequest = z.input<typeof ardentAgentDeployRequestSchema>;
+export const ardentAgentStepSchema = z.object({
+  name: z.string(),
+  status: z.enum(['pending', 'running', 'succeeded', 'skipped', 'failed']),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  receipt: z.record(z.string(), z.unknown()).nullable(),
+  error: z.string().nullable(),
+});
 export const agentOperationSchema = z.object({
-  operationId: z.string(),
-  state: z.enum(['running', 'succeeded', 'failed']),
-  steps: z.array(z.object({ name: z.string(), state: z.string(), detail: z.string().nullable().optional(), at: z.string().optional() }).loose()),
+  id: z.string(),
+  kind: z.enum(['deploy', 'hivemem']),
+  nodeId: z.string(),
+  profile: z.string(),
+  status: z.enum(['running', 'succeeded', 'failed']),
+  steps: z.array(ardentAgentStepSchema),
+  error: z.string().nullable(),
+  createdBy: z.string(),
+  attempts: z.number().int(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  completedAt: z.string().nullable(),
 }).loose();
+export type MagnusAgentOperation = z.infer<typeof agentOperationSchema>;
 
 export interface MagnusClientOptions {
   baseUrl: string;
@@ -151,11 +294,10 @@ export class MagnusClient {
   }
 
   /** Read an allow-listed Ardent management resource through Magnus. */
-  async resource(ref: string, resource: ArdentResource, context: CallContext & { query?: { after?: number; limit?: number } } = {}): Promise<unknown> {
+  async resource(ref: string, resource: ArdentResource, context: CallContext & { query?: { after?: number | string; limit?: number; kind?: string; context?: ArdentSessionContext } } = {}): Promise<unknown> {
     const { nodeId, profile } = parseAgentRef(ref);
     const query = new URLSearchParams();
-    if (context.query?.after !== undefined) query.set('after', String(context.query.after));
-    if (context.query?.limit !== undefined) query.set('limit', String(context.query.limit));
+    for (const [key, value] of Object.entries(context.query ?? {})) if (value !== undefined) query.set(key, String(value));
     const suffix = query.size ? `?${query}` : '';
     return this.json('GET', `/api/v1/ardent/installations/${nodeId}/profiles/${profile}/${resource}${suffix}`, context);
   }
@@ -178,13 +320,21 @@ export class MagnusClient {
     return this.resource(ref, `identity/${kind}`, context);
   }
 
-  /** Artifact bytes (Magnus caps them; see MAGNUS_AGENT_ARDENT_ARTIFACT_MAX_BYTES). */
+  /** Artifact bytes, buffered (Magnus caps them; see MAGNUS_AGENT_ARDENT_ARTIFACT_MAX_BYTES). Prefer artifactStream for large files. */
   async artifact(ref: string, sha256: string, context: CallContext = {}): Promise<Uint8Array> {
+    const response = await this.artifactStream(ref, sha256, context);
+    return new Uint8Array(await new Response(response.body).arrayBuffer());
+  }
+
+  /** Artifact bytes as Magnus streams them, never buffered here. The caller verifies the digest. */
+  async artifactStream(ref: string, sha256: string, context: CallContext = {}): Promise<{ body: ReadableStream<Uint8Array>; size: number | undefined }> {
     const { nodeId, profile } = parseAgentRef(ref);
     if (!/^[a-f0-9]{64}$/.test(sha256)) throw new MagnusError('Invalid artifact ID', 400, 'VALIDATION_ERROR');
-    const response = await this.send('GET', `/api/v1/ardent/installations/${nodeId}/profiles/${profile}/artifacts/${sha256}`, context);
-    if (!response.ok) await this.fail(response);
-    return new Uint8Array(await response.arrayBuffer());
+    const response = await this.send('GET', `/api/v1/ardent/installations/${nodeId}/profiles/${profile}/artifacts/${sha256}`, context,
+      undefined, { accept: 'application/octet-stream' }, 0);
+    if (!response.ok || !response.body) await this.fail(response);
+    const length = Number(response.headers.get('content-length') ?? '');
+    return { body: response.body!, size: Number.isSafeInteger(length) && length >= 0 && response.headers.has('content-length') ? length : undefined };
   }
 
   /** Run a management action through Magnus's audited action route. */
@@ -196,10 +346,11 @@ export class MagnusClient {
     return this.json('POST', `/api/v1/ardent/installations/${nodeId}/profiles/${profile}/action`, context, payload);
   }
 
-  /** Released Magnus bounds task prompts to 4000 characters and requires a UUID idempotency key. */
-  async submitTask(ref: string, body: { prompt: string; idempotency_key: string }, context: CallContext = {}) {
-    if (!body.prompt.trim() || body.prompt.length > 4000) throw new MagnusError('Task prompt must be 1 to 4000 characters', 400, 'VALIDATION_ERROR');
-    return ardentAcceptedTaskSchema.parse(await this.action(ref, 'task-submit', { body: { prompt: body.prompt, idempotency_key: uuid(body.idempotency_key) } }, context));
+  /** A direct task. The prompt is at most 16000 characters; the idempotency key is a UUID; a session (studio >= 1) carries the conversation. */
+  async submitTask(ref: string, body: z.input<typeof ardentTaskSubmitSchema>, context: CallContext = {}) {
+    const parsed = ardentTaskSubmitSchema.safeParse(body);
+    if (!parsed.success) throw new MagnusError(`Task submission is invalid: ${parsed.error.issues[0]?.message ?? 'invalid'}`, 400, 'VALIDATION_ERROR');
+    return ardentAcceptedTaskSchema.parse(await this.action(ref, 'task-submit', { body: parsed.data }, context));
   }
 
   async cancelTask(ref: string, taskId: string, context: CallContext = {}): Promise<unknown> {
@@ -219,58 +370,71 @@ export class MagnusClient {
     return this.action(ref, 'skill-set', { target: name, body }, context);
   }
 
-  // ── PLANNED routes (§5.3) ──
-
-  /** PLANNED: open an Ardent session for a project conversation and role (action session-open). */
-  async openSession(ref: string, body: { key: string; title?: string }, context: CallContext = {}): Promise<unknown> {
-    return this.action(ref, 'session-open', { body }, context);
+  async saveConfig(ref: string, body: unknown, context: CallContext = {}): Promise<unknown> {
+    return this.action(ref, 'config-save', { body }, context);
   }
 
-  /** PLANNED: submit a team mission (action mission-submit, ≤200 KB). */
-  async submitMission(ref: string, body: { session_id?: string; objective: string; mission: unknown; context_items?: unknown[]; labels?: Record<string, string>; idempotency_key: string }, context: CallContext = {}) {
-    return ardentAcceptedTaskSchema.parse(await this.action(ref, 'mission-submit', { body }, context));
+  // ── Studio routes (typed locally; see the header) ──
+
+  /** The node agent's Studio level for a node: 0 when it reports none. */
+  async studioLevel(nodeId: string, context: CallContext = {}): Promise<number> {
+    return (await this.getInstallation(nodeId, context)).capabilities?.studio ?? 0;
   }
 
-  /** PLANNED: pause at the next step boundary (action task-pause). */
-  async pauseTask(ref: string, taskId: string, context: CallContext = {}): Promise<unknown> {
-    return this.action(ref, 'task-pause', { target: uuid(taskId) }, context);
+  /** Open (or reopen: the same key answers the same session) an Ardent session. studio >= 1; a context needs studio >= 2. */
+  async openSession(ref: string, body: z.input<typeof ardentSessionOpenSchema>, context: CallContext = {}) {
+    return ardentSessionSchema.parse(await this.action(ref, 'session-open', { body: ardentSessionOpenSchema.parse(body) }, context));
   }
 
-  /** PLANNED: resume a paused task (action task-resume). */
-  async resumeTask(ref: string, taskId: string, context: CallContext = {}): Promise<unknown> {
-    return this.action(ref, 'task-resume', { target: uuid(taskId) }, context);
+  /** Submit a team mission in a session opened with context mission. studio >= 2. */
+  async submitMission(ref: string, body: z.input<typeof ardentMissionSubmitSchema>, context: CallContext = {}) {
+    const parsed = ardentMissionSubmitSchema.safeParse(body);
+    if (!parsed.success) throw new MagnusError(`Mission is invalid: ${parsed.error.issues[0]?.message ?? 'invalid'}`, 400, 'VALIDATION_ERROR');
+    return ardentAcceptedTaskSchema.parse(await this.action(ref, 'mission-submit', { body: parsed.data }, context));
   }
 
-  /** PLANNED: a side-effect-free preview task with draft overrides (action preview-submit). */
-  async submitPreview(ref: string, body: { prompt: string; overrides: { soul?: string; identity?: string; skills_enabled?: string[]; model?: string }; idempotency_key: string }, context: CallContext = {}) {
-    return ardentAcceptedTaskSchema.parse(await this.action(ref, 'preview-submit', { body }, context));
+  /** Pause at the next step boundary. studio >= 2; a finished task answers 409. */
+  async pauseTask(ref: string, taskId: string, context: CallContext = {}) {
+    return ardentTaskPauseStateSchema.parse(await this.action(ref, 'task-pause', { target: uuid(taskId) }, context));
   }
 
-  /** PLANNED: record a development note (action development-note). */
-  async addDevelopmentNote(ref: string, body: { kind: string; title: string; body: string; sources?: unknown[] }, context: CallContext = {}): Promise<unknown> {
-    return this.action(ref, 'development-note', { body }, context);
+  async resumeTask(ref: string, taskId: string, context: CallContext = {}) {
+    return ardentTaskPauseStateSchema.parse(await this.action(ref, 'task-resume', { target: uuid(taskId) }, context));
   }
 
-  /** PLANNED: artifact manifests a task registered (resource tasks/:id/artifacts). */
-  async taskArtifacts(ref: string, taskId: string, context: CallContext = {}): Promise<unknown> {
-    return this.resource(ref, `tasks/${uuid(taskId)}/artifacts` as ArdentResource, context);
+  /** A side-effect-free preview task with draft overrides. studio >= 2; needs the acting person. */
+  async submitPreview(ref: string, body: z.input<typeof ardentPreviewSubmitSchema>, context: CallContext) {
+    if (!context.actingSubject) throw new MagnusError('A preview needs the acting person', 400, 'ACTING_SUBJECT_REQUIRED');
+    return ardentAcceptedTaskSchema.parse(await this.action(ref, 'preview-submit', { body: ardentPreviewSubmitSchema.parse(body) }, context));
   }
 
-  /** PLANNED: one artifact manifest (resource artifacts/:sha/manifest). */
-  async artifactManifest(ref: string, sha256: string, context: CallContext = {}): Promise<unknown> {
+  /** Record a development note. studio >= 2; needs the acting person. */
+  async addDevelopmentNote(ref: string, body: z.input<typeof ardentDevelopmentNoteSchema>, context: CallContext) {
+    if (!context.actingSubject) throw new MagnusError('A development note needs the acting person', 400, 'ACTING_SUBJECT_REQUIRED');
+    return ardentDevelopmentRecordSchema.parse(await this.action(ref, 'development-note', { body: ardentDevelopmentNoteSchema.parse(body) }, context));
+  }
+
+  /** Artifact manifests a task registered, oldest first. studio >= 2. */
+  async taskArtifacts(ref: string, taskId: string, context: CallContext = {}) {
+    return ardentTaskArtifactsSchema.parse(await this.resource(ref, `tasks/${uuid(taskId)}/artifacts`, context)).artifacts;
+  }
+
+  /** One artifact manifest. studio >= 2. */
+  async artifactManifest(ref: string, sha256: string, context: CallContext = {}) {
     if (!/^[a-f0-9]{64}$/.test(sha256)) throw new MagnusError('Invalid artifact ID', 400, 'VALIDATION_ERROR');
-    return this.resource(ref, `artifacts/${sha256}/manifest` as ArdentResource, context);
+    return ardentArtifactRecordSchema.parse(await this.resource(ref, `artifacts/${sha256}/manifest`, context));
   }
 
-  /** PLANNED: portable development records (resource development, cursor-paginated). */
-  async development(ref: string, query: { after?: number; limit?: number } = {}, context: CallContext = {}): Promise<unknown> {
-    return this.resource(ref, 'development' as ArdentResource, { ...context, query });
+  /** Portable development records, cursor-paginated. studio >= 2. */
+  async development(ref: string, query: { after?: string; limit?: number; kind?: string } = {}, context: CallContext = {}) {
+    if (query.after !== undefined && !/^[A-Za-z0-9_-]{1,400}$/.test(query.after)) throw new MagnusError('Invalid development cursor', 400, 'VALIDATION_ERROR');
+    return ardentDevelopmentPageSchema.parse(await this.resource(ref, 'development', { ...context, query }));
   }
 
   /**
-   * PLANNED: follow a task's journal and live reply text (GET …/tasks/:id/stream, piped
-   * unbuffered by Magnus). Yields task.event (resumable, id = journal sequence), task.text,
-   * task.delta and task.done.
+   * Follow a task's journal and live reply text (GET …/tasks/:id/stream, piped unbuffered by
+   * Magnus). Yields task.event (resumable, id = journal sequence), task.text, task.delta and
+   * task.done. Ardent ends a stream after 60 seconds; reconnect with `after`.
    */
   async *streamTask(ref: string, taskId: string, options: CallContext & { after?: number } = {}): AsyncGenerator<SseMessage> {
     const { nodeId, profile } = parseAgentRef(ref);
@@ -281,16 +445,28 @@ export class MagnusClient {
     yield* parseSse(response.body!);
   }
 
-  /** PLANNED: Magnus New Agent deploy operation. Magnus runs it only when the acting person is an ADMIN. */
+  /** Magnus New Agent deploy operation. Magnus runs it only when the acting person is a Magnus ADMIN. */
   async createAgent(body: NewAgentRequest, context: CallContext): Promise<{ operationId: string }> {
     if (!context.actingSubject) throw new MagnusError('New Agent needs the acting person', 400, 'ACTING_SUBJECT_REQUIRED');
-    return z.object({ operationId: z.string() }).parse(await this.json('POST', '/api/v1/ardent/agents', context, body));
+    return z.object({ operationId: z.string() }).parse(await this.json('POST', '/api/v1/ardent/agents', context, ardentAgentDeployRequestSchema.parse(body)));
   }
 
-  /** PLANNED: step receipts of a New Agent operation. */
+  /** Step receipts of a New Agent or Enable HiveMem operation. */
   async agentOperation(operationId: string, context: CallContext = {}) {
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(operationId)) throw new MagnusError('Invalid operation ID', 400, 'VALIDATION_ERROR');
-    return agentOperationSchema.parse(await this.json('GET', `/api/v1/ardent/agents/operations/${operationId}`, context));
+    return agentOperationSchema.parse(await this.json('GET', `/api/v1/ardent/agents/operations/${operationIdOf(operationId)}`, context));
+  }
+
+  /** Live operation updates: `operation` events, then one `done`. */
+  async *streamAgentOperation(operationId: string, options: CallContext = {}): AsyncGenerator<SseMessage> {
+    const response = await this.send('GET', `/api/v1/ardent/agents/operations/${operationIdOf(operationId)}/stream`, options, undefined, { accept: 'text/event-stream' }, 0);
+    if (!response.ok || !response.body) await this.fail(response);
+    yield* parseSse(response.body!);
+  }
+
+  /** Resume a failed operation from its first unfinished step. Needs an acting ADMIN. */
+  async resumeAgentOperation(operationId: string, context: CallContext): Promise<{ operationId: string }> {
+    if (!context.actingSubject) throw new MagnusError('Resuming an operation needs the acting person', 400, 'ACTING_SUBJECT_REQUIRED');
+    return z.object({ operationId: z.string() }).parse(await this.json('POST', `/api/v1/ardent/agents/operations/${operationIdOf(operationId)}/resume`, context));
   }
 
   // ── Transport ──
@@ -329,6 +505,11 @@ export class MagnusClient {
     const message = parsed.success ? parsed.data.error.message.slice(0, 300) : `Magnus answered HTTP ${response.status}`;
     throw new MagnusError(message, response.status, parsed.success ? parsed.data.error.code : `HTTP_${response.status}`);
   }
+}
+
+function operationIdOf(value: string): string {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(value)) throw new MagnusError('Invalid operation ID', 400, 'VALIDATION_ERROR');
+  return value;
 }
 
 function uuid(value: string): string {

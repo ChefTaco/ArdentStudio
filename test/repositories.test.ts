@@ -18,18 +18,19 @@ describe('identifiers', () => {
 });
 
 describe('room, task, review and agent repositories', () => {
-  it('store conversations and messages with a per-conversation seq, idempotent on the Ardent task', async () => {
+  it('store conversations and messages with a per-project seq, idempotent on the Ardent task', async () => {
     ctx = await createTestContext();
     const project = await createProject(ctx);
     const room = ctx.store.room;
     const team = room.createConversation({ projectId: project.id, kind: 'team', title: 'Team room', createdBy: 'operator' });
     const discussion = room.createConversation({ projectId: project.id, kind: 'discussion', parentId: team.id, title: 'Map scale?', createdBy: 'operator',
-      discussion: { question: 'Which scale?', desired_output: 'decision', participants: ['cartographer'], max_rounds: 2, round: 0, state: 'open' } });
+      discussion: { question: 'Which scale?', desired_output: 'decision', participants: ['cartographer'], max_rounds: 2, round: 1, state: 'running' } });
     const first = room.addMessage({ conversationId: team.id, author: { kind: 'user', user_id: 'operator' }, kind: 'text', bodyMd: 'Outline it', state: 'complete' });
     const reply = room.addMessage({ conversationId: team.id, author: { kind: 'agent', binding_id: 'bnd_x', role_key: 'story_lead' }, kind: 'text', bodyMd: '',
       replyTo: first.id, ardent: { task_id: 'task-1', session_id: null }, state: 'streaming' });
     expect([first.seq, reply.seq]).toEqual([1, 2]);
-    expect(room.addMessage({ conversationId: discussion.id, author: { kind: 'system' }, kind: 'notice', bodyMd: 'Round 1', state: 'complete' }).seq).toBe(1);
+    expect(room.addMessage({ conversationId: discussion.id, author: { kind: 'system' }, kind: 'notice', bodyMd: 'Round 1', state: 'complete' }).seq).toBe(3);
+    expect(room.conversation(discussion.id)!.last_message_seq).toBe(3);
     expect(() => room.addMessage({ conversationId: team.id, author: { kind: 'system' }, kind: 'text', bodyMd: '', ardent: { task_id: 'task-1', session_id: null }, state: 'complete' })).toThrow();
     expect(room.finishMessage(reply.id, { bodyMd: 'Here is the outline.', state: 'complete' })).toMatchObject({ body_md: 'Here is the outline.', state: 'complete' });
     expect(room.messageForArdentTask('task-1')!.id).toBe(reply.id);

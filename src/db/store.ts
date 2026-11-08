@@ -8,6 +8,7 @@ import { IdempotencyRepository } from './repos/idempotency.js';
 import { ProjectRepository } from './repos/projects.js';
 import { ReviewRepository } from './repos/review.js';
 import { RoomRepository } from './repos/room.js';
+import { SessionRepository } from './repos/sessions.js';
 import { TaskRepository } from './repos/tasks.js';
 import { TeamRepository } from './repos/team.js';
 import { TemplateRepository } from './repos/templates.js';
@@ -22,6 +23,7 @@ export class Store {
   readonly team: TeamRepository;
   readonly room: RoomRepository;
   readonly tasks: TaskRepository;
+  readonly sessions: SessionRepository;
   readonly review: ReviewRepository;
   readonly agents: AgentRepository;
   readonly events: EventRepository;
@@ -37,6 +39,7 @@ export class Store {
     this.team = new TeamRepository(db, clock);
     this.room = new RoomRepository(db, clock);
     this.tasks = new TaskRepository(db, clock);
+    this.sessions = new SessionRepository(db, clock);
     this.review = new ReviewRepository(db, clock);
     this.agents = new AgentRepository(db, clock);
     this.events = new EventRepository(db, clock);

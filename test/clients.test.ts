@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ChatterMostClient } from '../src/clients/chattermost.js';
 import { HiveMemClient, HiveMemError } from '../src/clients/hivemem.js';
-import { ACTING_SUBJECT_HEADER, MagnusClient, MagnusError, parseAgentRef, PLANNED_ACTIONS } from '../src/clients/magnus.js';
+import { ACTING_SUBJECT_HEADER, MagnusClient, MagnusError, parseAgentRef, STUDIO_ACTIONS } from '../src/clients/magnus.js';
 import { ServiceTokenProvider } from '../src/clients/service-token.js';
 import { parseSse } from '../src/clients/sse.js';
 import { profile } from './helpers.js';
@@ -82,7 +82,7 @@ describe('Magnus client', () => {
     expect(await client.submitTask('node1~lead', { prompt: 'Outline the adventure', idempotency_key: TASK })).toEqual({ task_id: TASK, state: 'queued' });
     expect(calls[2]!.url).toBe('https://magnus.example.com/api/v1/ardent/installations/node1/profiles/lead/action');
     expect(JSON.parse(String(calls[2]!.init.body))).toEqual({ action: 'task-submit', body: { prompt: 'Outline the adventure', idempotency_key: TASK } });
-    await expect(client.submitTask('node1~lead', { prompt: 'x'.repeat(4001), idempotency_key: TASK })).rejects.toThrow(/4000/);
+    await expect(client.submitTask('node1~lead', { prompt: 'x'.repeat(16_001), idempotency_key: TASK })).rejects.toThrow(/16000/);
     await expect(client.cancelTask('node1~lead', 'not-a-task')).rejects.toThrow(/task ID/);
     await client.cancelTask('node1~lead', TASK);
     expect(JSON.parse(String(calls[3]!.init.body))).toEqual({ action: 'task-cancel', target: TASK });
@@ -101,21 +101,34 @@ describe('Magnus client', () => {
     expect(headers(calls[1]!).get('authorization')).toBe('Bearer fixture-token-1');
   });
 
-  it('calls the planned Studio routes at their planned paths', async () => {
+  it('calls the Studio routes with their Magnus shapes', async () => {
     const { calls, fetcher } = recorder(call => call.url.endsWith('/stream?after=4')
       ? new Response('event: task.delta\ndata: {"step":1,"text":"Hel"}\n\nid: 5\nevent: task.event\ndata: {"sequence":5}\n\n', { headers: { 'content-type': 'text/event-stream' } })
-      : Response.json({ success: true, data: { operationId: 'op-1', task_id: TASK, state: 'queued', steps: [] } }));
+      : call.url.endsWith('/installations/node1') ? Response.json({ success: true, data: { installed: true, version: '2.2.0', owner: 'operator', profiles: [], checkedAt: 'x',
+        nodeId: 'node1', nodeName: 'Node 1', hostname: 'node1.example.com', reachable: true, error: null, capabilities: { studio: 2 } } })
+        : call.url.includes('/action') && JSON.parse(String(call.init.body)).action === 'session-open'
+          ? Response.json({ success: true, data: { id: TASK, caller: 'management', context: 'mission', key: 'studio:k', created_ms: 1, updated_ms: 1 } })
+          : Response.json({ success: true, data: { operationId: 'op-1', task_id: TASK, state: 'queued', steps: [] } }));
     const client = new MagnusClient({ baseUrl: 'https://magnus.example.com', tokens: fixedTokens, fetch: fetcher });
-    await client.submitMission('node1~lead', { objective: 'Draft', mission: {}, idempotency_key: TASK });
-    expect(JSON.parse(String(calls[0]!.init.body)).action).toBe('mission-submit');
+    expect(await client.studioLevel('node1')).toBe(2);
+    expect((await client.openSession('node1~lead', { key: 'studio:k', context: 'mission' })).id).toBe(TASK);
+    expect(JSON.parse(String(calls[1]!.init.body))).toEqual({ action: 'session-open', body: { key: 'studio:k', context: 'mission' } });
+    const mission = { id: 'tsk_1', revision: 1, parent_task: null, constraints: [], allowed_actions: ['observe' as const], resources: ['tool:team_ask_user'],
+      deadline: 4_000_000_000, acceptance_criteria: ['Reply'], expected_artifacts: [] };
+    await client.submitMission('node1~lead', { session_id: TASK, objective: 'Draft', mission, idempotency_key: 'tsk_1' });
+    expect(JSON.parse(String(calls[2]!.init.body))).toMatchObject({ action: 'mission-submit', body: { session_id: TASK, objective: 'Draft', mission } });
+    await expect(client.submitMission('node1~lead', { objective: 'Draft', mission: { ...mission, resources: [] }, idempotency_key: 'tsk_1' })).rejects.toThrow(/Mission is invalid/);
+    await expect(client.submitMission('node1~lead', { objective: 'Draft', mission, idempotency_key: 'tsk_1',
+      context_items: [{ title: 'Big', text: 'x'.repeat(70_000) }] })).rejects.toThrow(/64 KiB/);
     const events = [];
     for await (const event of client.streamTask('node1~lead', TASK, { after: 4 })) events.push(event);
     expect(events).toEqual([{ event: 'task.delta', data: '{"step":1,"text":"Hel"}' }, { event: 'task.event', data: '{"sequence":5}', id: '5' }]);
-    await expect(client.createAgent({ nodeId: 'node1', profile: 'mapper', soul_md: '', identity_md: '', model: { emberpath_alias: 'fixture' }, skills: [], hivemem: true }, {})).rejects.toThrow(/acting person/);
-    expect(await client.createAgent({ nodeId: 'node1', profile: 'mapper', soul_md: '', identity_md: '', model: { emberpath_alias: 'fixture' }, skills: [], hivemem: true }, { actingSubject: 'subject-operator' }))
-      .toEqual({ operationId: 'op-1' });
+    const deploy = { nodeId: 'node1', profile: 'mapper', soul_md: 'Soul', identity_md: 'Identity', model: { emberpath_alias: 'fixture' }, skills: [], hivemem: true as const };
+    await expect(client.createAgent(deploy, {})).rejects.toThrow(/acting person/);
+    expect(await client.createAgent(deploy, { actingSubject: 'subject-operator' })).toEqual({ operationId: 'op-1' });
     expect(calls.at(-1)!.url).toBe('https://magnus.example.com/api/v1/ardent/agents');
-    expect(PLANNED_ACTIONS).toEqual(['session-open', 'mission-submit', 'task-pause', 'task-resume', 'preview-submit', 'development-note']);
+    await expect(client.createAgent({ ...deploy, model: { base_url: 'https://user:secret@llm.example.com', model: 'm' } }, { actingSubject: 'subject-operator' })).rejects.toThrow();
+    expect(STUDIO_ACTIONS).toEqual(['session-open', 'mission-submit', 'task-pause', 'task-resume', 'preview-submit', 'development-note']);
   });
 
   it('parses agent references strictly', () => {

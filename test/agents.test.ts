@@ -16,7 +16,7 @@ describe('agents through Magnus', () => {
       ['node1~lead', 'Story Lead', true], ['node2~mapper', 'mapper', false], ['node3~broken', 'broken', false],
     ]);
     expect(list.agents[0]).not.toHaveProperty('hostname');
-    expect(ctx.magnus.calls.at(-1)).toEqual({ method: 'listProfiles', actingSubject: 'subject-operator' });
+    expect(ctx.magnus.calls.at(-1)).toMatchObject({ method: 'GET', path: '/api/v1/ardent/profiles', actingSubject: 'subject-operator' });
   });
 
   it('reports Magnus being unavailable instead of inventing agents', async () => {

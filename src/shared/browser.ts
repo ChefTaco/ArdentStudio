@@ -35,6 +35,10 @@ export const fileIdSchema = prefixedId('fil');
 export const templateIdSchema = prefixedId('tpl');
 export const bindingIdSchema = prefixedId('bnd');
 export const teamRevisionIdSchema = prefixedId('trv');
+export const conversationIdSchema = prefixedId('cnv');
+export const messageIdSchema = prefixedId('msg');
+export const taskIdSchema = prefixedId('tsk');
+export const decisionIdSchema = prefixedId('dec');
 /** A Magnus-managed Ardent profile: `<nodeId>~<profile>`, the same reference Magnus uses. */
 export const agentRefSchema = z.string().regex(/^[A-Za-z0-9._-]{1,128}~[A-Za-z0-9._-]{1,128}$/);
 export const roleKeySchema = z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/);
@@ -417,6 +421,233 @@ export const listAgentsResponseSchema = z.object({
   magnus: z.object({ state: z.enum(['ok', 'unavailable']), error: z.string().nullable() }),
 });
 
+
+// ── Room: layout, conversations, messages ──
+export const seatSchema = z.object({
+  id: z.string().regex(/^[a-z0-9-]{1,40}$/),
+  kind: z.enum(['desk', 'discussion', 'review', 'shelf', 'wall']),
+  x: z.number().min(-1000).max(1000),
+  y: z.number().min(-1000).max(1000),
+}).strict();
+export const placementSchema = z.object({ role_key: roleKeySchema, seat_id: z.string().regex(/^[a-z0-9-]{1,40}$/) }).strict();
+export const roomLayoutSchema = z.object({
+  project_id: projectIdSchema,
+  revision: z.number().int(),
+  seats: z.array(seatSchema),
+  placements: z.array(placementSchema),
+  zone_labels: z.record(z.string(), z.string()),
+  created_by: z.string(),
+  created_at: isoDate,
+});
+export const layoutResponseSchema = z.object({ layout: roomLayoutSchema.nullable() });
+export const putLayoutRequestSchema = z.object({
+  /** The revision this edit was based on (null for the first). A newer revision answers 409. */
+  base_revision: z.number().int().min(1).nullable(),
+  seats: z.array(seatSchema).max(64),
+  placements: z.array(placementSchema).max(64),
+  zone_labels: z.record(z.string().regex(/^[a-z0-9-]{1,40}$/), z.string().trim().max(60)).refine(value => Object.keys(value).length <= 32, 'At most 32 zone labels').default({}),
+}).strict();
+
+export const conversationKindSchema = z.enum(['team', 'direct', 'discussion']);
+export const desiredOutputSchema = z.enum(['decision', 'short_doc', 'options']);
+/** running: rounds in progress; summarizing: the coordinator summary; stopped by a person; done. */
+export const discussionStateSchema = z.enum(['running', 'summarizing', 'stopped', 'done']);
+export const discussionSchema = z.object({
+  question: z.string(),
+  desired_output: desiredOutputSchema,
+  participants: z.array(roleKeySchema),
+  max_rounds: z.number().int(),
+  round: z.number().int(),
+  state: discussionStateSchema,
+});
+export const conversationSchema = z.object({
+  id: conversationIdSchema,
+  project_id: projectIdSchema,
+  kind: conversationKindSchema,
+  parent_id: conversationIdSchema.nullable(),
+  title: z.string(),
+  /** The role a direct conversation talks to. */
+  role_key: roleKeySchema.nullable(),
+  discussion: discussionSchema.nullable(),
+  /** Project message seq of the newest message. */
+  last_message_seq: z.number().int(),
+  created_by: z.string(),
+  created_at: isoDate,
+  updated_at: isoDate,
+  stopped_at: isoDate.nullable(),
+});
+const conversationTitle = z.string().trim().min(1).max(200);
+export const createConversationRequestSchema = z.discriminatedUnion('kind', [
+  /** There is one team conversation per project; creating it again answers the existing one. */
+  z.object({ kind: z.literal('team'), title: conversationTitle.optional() }).strict(),
+  z.object({ kind: z.literal('direct'), role_key: roleKeySchema, title: conversationTitle.optional() }).strict(),
+  z.object({
+    kind: z.literal('discussion'),
+    title: conversationTitle.optional(),
+    parent_id: conversationIdSchema.optional(),
+    question: z.string().trim().min(1).max(4_000),
+    desired_output: desiredOutputSchema,
+    participants: z.array(roleKeySchema).min(1).max(8).refine(value => new Set(value).size === value.length, 'Duplicate participant'),
+    max_rounds: z.number().int().min(1).max(4).default(2),
+  }).strict(),
+]);
+export const listConversationsResponseSchema = z.object({ conversations: z.array(conversationSchema) });
+export const conversationResponseSchema = conversationSchema;
+
+export const messageAuthorSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('user'), user_id: z.string() }),
+  z.object({ kind: z.literal('agent'), binding_id: bindingIdSchema, role_key: z.string().nullable() }),
+  z.object({ kind: z.literal('system') }),
+]);
+export const messageStateSchema = z.enum(['streaming', 'complete', 'failed']);
+/**
+ * kind: message (a person), reply (an agent's turn), summary (a discussion summary), clarification
+ * (an agent's question; links.question, links.options, links.answer_message_id), answer,
+ * decision_proposal (links.proposal, links.decision_id), handoff (links.handoff), discussion_question
+ * and system (Studio notes such as a refused hand-off). links.task_id names the Studio task.
+ */
+export const messageSchema = z.object({
+  id: messageIdSchema,
+  project_id: projectIdSchema,
+  conversation_id: conversationIdSchema,
+  /** Per project, so the whole transcript has one order. */
+  seq: z.number().int(),
+  author: messageAuthorSchema,
+  /** Role keys. */
+  addressees: z.array(z.string()),
+  reply_to: messageIdSchema.nullable(),
+  thread_root: messageIdSchema.nullable(),
+  kind: z.string(),
+  /** Final text. While state is streaming, live text arrives as message.delta on the project stream. */
+  body_md: z.string(),
+  attachments: z.array(fileIdSchema),
+  links: z.record(z.string(), z.unknown()),
+  ardent: z.object({ task_id: z.string(), session_id: z.string().nullable() }).nullable(),
+  state: messageStateSchema,
+  created_at: isoDate,
+  updated_at: isoDate,
+});
+export const listMessagesQuerySchema = z.object({
+  after: z.string().regex(/^\d{1,15}$/).optional(),
+  limit: z.string().regex(/^\d{1,3}$/).optional(),
+});
+export const listMessagesResponseSchema = z.object({
+  messages: z.array(messageSchema),
+  /** Pass as ?after= for the next page; null when this page reached the end. */
+  next_after: z.number().int().nullable(),
+});
+export const recipientSchema = z.discriminatedUnion('kind', [
+  /** Team and Coordinator start a coordinator turn (unless the text @mentions roles). */
+  z.object({ kind: z.literal('team') }).strict(),
+  z.object({ kind: z.literal('coordinator') }).strict(),
+  /** One turn per role, in this order. */
+  z.object({ kind: z.literal('roles'), roles: z.array(roleKeySchema).min(1).max(10) }).strict(),
+]);
+export const postMessageRequestSchema = z.object({
+  body_md: z.string().trim().min(1).max(20_000),
+  to: recipientSchema.default({ kind: 'team' }),
+  reply_to: messageIdSchema.optional(),
+  thread_root: messageIdSchema.optional(),
+  /** Project files to attach. Text files are given to the agents as context. */
+  attachments: z.array(fileIdSchema).max(10).default([]),
+}).strict();
+
+// ── Tasks ──
+export const TASK_MODES = ['turn', 'assignment', 'discussion_turn', 'revision', 'review', 'team_proposal'] as const;
+export const taskModeSchema = z.enum(TASK_MODES);
+/** The Ardent state mirrored, plus pausing (requested, not yet at a step boundary). input_required waits for a person's answer. */
+export const taskStateSchema = z.enum(['queued', 'running', 'input_required', 'pausing', 'paused', 'completed', 'partial', 'failed', 'cancelled', 'unknown']);
+export const taskSchema = z.object({
+  id: taskIdSchema,
+  project_id: projectIdSchema,
+  title: z.string(),
+  mode: taskModeSchema,
+  role_key: z.string().nullable(),
+  binding_id: bindingIdSchema.nullable(),
+  /** The published team revision whose rules apply to this task. */
+  assignment_revision: z.number().int().nullable(),
+  conversation_id: conversationIdSchema.nullable(),
+  trigger_message_id: messageIdSchema.nullable(),
+  instructions_md: z.string(),
+  source: z.record(z.string(), z.unknown()),
+  state: taskStateSchema,
+  /** mission: an Ardent 2.2.0 team mission; turn: a task-submit with a composed prompt (older agents). Null until Ardent accepts it. */
+  dispatch: z.enum(['mission', 'turn']).nullable(),
+  ardent: z.object({ agent_ref: z.string().nullable(), task_id: z.string().nullable(), session_id: z.string().nullable() }),
+  outcome: z.unknown(),
+  reassigned_from: taskIdSchema.nullable(),
+  /** Tasks in one ordering group start one after another. */
+  group_id: z.string().nullable(),
+  group_position: z.number().int(),
+  created_by: z.string(),
+  created_at: isoDate,
+  updated_at: isoDate,
+  finished_at: isoDate.nullable(),
+});
+export const listTasksQuerySchema = z.object({
+  state: z.enum(['active', 'finished', 'all']).default('all'),
+  conversation_id: conversationIdSchema.optional(),
+});
+export const listTasksResponseSchema = z.object({ tasks: z.array(taskSchema) });
+export const createTaskRequestSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  instructions_md: z.string().max(20_000).default(''),
+  role_key: roleKeySchema,
+  mode: z.enum(['assignment', 'review']).default('assignment'),
+  /** Where the reply goes: this conversation, the source message's, else the team conversation. */
+  conversation_id: conversationIdSchema.optional(),
+  source_message_id: messageIdSchema.optional(),
+}).strict();
+export const reassignTaskRequestSchema = z.object({ role_key: roleKeySchema }).strict();
+export const taskResponseSchema = taskSchema;
+export const postMessageResponseSchema = z.object({ message: messageSchema, tasks: z.array(taskSchema) });
+export const answerRequestSchema = z.object({ body_md: z.string().trim().min(1).max(20_000), option: z.string().trim().min(1).max(300).optional() }).strict();
+export const followUpRequestSchema = z.object({ body_md: z.string().trim().max(20_000).default('') }).strict();
+
+// ── Decisions ──
+export const decisionSchema = z.object({
+  id: decisionIdSchema,
+  project_id: projectIdSchema,
+  title: z.string(),
+  statement_md: z.string(),
+  rationale_md: z.string(),
+  sources: z.array(z.object({ kind: z.string(), ref: z.string() })),
+  decided_by: z.string(),
+  superseded_by: decisionIdSchema.nullable(),
+  created_at: isoDate,
+});
+export const createDecisionRequestSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  statement_md: z.string().trim().min(1).max(20_000),
+  rationale_md: z.string().max(20_000).default(''),
+  /** Pin a message (for example an agent's proposal) as the decision's source. */
+  source_message_id: messageIdSchema.optional(),
+}).strict();
+export const supersedeDecisionRequestSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  statement_md: z.string().trim().min(1).max(20_000),
+  rationale_md: z.string().max(20_000).default(''),
+}).strict();
+export const listDecisionsResponseSchema = z.object({ decisions: z.array(decisionSchema) });
+export const decisionResponseSchema = decisionSchema;
+
+// ── Activity (derived from real records only) ──
+/**
+ * offline/available come from the 30-second status probe only. queued, working, reviewing, asking,
+ * waiting (behind another turn in its ordering group), paused and delivering come from Studio tasks
+ * and Ardent journal events. Speaking is not stored: it is the live message.delta stream itself.
+ * unknown: not probed yet.
+ */
+export const activityStateSchema = z.enum(['offline', 'available', 'queued', 'working', 'reviewing', 'asking', 'waiting', 'paused', 'delivering', 'unknown']);
+export const activitySchema = z.object({
+  binding_id: bindingIdSchema,
+  agent_ref: agentRefSchema,
+  state: activityStateSchema,
+  label: z.string(),
+  source: z.record(z.string(), z.unknown()),
+  since: isoDate,
+});
+
 // ── Project snapshot and stream ──
 export const snapshotResponseSchema = z.object({
   /** The stream cursor this snapshot is consistent with: reconnect with ?after=<seq>. */
@@ -424,6 +655,12 @@ export const snapshotResponseSchema = z.object({
   project: projectSchema,
   files: z.array(fileSchema),
   team: teamStateSchema,
+  conversations: z.array(conversationSchema),
+  /** Active tasks and those waiting for an answer. */
+  tasks: z.array(taskSchema),
+  decisions: z.array(decisionSchema),
+  activity: z.array(activitySchema),
+  layout: roomLayoutSchema.nullable(),
 });
 export const streamQuerySchema = z.object({ after: z.string().regex(/^\d{1,15}$/).optional() });
 export const PROJECT_EVENT_TYPES = [
@@ -446,7 +683,12 @@ export const projectEventSchema = z.object({
 });
 export const resetEventSchema = z.object({ seq: z.number().int(), reason: z.enum(['cursor_expired', 'cursor_ahead']) });
 export const heartbeatEventSchema = z.object({ seq: z.number().int(), at: isoDate });
-export const messageDeltaEventSchema = z.object({ message_id: z.string(), text: z.string() });
+/**
+ * Live reply text, never persisted or replayed. mode append adds text to the message's current
+ * step; replace sets the whole step (a new step, or a snapshot sent when a stream connects).
+ * The stored message (message.updated) replaces it when the turn ends.
+ */
+export const messageDeltaEventSchema = z.object({ message_id: z.string(), text: z.string(), mode: z.enum(['append', 'replace']).optional(), step: z.number().int().optional() });
 
 // ── Health ──
 const checkSchema = z.object({ status: z.enum(['ok', 'unavailable']), error: z.string().nullable() });
@@ -526,10 +768,32 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   // Agents
   { method: 'GET', path: '/agents', response: listAgentsResponseSchema, permissions: READ, idempotent: false, note: 'Magnus-managed Ardent profiles. When Magnus is unavailable the list is empty and magnus.state says so.' },
 
+  // Room
+  { method: 'GET', path: '/projects/{projectId}/layout', response: layoutResponseSchema, permissions: READ, idempotent: false },
+  { method: 'PUT', path: '/projects/{projectId}/layout', requestBody: 'json', request: putLayoutRequestSchema, response: layoutResponseSchema, permissions: WRITE, idempotent: true, note: 'Each save is a new revision. 409 when base_revision is not the latest.' },
+  { method: 'GET', path: '/projects/{projectId}/conversations', response: listConversationsResponseSchema, permissions: READ, idempotent: false },
+  { method: 'POST', path: '/projects/{projectId}/conversations', requestBody: 'json', request: createConversationRequestSchema, response: conversationResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'A discussion posts its question and starts round 1 at once: one turn per participant in order, then the next round, then a coordinator summary. Needs a published team with the participants bound (409 TEAM_NOT_READY).' },
+  { method: 'POST', path: '/conversations/{conversationId}/stop', response: conversationResponseSchema, permissions: WRITE, idempotent: true, note: 'Unstarted turns are cancelled; started ones are cancelled through Magnus.' },
+  { method: 'GET', path: '/conversations/{conversationId}/messages', query: listMessagesQuerySchema, response: listMessagesResponseSchema, permissions: READ, idempotent: false, note: 'Oldest first after ?after=<seq>; at most 200 (default 100).' },
+  { method: 'POST', path: '/conversations/{conversationId}/messages', requestBody: 'json', request: postMessageRequestSchema, response: postMessageResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Team or Coordinator starts a coordinator turn; roles or @role_key mentions start one turn per addressee in order. A direct conversation always goes to its role; a discussion takes notes without starting turns. 409 TEAM_NOT_READY without a published team and bound roles.' },
+  { method: 'POST', path: '/messages/{messageId}/answer', requestBody: 'json', request: answerRequestSchema, response: postMessageResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Answers a clarification: the answer continues the same agent session. 409 when it is already answered.' },
+  { method: 'POST', path: '/messages/{messageId}/follow-up', requestBody: 'json', request: followUpRequestSchema, response: postMessageResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: "Asks the agent that wrote the message to follow up on it." },
+
+  // Decisions and tasks
+  { method: 'GET', path: '/projects/{projectId}/decisions', response: listDecisionsResponseSchema, permissions: READ, idempotent: false },
+  { method: 'POST', path: '/projects/{projectId}/decisions', requestBody: 'json', request: createDecisionRequestSchema, response: decisionResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Pinning is a person\'s act; an agent can only propose.' },
+  { method: 'POST', path: '/decisions/{decisionId}/supersede', requestBody: 'json', request: supersedeDecisionRequestSchema, response: decisionResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Creates the new decision and marks this one superseded by it. 409 when it is already superseded.' },
+  { method: 'GET', path: '/projects/{projectId}/tasks', query: listTasksQuerySchema, response: listTasksResponseSchema, permissions: READ, idempotent: false },
+  { method: 'POST', path: '/projects/{projectId}/tasks', requestBody: 'json', request: createTaskRequestSchema, response: taskResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201 },
+  { method: 'POST', path: '/tasks/{taskId}/pause', response: taskResponseSchema, permissions: WRITE, idempotent: true, note: 'A started task pauses at its next step boundary (state pausing, then paused); an unstarted one is held. 409 AGENT_UPGRADE_REQUIRED when the agent cannot pause.' },
+  { method: 'POST', path: '/tasks/{taskId}/resume', response: taskResponseSchema, permissions: WRITE, idempotent: true },
+  { method: 'POST', path: '/tasks/{taskId}/cancel', response: taskResponseSchema, permissions: WRITE, idempotent: true },
+  { method: 'POST', path: '/tasks/{taskId}/reassign', requestBody: 'json', request: reassignTaskRequestSchema, response: taskResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Cancels the task when it is still active and creates the same work for another role, with reassigned_from.' },
+
   // Stream
   {
     method: 'GET', path: '/projects/{projectId}/stream', query: streamQuerySchema, response: null, permissions: READ, idempotent: false,
     events: { '*': projectEventSchema, reset: resetEventSchema, heartbeat: heartbeatEventSchema, 'message.delta': messageDeltaEventSchema },
-    note: 'Persisted events carry their seq as the SSE id and replay after ?after=. reset means the cursor is older than retained events (or ahead of them): refetch the snapshot. heartbeat every 15 s. The stream closes when the token expires or its session ends; reconnect with a fresh token.',
+    note: 'Persisted events carry their seq as the SSE id and replay after ?after=. reset means the cursor is older than retained events (or ahead of them): refetch the snapshot. message.delta (live reply text) has no id; on connect each streaming message gets one replace delta with its current text. heartbeat every 15 s. The stream closes when the token expires or its session ends; reconnect with a fresh token.',
   },
 ];

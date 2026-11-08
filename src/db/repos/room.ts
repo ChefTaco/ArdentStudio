@@ -1,5 +1,4 @@
 // Room records: layouts, conversations, messages, decisions and derived activity.
-// Their routes arrive with the conversation room; the schema and storage rules are fixed now.
 import { newId } from '../../ids.js';
 import type { Db } from '../database.js';
 import { readJson, writeJson, type Clock } from '../json.js';
@@ -9,9 +8,12 @@ export interface RoomLayout {
   created_by: string; created_at: string;
 }
 export type ConversationKind = 'team' | 'direct' | 'discussion';
-export interface Discussion { question: string; desired_output: 'decision' | 'short_doc' | 'options'; participants: string[]; max_rounds: number; round: number; state: 'open' | 'running' | 'stopped' | 'done' }
+export interface Discussion {
+  question: string; desired_output: 'decision' | 'short_doc' | 'options'; participants: string[]; max_rounds: number; round: number;
+  state: 'running' | 'summarizing' | 'stopped' | 'done';
+}
 export interface Conversation {
-  id: string; project_id: string; kind: ConversationKind; parent_id: string | null; title: string; discussion: Discussion | null;
+  id: string; project_id: string; kind: ConversationKind; parent_id: string | null; title: string; role_key: string | null; discussion: Discussion | null;
   last_message_seq: number; created_by: string; created_at: string; updated_at: string; stopped_at: string | null;
 }
 export type MessageAuthor = { kind: 'user'; user_id: string } | { kind: 'agent'; binding_id: string; role_key: string | null } | { kind: 'system' };
@@ -27,10 +29,10 @@ export interface Decision {
 }
 export interface Activity { project_id: string; binding_id: string; state: string; label: string; source: Record<string, unknown>; since: string }
 
-interface ConversationRow { id: string; project_id: string; kind: ConversationKind; parent_id: string | null; title: string; discussion_json: string | null; last_message_seq: number; created_by: string; created_at: string; updated_at: string; stopped_at: string | null }
+interface ConversationRow { id: string; project_id: string; kind: ConversationKind; parent_id: string | null; title: string; role_key: string | null; discussion_json: string | null; last_message_seq: number; created_by: string; created_at: string; updated_at: string; stopped_at: string | null }
 interface MessageRow { id: string; project_id: string; conversation_id: string; seq: number; author_json: string; addressees_json: string; reply_to: string | null; thread_root: string | null; kind: string; body_md: string; attachments_json: string; links_json: string; ardent_task_id: string | null; ardent_session_id: string | null; state: MessageState; created_at: string; updated_at: string }
 
-const toConversation = (row: ConversationRow): Conversation => ({ ...row, discussion: readJson<Discussion | null>(row.discussion_json, null) });
+const toConversation = ({ discussion_json, ...row }: ConversationRow): Conversation => ({ ...row, discussion: readJson<Discussion | null>(discussion_json, null) });
 const toMessage = (row: MessageRow): Message => ({
   id: row.id, project_id: row.project_id, conversation_id: row.conversation_id, seq: row.seq, author: readJson<MessageAuthor>(row.author_json, { kind: 'system' }),
   addressees: readJson(row.addressees_json, []), reply_to: row.reply_to, thread_root: row.thread_root, kind: row.kind, body_md: row.body_md,
@@ -56,11 +58,11 @@ export class RoomRepository {
       zone_labels: readJson(row.zone_labels_json, {}), created_by: row.created_by, created_at: row.created_at } : undefined;
   }
 
-  createConversation(input: { projectId: string; kind: ConversationKind; parentId?: string | null; title: string; discussion?: Discussion | null; createdBy: string }): Conversation {
+  createConversation(input: { projectId: string; kind: ConversationKind; parentId?: string | null; title: string; roleKey?: string | null; discussion?: Discussion | null; createdBy: string }): Conversation {
     const id = newId('conversation');
     const now = this.clock.now().toISOString();
-    this.db.prepare(`INSERT INTO conversations (id, project_id, kind, parent_id, title, discussion_json, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, input.projectId, input.kind, input.parentId ?? null, input.title,
+    this.db.prepare(`INSERT INTO conversations (id, project_id, kind, parent_id, title, role_key, discussion_json, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, input.projectId, input.kind, input.parentId ?? null, input.title, input.roleKey ?? null,
       input.discussion ? writeJson(input.discussion) : null, input.createdBy, now, now);
     return this.conversation(id)!;
   }
@@ -74,16 +76,18 @@ export class RoomRepository {
     return (this.db.prepare('SELECT * FROM conversations WHERE project_id = ? ORDER BY created_at, id').all(projectId) as ConversationRow[]).map(toConversation);
   }
 
-  /** Append a message; its seq is per conversation and assigned in this transaction. */
+  /** Append a message. Its seq is per project and assigned in this transaction, so the whole transcript has one order. */
   addMessage(input: { conversationId: string; author: MessageAuthor; addressees?: string[]; replyTo?: string | null; threadRoot?: string | null; kind: string;
     bodyMd: string; attachments?: string[]; links?: Record<string, unknown>; ardent?: { task_id: string; session_id: string | null } | null; state: MessageState }): Message {
     return this.db.transaction(() => {
       const conversation = this.conversation(input.conversationId);
       if (!conversation) throw new Error('Conversation not found');
-      const { last_message_seq: seq } = this.db.prepare('UPDATE conversations SET last_message_seq = last_message_seq + 1, updated_at = ? WHERE id = ? RETURNING last_message_seq')
-        .get(this.clock.now().toISOString(), input.conversationId) as { last_message_seq: number };
-      const id = newId('message');
+      this.db.prepare('INSERT INTO message_cursors (project_id) VALUES (?) ON CONFLICT (project_id) DO NOTHING').run(conversation.project_id);
+      const { last_seq: seq } = this.db.prepare('UPDATE message_cursors SET last_seq = last_seq + 1 WHERE project_id = ? RETURNING last_seq')
+        .get(conversation.project_id) as { last_seq: number };
       const now = this.clock.now().toISOString();
+      this.db.prepare('UPDATE conversations SET last_message_seq = ?, updated_at = ? WHERE id = ?').run(seq, now, conversation.id);
+      const id = newId('message');
       this.db.prepare(`INSERT INTO messages (id, project_id, conversation_id, seq, author_json, addressees_json, reply_to, thread_root, kind, body_md,
         attachments_json, links_json, ardent_task_id, ardent_session_id, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(id, conversation.project_id, conversation.id, seq, writeJson(input.author), writeJson(input.addressees ?? []), input.replyTo ?? null,
@@ -94,8 +98,18 @@ export class RoomRepository {
   }
 
   /** Complete or fail a message. The final stored text is authoritative over any live deltas. */
-  finishMessage(id: string, update: { bodyMd: string; state: Exclude<MessageState, 'streaming'> }): Message {
-    this.db.prepare('UPDATE messages SET body_md = ?, state = ?, updated_at = ? WHERE id = ?').run(update.bodyMd, update.state, this.clock.now().toISOString(), id);
+  finishMessage(id: string, update: { bodyMd: string; state: Exclude<MessageState, 'streaming'>; links?: Record<string, unknown> }): Message {
+    const now = this.clock.now().toISOString();
+    if (update.links) this.db.prepare('UPDATE messages SET body_md = ?, state = ?, links_json = ?, updated_at = ? WHERE id = ?').run(update.bodyMd, update.state, writeJson(update.links), now, id);
+    else this.db.prepare('UPDATE messages SET body_md = ?, state = ?, updated_at = ? WHERE id = ?').run(update.bodyMd, update.state, now, id);
+    return this.message(id)!;
+  }
+
+  /** Merge keys into a message's links (an answered clarification, a pinned proposal). */
+  updateLinks(id: string, links: Record<string, unknown>): Message {
+    const current = this.message(id);
+    if (!current) throw new Error('Message not found');
+    this.db.prepare('UPDATE messages SET links_json = ?, updated_at = ? WHERE id = ?').run(writeJson({ ...current.links, ...links }), this.clock.now().toISOString(), id);
     return this.message(id)!;
   }
 
@@ -111,6 +125,43 @@ export class RoomRepository {
 
   messages(conversationId: string, after = 0, limit = 200): Message[] {
     return (this.db.prepare('SELECT * FROM messages WHERE conversation_id = ? AND seq > ? ORDER BY seq LIMIT ?').all(conversationId, after, limit) as MessageRow[]).map(toMessage);
+  }
+
+  /** The newest messages of a conversation before a seq, oldest first. */
+  recentMessages(conversationId: string, limit: number, before = Number.MAX_SAFE_INTEGER): Message[] {
+    return (this.db.prepare('SELECT * FROM messages WHERE conversation_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?').all(conversationId, before, limit) as MessageRow[])
+      .map(toMessage).reverse();
+  }
+
+  /** Messages still receiving live text, for a reconnecting stream. */
+  streamingMessages(projectId: string): Message[] {
+    return (this.db.prepare("SELECT * FROM messages WHERE project_id = ? AND state = 'streaming' ORDER BY seq").all(projectId) as MessageRow[]).map(toMessage);
+  }
+
+  /** At most one team conversation per project: the room everyone shares. */
+  teamConversation(projectId: string): Conversation | undefined {
+    const row = this.db.prepare("SELECT * FROM conversations WHERE project_id = ? AND kind = 'team' ORDER BY created_at, id LIMIT 1").get(projectId) as ConversationRow | undefined;
+    return row ? toConversation(row) : undefined;
+  }
+
+  updateDiscussion(id: string, discussion: Discussion): Conversation {
+    this.db.prepare('UPDATE conversations SET discussion_json = ?, updated_at = ? WHERE id = ?').run(writeJson(discussion), this.clock.now().toISOString(), id);
+    return this.conversation(id)!;
+  }
+
+  stopConversation(id: string): Conversation {
+    const now = this.clock.now().toISOString();
+    this.db.prepare('UPDATE conversations SET stopped_at = COALESCE(stopped_at, ?), updated_at = ? WHERE id = ?').run(now, now, id);
+    return this.conversation(id)!;
+  }
+
+  /** Change an agent's derived activity. Returns false when nothing changed, so no event is needed. */
+  changeActivity(activity: Activity): boolean {
+    const current = this.db.prepare('SELECT state, label FROM activity WHERE project_id = ? AND binding_id = ?').get(activity.project_id, activity.binding_id) as
+      { state: string; label: string } | undefined;
+    if (current && current.state === activity.state && current.label === activity.label) return false;
+    this.setActivity(activity);
+    return true;
   }
 
   createDecision(input: { projectId: string; title: string; statementMd: string; rationaleMd?: string; sources?: Decision['sources']; decidedBy: string }): Decision {
