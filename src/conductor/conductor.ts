@@ -15,6 +15,7 @@ import { TERMINAL_TASK_STATES, type StudioTask, type TaskMode, type TaskState } 
 import type { TeamRevision } from '../db/repos/team.js';
 import type { Store } from '../db/store.js';
 import type { Logger } from '../logger.js';
+import { deriveActivity, excerpt, type ProbeResult } from './activity.js';
 import { ARDENT_FINISHED, TaskFollower, type DoneRecord, type FollowerOptions } from './follower.js';
 import type { LiveText } from './live.js';
 import { buildMission, composeTurn, HANDOFF_EDGES, type AttachmentText, type TeamRole } from './prompting.js';
@@ -31,6 +32,8 @@ export interface ConductorOptions {
   logger: Logger;
   /** Presence probe interval. Default 30 s. */
   presenceMs?: number;
+  /** How long an agent shows Delivering after a verified deliverable revision. Default 20 s. */
+  deliveringMs?: number;
   /** First retry delay for a submission Magnus could not take. Doubles per attempt. Default 1 s. */
   submitRetryMs?: number;
   maxSubmitAttempts?: number;
@@ -112,7 +115,6 @@ const versionAtLeast = (version: string | null, minimum: [number, number, number
   return true;
 };
 
-const excerpt = (text: string, max = 80) => { const line = text.replace(/\s+/g, ' ').trim(); return line.length > max ? `${line.slice(0, max - 1)}…` : line; };
 
 interface TurnContext { project: Project; revision: TeamRevision; role: TeamRole; agentRef: string; bindingId: string }
 
@@ -121,8 +123,10 @@ export class Conductor {
   private readonly submitting = new Set<string>();
   private readonly retryAt = new Map<string, number>();
   private readonly capabilities = new Map<string, { level: number; at: number }>();
-  /** Last presence probe per agent: true reachable and running, false not. Absent until probed. */
-  private readonly presence = new Map<string, boolean>();
+  /** Last presence probe per agent. Absent until probed. */
+  private readonly presence = new Map<string, ProbeResult>();
+  /** Re-derive an agent's activity when its Delivering window ends, per project and binding. */
+  private readonly deliveringTimers = new Map<string, NodeJS.Timeout>();
   private readonly hooks: JournalHook[] = [];
   private readonly contextProviders: ContextProvider[] = [];
   private readonly modes = new Map<TaskMode, TaskModeHandler>();
@@ -169,6 +173,8 @@ export class Conductor {
     this.stopped = true;
     if (this.presenceTimer) clearInterval(this.presenceTimer);
     if (this.retryTimer) clearTimeout(this.retryTimer);
+    for (const timer of this.deliveringTimers.values()) clearTimeout(timer);
+    this.deliveringTimers.clear();
     await Promise.all([...this.followers.values()].map(follower => follower.stop()));
     this.followers.clear();
     await this.pumping;
@@ -454,50 +460,40 @@ export class Conductor {
     let ended = false;
     let dispatch = false;
     this.store.tx(() => {
-      const label = (state: string, text: string) => this.setActivity(task, state, text, { task_id: task.id, ardent_event_seq: event.sequence, kind: event.kind });
       switch (event.kind) {
         case 'state': {
           const to = stateSchema.safeParse(event.detail).data?.to;
           if (to === 'running' && (task.state === 'queued')) {
             this.store.emit(task.project_id, 'task.updated', this.taskEvent(this.store.tasks.setState(task.id, 'running')));
-            label(task.mode === 'review' ? 'reviewing' : 'working', `${task.mode === 'review' ? 'Reviewing' : 'Working'}: ${task.title}`);
           }
           if (to === 'input_required') ended = true;
           break;
         }
         case 'model_started':
-          if (task.state === 'running' || task.state === 'queued') label(task.mode === 'review' ? 'reviewing' : 'working', `${task.mode === 'review' ? 'Reviewing' : 'Working'}: ${task.title}`);
+          if (!FINISHED.includes(task.state)) this.store.tasks.noteProgress(task.id, { model_started: true });
           break;
         case 'tool_attempt': {
           const tool = toolSchema.safeParse(event.detail).data?.name;
-          if (tool && (task.state === 'running' || task.state === 'queued')) label('working', `Working: ${task.title} · ${tool}`);
+          if (tool && !FINISHED.includes(task.state)) this.store.tasks.noteProgress(task.id, { model_started: true, tool });
           break;
         }
         case 'team_handoff': dispatch = this.handoff(task, event); break;
         case 'team_ask_user': this.clarification(task, event); break;
         case 'team_propose_decision': this.proposal(task, event); break;
         case 'pause_requested':
-          if (!FINISHED.includes(task.state)) {
-            this.store.emit(task.project_id, 'task.updated', this.taskEvent(this.store.tasks.setState(task.id, 'pausing')));
-            label('paused', `Pause requested: ${task.title}`);
-          }
+          if (!FINISHED.includes(task.state)) this.store.emit(task.project_id, 'task.updated', this.taskEvent(this.store.tasks.setState(task.id, 'pausing')));
           break;
         case 'paused':
-          if (!FINISHED.includes(task.state)) {
-            this.store.emit(task.project_id, 'task.updated', this.taskEvent(this.store.tasks.setState(task.id, 'paused')));
-            label('paused', `Paused: ${task.title}`);
-          }
+          if (!FINISHED.includes(task.state)) this.store.emit(task.project_id, 'task.updated', this.taskEvent(this.store.tasks.setState(task.id, 'paused')));
           break;
         case 'resumed':
-          if (!FINISHED.includes(task.state)) {
-            this.store.emit(task.project_id, 'task.updated', this.taskEvent(this.store.tasks.setState(task.id, 'running')));
-            label('working', `Working: ${task.title}`);
-          }
+          if (!FINISHED.includes(task.state)) this.store.emit(task.project_id, 'task.updated', this.taskEvent(this.store.tasks.setState(task.id, 'running')));
           break;
         default: break;
       }
       for (const hook of this.hooks) hook(task, event);
       this.store.tasks.advanceCursor(task.id, event.sequence);
+      this.refreshActivity(task.project_id, task.binding_id);
     });
     if (dispatch) this.kick();
     if (ended && task.ardent.agent_ref && task.ardent.task_id) {
@@ -555,7 +551,6 @@ export class Conductor {
     this.store.emit(task.project_id, 'message.created', this.messageEvent(message));
     const outcome = (task.outcome && typeof task.outcome === 'object' ? task.outcome : {}) as Record<string, unknown>;
     this.store.tasks.setState(task.id, task.state, { ...outcome, clarification_message_id: message.id });
-    this.setActivity(task, 'asking', `Asking: ${excerpt(asked.data.question)}`, { task_id: task.id, ardent_event_seq: event.sequence, kind: event.kind });
   }
 
   private proposal(task: StudioTask, event: ArdentTaskEvent): void {
@@ -775,7 +770,7 @@ export class Conductor {
       return this.store.tx(() => {
         const held = this.store.tasks.setState(task.id, 'paused', { ...(task.outcome as object | null ?? {}), held: true });
         this.store.emit(task.project_id, 'task.updated', this.taskEvent(held));
-        this.setActivity(held, 'paused', `Paused: ${task.title}`, { task_id: task.id, kind: 'held' });
+        this.refreshActivity(task.project_id, task.binding_id);
         return held;
       });
     }
@@ -785,7 +780,7 @@ export class Conductor {
       if (current.state === 'paused' || FINISHED.includes(current.state)) return current;
       const pausing = this.store.tasks.setState(task.id, 'pausing');
       this.store.emit(task.project_id, 'task.updated', this.taskEvent(pausing));
-      this.setActivity(pausing, 'paused', `Pause requested: ${task.title}`, { task_id: task.id, kind: 'pause_requested' });
+      this.refreshActivity(task.project_id, task.binding_id);
       return pausing;
     });
   }
@@ -826,7 +821,7 @@ export class Conductor {
 
   // ── Presence and activity ──
 
-  /** Probe agent status every 30 s. The probe only ever sets Available or Offline. */
+  /** Probe agent status every 30 s. The probe only records reachability; activity is then derived as for any change. */
   async probe(): Promise<void> {
     if (this.stopped) return;
     let profiles: Awaited<ReturnType<ConductorOptions['agents']['profiles']>> | undefined;
@@ -839,65 +834,46 @@ export class Conductor {
         for (const role of revision.body.roles) {
           if (!role.agent_ref) continue;
           const profile = byRef.get(role.agent_ref);
-          const available = Boolean(profile && isAvailable(profile));
-          this.presence.set(role.agent_ref, available);
-          const bindingId = role.binding_id ?? this.store.team.ensureBinding(role.agent_ref).id;
-          if (!available) {
-            this.writeActivity(project.id, bindingId, role.agent_ref, 'offline', profiles ? 'Offline' : 'Offline: Magnus is unreachable', { kind: 'presence' });
-          } else {
-            this.refreshActivity(project.id, bindingId);
-          }
+          this.presence.set(role.agent_ref, !profiles ? 'unreachable' : profile && isAvailable(profile) ? 'available' : 'offline');
+          this.refreshActivity(project.id, role.binding_id ?? this.store.team.ensureBinding(role.agent_ref).id);
         }
       });
     }
   }
 
-  /** Derive a binding's activity from its real tasks and the last probe. */
-  private refreshActivity(projectId: string, bindingId: string | null): void {
+  /**
+   * Derive a binding's activity from the last probe and its real records (docs/CONDUCTOR.md#activity),
+   * and announce it when it changed. Call inside a transaction, after the records changed.
+   */
+  refreshActivity(projectId: string, bindingId: string | null): void {
     if (!bindingId) return;
     const binding = this.store.db.prepare('SELECT agent_ref FROM agent_bindings WHERE id = ?').get(bindingId) as { agent_ref: string } | undefined;
     if (!binding) return;
-    const write = (state: string, label: string, source: Record<string, unknown>) => this.writeActivity(projectId, bindingId, binding.agent_ref, state, label, source);
-    if (this.presence.get(binding.agent_ref) === false) { write('offline', 'Offline', { kind: 'presence' }); return; }
-    const all = this.store.tasks.list(projectId, ['queued', 'running', 'pausing', 'paused', 'input_required']).filter(task => task.binding_id === bindingId);
-    const pick = (state: TaskState) => all.find(task => task.state === state);
-    const running = pick('running');
-    if (running) {
-      const current = this.store.room.activity(projectId).find(item => item.binding_id === bindingId);
-      // Keep a more specific label from the journal (a tool name) for the same task.
-      if (current && current.source.task_id === running.id && ['working', 'reviewing', 'asking'].includes(current.state)) return;
-      write(running.mode === 'review' ? 'reviewing' : 'working', `${running.mode === 'review' ? 'Reviewing' : 'Working'}: ${running.title}`, { task_id: running.id, kind: 'task' });
-      return;
+    const tasks = this.store.tasks.list(projectId).filter(task => task.binding_id === bindingId);
+    const now = this.store.clock.now();
+    const deliveringMs = this.options.deliveringMs ?? 20_000;
+    const delivered = this.store.review.latestDeliveredBy(projectId, bindingId);
+    const activity = deriveActivity({
+      probe: this.presence.get(binding.agent_ref),
+      tasks,
+      blockerOf: task => this.store.tasks.groupBefore(task).find(item => !FINISHED.includes(item.state)),
+      handedOff: this.store.tasks.handedOffFrom(projectId, new Set(tasks.map(task => task.id))).filter(task => task.binding_id !== bindingId),
+      message: id => this.store.room.message(id),
+      roleName: task => this.roleName(task),
+      delivered, now, deliveringMs,
+    });
+    this.writeActivity(projectId, bindingId, binding.agent_ref, activity.state, activity.label, activity.source);
+    // Delivering is transient: derive again when its window ends.
+    const remaining = delivered ? Date.parse(delivered.received_at) + deliveringMs - now.getTime() : 0;
+    const key = `${projectId}:${bindingId}`;
+    if (remaining > 0 && !this.deliveringTimers.has(key) && !this.stopped) {
+      const timer = setTimeout(() => {
+        this.deliveringTimers.delete(key);
+        if (!this.stopped) this.store.tx(() => this.refreshActivity(projectId, bindingId));
+      }, remaining + 5);
+      timer.unref();
+      this.deliveringTimers.set(key, timer);
     }
-    const pausing = pick('pausing');
-    if (pausing) { write('paused', `Pause requested: ${pausing.title}`, { task_id: pausing.id, kind: 'task' }); return; }
-    const paused = pick('paused');
-    if (paused) { write('paused', `Paused: ${paused.title}`, { task_id: paused.id, kind: 'task' }); return; }
-    const queued = all.filter(task => task.state === 'queued');
-    const accepted = queued.find(task => task.ardent.task_id);
-    if (accepted) { write('queued', `Queued: ${accepted.title}`, { task_id: accepted.id, kind: 'task' }); return; }
-    const waiting = queued.find(task => this.store.tasks.groupBefore(task).some(item => !FINISHED.includes(item.state)));
-    if (waiting && queued.length === 1) {
-      const blocker = this.store.tasks.groupBefore(waiting).find(item => !FINISHED.includes(item.state))!;
-      write('waiting', `Waiting for ${this.roleName(blocker)}`, { task_id: waiting.id, kind: 'group' });
-      return;
-    }
-    if (queued[0]) { write('queued', `Queued: ${queued[0].title}`, { task_id: queued[0].id, kind: 'task' }); return; }
-    const asking = pick('input_required');
-    if (asking) { write('asking', `Asking: ${excerpt(asking.title)}`, { task_id: asking.id, kind: 'task' }); return; }
-    if (this.presence.get(binding.agent_ref) === true) write('available', 'Available', { kind: 'presence' });
-    else write('unknown', 'Status not checked yet', { kind: 'presence' });
-  }
-
-  /** Record an activity a real record shows (a delivered file). Call inside a transaction. */
-  noteActivity(task: StudioTask, state: 'delivering', label: string, source: Record<string, unknown>): void {
-    this.setActivity(task, state, label, source);
-  }
-
-  private setActivity(task: StudioTask, state: string, label: string, source: Record<string, unknown>): void {
-    if (!task.binding_id) return;
-    const binding = this.store.db.prepare('SELECT agent_ref FROM agent_bindings WHERE id = ?').get(task.binding_id) as { agent_ref: string } | undefined;
-    if (binding) this.writeActivity(task.project_id, task.binding_id, binding.agent_ref, state, label, source);
   }
 
   private writeActivity(projectId: string, bindingId: string, agentRef: string, state: string, label: string, source: Record<string, unknown>): void {

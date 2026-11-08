@@ -137,15 +137,33 @@ cancels the running one through Magnus.
 
 ## Activity
 
-Agent activity (`presence.updated`) comes from real records only:
+Agent activity (`presence.updated`, and `activity` in the snapshot) is the ArdentStudio service's
+single source of truth for what an agent in a project is doing. It is derived
+(`src/conductor/activity.ts`) from real records only, every time one of them changes: the status
+probe, the agent's Studio tasks, what the Ardent journal showed of them (stored as task progress,
+so a restart derives the same state), clarifications, hand-offs and verified deliverable
+revisions. Nothing is inferred from timers; the one timer re-derives the activity when a
+Delivering window ends.
 
-| State | Source |
-|---|---|
-| `offline`, `available` | The status probe every 30 seconds (Magnus profile running and reachable). The probe sets nothing else. |
-| `queued`, `working`, `reviewing`, `paused` | Studio task state and journal events (`model_started`, `tool_attempt` adds the tool name) |
-| `asking` | `team_ask_user`, or a task waiting for an answer |
-| `delivering` | A verified deliverable revision from the agent's task |
-| `waiting` | A task behind another in its ordering group |
-| `unknown` | Not probed yet |
+| State | Derived from | Label |
+|---|---|---|
+| `offline` | The status probe every 30 seconds: the Magnus profile is not running or not reachable, or Magnus did not answer | `Offline`, `Offline: Magnus is unreachable` |
+| `available` | The probe found the profile running and reachable, and nothing below applies | `Available` |
+| `queued` | A task waiting to start, or accepted by Ardent before the journal shows the model starting | `Queued: <task>`, `Starting: <task>` |
+| `working` | A task whose journal showed `model_started` or a `tool_attempt` (which adds the tool name) | `Working: <task>`, `Working: <task> · <tool>` |
+| `asking` | A task that asked a question (`team_ask_user`) nobody has answered yet, or that ended `input_required` | `Asking: <question>` |
+| `waiting` | A task behind an unfinished turn in its ordering group, or a role the agent handed work to (`team_handoff`) that has not finished | `Waiting for <role>` |
+| `reviewing` | A running `review` task | `Reviewing: <task>` |
+| `delivering` | A verified deliverable revision from the agent's task (`artifact_registered`), for 20 seconds | `Delivered <name> r<n>` |
+| `paused` | A task paused or with a pause requested | `Paused: <task>`, `Pause requested: <task>` |
+| `blocked` | The agent's newest task in the project failed, ended in an Ardent `unknown` state, or its TeamResult outcome was `blocked`; new work for the agent clears it | `Blocked: <reason>` |
+| `unknown` | Not probed yet, and nothing above applies | `Status not checked yet` |
 
-"Speaking" is not stored: it is the live `message.delta` stream itself, which the browser shows.
+When several apply (an agent with several active tasks), the first in this order wins:
+
+**offline > paused > blocked > asking > reviewing > working > queued > waiting > delivering > available > unknown**
+
+Among tasks in the same state, the oldest task's label is shown.
+
+"Speaking" is not stored: it is the live `message.delta` stream itself, which the browser shows on
+top of the stored activity.

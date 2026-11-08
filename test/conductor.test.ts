@@ -408,6 +408,63 @@ describe('task controls and presence', () => {
   });
 });
 
+describe('derived activity', () => {
+  const activityOf = (projectId: string, bindingId: string) => ctx.store.room.activity(projectId).find(item => item.binding_id === bindingId);
+
+  it('shows Working only once the journal shows the model started, and Blocked after a failure until new work', async () => {
+    const { project, team } = await room();
+    const posted = await post(team.id, { body_md: 'Outline it.' });
+    const [ardent] = await ctx.magnus.submitted(1);
+    await followed(posted.tasks[0].id);
+    ctx.magnus.setState(ardent!.id, 'running');
+    await waitFor(() => studioTask(posted.tasks[0].id).state === 'running');
+    const binding = posted.tasks[0].binding_id;
+    await waitFor(() => activityOf(project.id, binding)?.label === 'Starting: Outline it.');
+    expect(activityOf(project.id, binding)!.state).toBe('queued');
+    ctx.magnus.event(ardent!.id, 'model_started', {});
+    await waitFor(() => activityOf(project.id, binding)?.state === 'working');
+    expect(studioTask(posted.tasks[0].id).progress).toEqual({ model_started: true, tool: null });
+    ctx.magnus.finish(ardent!.id, { state: 'failed', error: 'The model provider refused the request' });
+    await waitFor(() => activityOf(project.id, binding)?.state === 'blocked');
+    expect(activityOf(project.id, binding)).toMatchObject({ label: 'Blocked: The model provider refused the request', source: { task_id: posted.tasks[0].id, kind: 'outcome' } });
+    const blocked = ctx.store.events.after(project.id, 0).filter(event => event.type === 'presence.updated').at(-1)!;
+    expect(blocked.payload).toMatchObject({ state: 'blocked', agent_ref: 'node1~lead' });
+
+    await post(team.id, { body_md: 'Try again.' });
+    await ctx.magnus.submitted(2);
+    await waitFor(() => activityOf(project.id, binding)?.state === 'queued');
+  });
+
+  it('shows the agent that handed work off as Waiting for that role', async () => {
+    const { project, team } = await room();
+    const posted = await post(team.id, { body_md: '@writer draft the regions.' });
+    const [writer] = await ctx.magnus.submitted(1);
+    await followed(posted.tasks[0].id);
+    ctx.magnus.event(writer!.id, 'team_handoff', { to_role: 'mapper', objective: 'Draw the regions.' });
+    await waitFor(() => ctx.store.tasks.list(project.id).some(task => task.mode === 'assignment'));
+    ctx.magnus.finish(writer!.id, { state: 'completed', result: JSON.stringify({ outcome: 'completed', summary: 'Handed the map to the Cartographer.' }) });
+    await waitFor(() => activityOf(project.id, posted.tasks[0].binding_id)?.state === 'waiting');
+    expect(activityOf(project.id, posted.tasks[0].binding_id)).toMatchObject({ label: 'Waiting for Cartographer', source: { kind: 'handoff' } });
+  });
+
+  it('shows Delivering only for a short while after a verified revision', async () => {
+    const { project } = await room({ conductor: { deliveringMs: 150 } });
+    const created = await json(await ctx.call('POST', `/projects/${project.id}/tasks`, { body: { title: 'Draw the map', role_key: 'mapper' } }));
+    const [ardent] = await ctx.magnus.submitted(1);
+    await followed(created.id);
+    ctx.magnus.finish(ardent!.id, { state: 'completed', result: JSON.stringify({ outcome: 'completed', summary: 'Drawn.' }) });
+    await waitFor(() => studioTask(created.id).state === 'completed');
+    const deliverable = ctx.store.review.createDeliverable({ projectId: project.id, name: 'Region Map', kind: 'map' });
+    const blob = await ctx.blobs.putBytes(new TextEncoder().encode('<svg/>'), 'image/svg+xml');
+    ctx.store.tx(() => {
+      ctx.store.review.addRevision({ deliverableId: deliverable.id, blobSha256: blob.sha256, mime: 'image/svg+xml', size: 6, producerBindingId: created.binding_id, sourceTaskId: created.id });
+      ctx.conductor.refreshActivity(project.id, created.binding_id);
+    });
+    expect(activityOf(project.id, created.binding_id)).toMatchObject({ state: 'delivering', label: 'Delivered Region Map r1' });
+    await waitFor(() => activityOf(project.id, created.binding_id)?.state === 'unknown');
+  });
+});
+
 describe('project stream with live text', () => {
   it('sends the current text of a streaming message to a stream that connects mid-reply', async () => {
     const { project, team } = await room();

@@ -13,6 +13,8 @@ export const ACTIVE_TASK_STATES: readonly TaskState[] = ['queued', 'running', 'i
 /** Finished states. `input_required` is finished for Ardent; Studio keeps it open until a person answers. */
 export const TERMINAL_TASK_STATES: readonly TaskState[] = ['completed', 'partial', 'failed', 'cancelled', 'unknown'];
 export type TaskDispatch = 'mission' | 'turn';
+/** What the Ardent journal showed of a running task: the model started, and the last tool it tried. */
+export interface TaskProgress { model_started: boolean; tool: string | null }
 
 export interface StudioTask {
   id: string; project_id: string; title: string; mode: TaskMode; role_key: string | null; binding_id: string | null;
@@ -21,6 +23,7 @@ export interface StudioTask {
   state: TaskState; outcome: unknown; reassigned_from: string | null; created_by: string; created_at: string; updated_at: string;
   conversation_id: string | null; trigger_message_id: string | null; instructions_md: string;
   group_id: string | null; group_position: number; dispatch: TaskDispatch | null; submit_attempts: number; finished_at: string | null;
+  progress: TaskProgress;
 }
 
 interface TaskRow {
@@ -28,8 +31,10 @@ interface TaskRow {
   source_json: string; mission_json: string | null; ardent_agent_ref: string | null; ardent_task_id: string | null; ardent_session_id: string | null;
   ardent_event_cursor: number; state: TaskState; outcome_json: string | null; reassigned_from: string | null; created_by: string; created_at: string; updated_at: string;
   conversation_id: string | null; trigger_message_id: string | null; instructions_md: string; group_id: string | null; group_position: number;
-  dispatch: TaskDispatch | null; submit_attempts: number; finished_at: string | null;
+  dispatch: TaskDispatch | null; submit_attempts: number; finished_at: string | null; progress_json: string | null;
 }
+
+const NO_PROGRESS: TaskProgress = { model_started: false, tool: null };
 
 const toTask = (row: TaskRow): StudioTask => ({
   id: row.id, project_id: row.project_id, title: row.title, mode: row.mode, role_key: row.role_key, binding_id: row.binding_id,
@@ -38,7 +43,7 @@ const toTask = (row: TaskRow): StudioTask => ({
   state: row.state, outcome: readJson<unknown>(row.outcome_json, null), reassigned_from: row.reassigned_from, created_by: row.created_by,
   created_at: row.created_at, updated_at: row.updated_at, conversation_id: row.conversation_id, trigger_message_id: row.trigger_message_id,
   instructions_md: row.instructions_md, group_id: row.group_id, group_position: row.group_position, dispatch: row.dispatch,
-  submit_attempts: row.submit_attempts, finished_at: row.finished_at,
+  submit_attempts: row.submit_attempts, finished_at: row.finished_at, progress: { ...NO_PROGRESS, ...readJson<Partial<TaskProgress>>(row.progress_json, {}) },
 });
 
 export class TaskRepository {
@@ -130,6 +135,19 @@ export class TaskRepository {
   countAttempt(id: string): number {
     return (this.db.prepare('UPDATE tasks SET submit_attempts = submit_attempts + 1, updated_at = ? WHERE id = ? RETURNING submit_attempts')
       .get(this.clock.now().toISOString(), id) as { submit_attempts: number }).submit_attempts;
+  }
+
+  /** Record what the journal showed of the task's progress. Returns the task. */
+  noteProgress(id: string, progress: Partial<TaskProgress>): StudioTask {
+    const current = this.get(id);
+    if (!current) throw new Error(`No task ${id}`);
+    this.db.prepare('UPDATE tasks SET progress_json = ?, updated_at = ? WHERE id = ?').run(writeJson({ ...current.progress, ...progress }), this.clock.now().toISOString(), id);
+    return this.get(id)!;
+  }
+
+  /** Active tasks started by a hand-off from one of these tasks. */
+  handedOffFrom(projectId: string, taskIds: ReadonlySet<string>): StudioTask[] {
+    return this.active(projectId).filter(task => typeof task.source.from_task === 'string' && taskIds.has(task.source.from_task));
   }
 
   /** Cursors only move forward, so a replayed journal page cannot rewind the follower. */

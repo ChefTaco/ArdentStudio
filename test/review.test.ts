@@ -48,7 +48,12 @@ describe('artifact importer', () => {
     const download = await ctx.call('GET', `/blobs/${digest}`);
     expect(new Uint8Array(await download.arrayBuffer())).toEqual(SVG);
     expect(ctx.store.room.messages(team.id).at(-1)).toMatchObject({ kind: 'delivery', author: { role_key: 'mapper' }, body_md: 'Delivered Region Map (revision 1)' });
-    expect(ctx.store.room.activity(project.id).find(item => item.binding_id === deliverable.revisions[0].producer_binding_id)).toMatchObject({ state: 'delivering', label: 'Delivered Region Map r1' });
+    // Delivering ranks below the task's own state, so it shows once the task has finished.
+    const activity = () => ctx.store.room.activity(project.id).find(item => item.binding_id === deliverable.revisions[0].producer_binding_id);
+    expect(activity()?.state).toBe('queued');
+    ctx.magnus.finish(ardentTaskId, { state: 'completed', result: JSON.stringify({ outcome: 'completed', summary: 'Map drawn.' }) });
+    await waitFor(() => activity()?.state === 'delivering');
+    expect(activity()).toMatchObject({ label: 'Delivered Region Map r1', source: { kind: 'artifact_registered', revision_id: deliverable.revisions[0].id } });
     expect(ctx.store.events.after(project.id, 0).map(event => event.type)).toContain('deliverable.revision.created');
     // A replayed registration (a reconnect) does not import twice.
     ctx.store.review.queueImport({ project_id: project.id, task_id: task.id, agent_ref: 'node2~mapper', artifact_id: artifactId, sha256: digest, name: 'region-map.svg',

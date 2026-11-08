@@ -567,4 +567,13 @@ CREATE TABLE team_proposals (
 CREATE INDEX team_proposals_project ON team_proposals (project_id, created_at);
 `,
   },
+  {
+    id: 6,
+    name: 'task_progress',
+    sql: `
+-- What the Ardent journal showed of a task's progress (the model started, the last tool tried),
+-- so an agent's activity is derived from stored records after a restart.
+ALTER TABLE tasks ADD COLUMN progress_json TEXT;
+`,
+  },
 ];
