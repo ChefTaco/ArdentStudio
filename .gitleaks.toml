@@ -1,0 +1,11 @@
+title = "Repository secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Reviewed synthetic test value; exact value and file only."
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^test/projects\.test\.ts$''']
+regexes = ['''^fixture\-idempotent\-1$''']
