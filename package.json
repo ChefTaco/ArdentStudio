@@ -1,6 +1,6 @@
 {
   "name": "@hivemagnus/ardent-studio",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Ardent Project Studio service: projects, team assignment, conversation room and deliverable review for Ardent agents managed by Magnus",
   "keywords": [
     "ardent",
@@ -69,17 +69,16 @@
   "dependencies": {
     "@hivemagnus/magnus-contracts": "2.2.0",
     "@hono/node-server": "^2.1.5",
-    "better-sqlite3": "^13.0.3",
     "fflate": "^0.8.3",
     "hono": "^4.13.17",
     "jose": "^6.2.15",
     "pdfjs-dist": "^6.5.438",
     "yaml": "2.9.1",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "@photostructure/sqlite": "3.3.1"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^13.1.0",
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.19.2",
     "eslint": "10.14.0",
     "tsx": "^4.23.15",
@@ -88,8 +87,8 @@
     "vitest": "^5.0.5"
   },
   "allowScripts": {
-    "better-sqlite3@13.0.3": true,
-    "esbuild@0.28.2": true
+    "esbuild@0.28.2": true,
+    "@photostructure/sqlite@3.3.1": true
   },
   "overrides": {
     "minimatch": "11.0.5"
