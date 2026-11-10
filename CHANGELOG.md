@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- Override the development lint toolchain to minimatch 11.0.5 to prevent excessive
+  glob expansion on untrusted patterns (GHSA-g3hv-75wg-m249).
+
 ### Changed
 
 - The Magnus client takes its route, action and answer schemas from the published
