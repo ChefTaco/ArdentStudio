@@ -32,7 +32,7 @@ try {
   const installed = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8'));
   const source = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   if (installed.name !== source.name || installed.version !== source.version) throw new Error('Installed package identity differs');
-  await run(process.execPath, ['-e', "const Database=require(process.argv[1]);new Database(':memory:').close()", join(install, 'node_modules/better-sqlite3')]);
+  await run(process.execPath, ['-e', "const {DatabaseSync}=require(process.argv[1]);const db=new DatabaseSync(':memory:');if(db.prepare('select sqlite_version() v').get().v!=='3.54.1')throw Error('Unexpected embedded SQLite');db.close()", join(install, 'node_modules/@photostructure/sqlite')]);
   const cli = join(packageDir, 'dist/main.js');
   if ((await run(process.execPath, [cli, 'version'])).trim() !== source.version) throw new Error('Installed CLI reports a different version');
   if (!(await run(process.execPath, [cli, 'env'])).includes('ARDENT_STUDIO_OATHWEAVE_IDENTITIES_JSON')) throw new Error('Installed CLI does not list its environment');

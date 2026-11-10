@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-11-10
+
+### Security
+
+- Run containers on a pinned, maintained Node 26 runtime with patched system libraries.
+- Replace the embedded SQLite driver with `@photostructure/sqlite` 3.3.1 (SQLite 3.54.1); retain existing databases, transaction ownership and recovery checks. Supported Linux x64 and arm64 installs include Node-API binaries and require no compiler or dependency install scripts.
+
+### Changed
+
+- The low-level database handle uses the new SQLite boundary. Consumers of driver-specific methods must update; HTTP contracts and database migrations are unchanged.
+
 ## [0.1.1] - 2026-11-10
 
 ### Security

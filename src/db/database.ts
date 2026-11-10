@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import Database from 'better-sqlite3';
+import Database from './sqlite.js';
 import { MIGRATIONS, type Migration } from './migrations.js';
 
-export type Db = Database.Database;
+export type Db = Database;
 
 export class MigrationError extends Error {
   override name = 'MigrationError';
