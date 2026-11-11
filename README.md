@@ -28,7 +28,7 @@ project event stream.
 | [Oathweave](https://github.com/ChefTaco/Oathweave) | Yes | Sign-in for people (audience `ardentstudio`) and ArdentStudio's own service identity. |
 | ChatterMost | No | Optional one-way announcements through an incoming webhook. |
 
-Node.js 24.22.1+ or 26.13.0+.
+Node.js 24.22.3+ or 26.13.1+.
 
 ## Architecture
 

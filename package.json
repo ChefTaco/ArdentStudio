@@ -38,7 +38,7 @@
     }
   },
   "engines": {
-    "node": "^24.22.1 || ^26.13.0"
+    "node": "^24.22.3 || ^26.13.1"
   },
   "publishConfig": {
     "access": "public"
@@ -70,7 +70,7 @@
     "@hivemagnus/magnus-contracts": "2.2.0",
     "@hono/node-server": "^2.1.5",
     "fflate": "^0.8.3",
-    "hono": "^4.13.17",
+    "hono": "^4.13.18",
     "jose": "^6.2.15",
     "pdfjs-dist": "^6.5.438",
     "yaml": "2.9.1",

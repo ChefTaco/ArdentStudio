@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Security
+
+- Require patched Node.js 24.22.3 or 26.13.1 for supported runtime lines and update container and CI pins.
+- Upgrade Hono to 4.13.18 to include the tiny-chunk request-body memory exhaustion fix (GHSA-39q9-qp46-w8xg).
+
 ## [0.2.0] - 2026-11-10
 
 ### Security
