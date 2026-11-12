@@ -16,6 +16,9 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
   `409 IDEMPOTENCY_KEY_REUSED`; a request still running answers `409 IDEMPOTENCY_IN_PROGRESS`.
   A failed request releases its key. Keys are scoped to the person and kept for a day.
 - **Audit.** Every mutation writes an append-only audit row (who, what, which record, the key).
+- **Request IDs.** Every response carries `x-request-id`: the caller's own (from `x-request-id`,
+  `x-hive-request-id` or `x-correlation-id`) when it is 1-128 of `A-Z a-z 0-9 . _ : @ / + = -`,
+  otherwise a generated UUID. W3C `traceparent` is continued. Log lines carry it as `requestId`.
 - **Errors.** `{ "error": { "code": "…", "message": "…", "details": … } }`. Bodies are JSON, at most
   1 MiB, except file uploads.
 - **Identifiers.** Prefixed ULIDs: `prj_`, `fil_`, `tpl_`, `trv_`, `bnd_`, `req_`, `cnv_`, `msg_`,

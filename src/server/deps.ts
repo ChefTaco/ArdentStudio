@@ -1,6 +1,6 @@
 import type { AgentDirectory } from '../agents/directory.js';
 import type { OperationRelay } from '../agents/operations.js';
-import type { Authenticator, Principal } from '../auth/oathweave.js';
+import type { Authenticator, Principal } from '../auth/authenticator.js';
 import type { BlobStore } from '../blobs/store.js';
 import type { HiveMemClient } from '../clients/hivemem.js';
 import type { MagnusClient } from '../clients/magnus.js';

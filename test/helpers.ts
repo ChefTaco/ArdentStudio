@@ -5,7 +5,7 @@ import { exportJWK, generateKeyPair, SignJWT, createLocalJWKSet, type JWTVerifyG
 import { AgentDirectory } from '../src/agents/directory.js';
 import { OperationRelay } from '../src/agents/operations.js';
 import type { IdentityLink } from '../src/auth/links.js';
-import { createAuthenticator, createOathweaveVerifier } from '../src/auth/oathweave.js';
+import { createAuthenticator, createOathweaveVerifier } from '../src/auth/authenticator.js';
 import { BlobStore } from '../src/blobs/store.js';
 import type { KnowledgeSyncRequest, KnowledgeSyncResponse } from '../src/clients/hivemem.js';
 import { MagnusClient } from '../src/clients/magnus.js';

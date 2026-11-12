@@ -10,7 +10,7 @@ export { MagnusClient, MagnusError, parseAgentRef, agentRef, STUDIO_ACTIONS, REL
 export { HiveMemClient, HiveMemError } from './clients/hivemem.js';
 export { ChatterMostClient } from './clients/chattermost.js';
 export { ServiceTokenProvider } from './clients/service-token.js';
-export { createOathweaveVerifier, createAuthenticator, AccessDenied, type Principal } from './auth/oathweave.js';
+export { createOathweaveVerifier, createAuthenticator, AccessDenied, type Principal } from './auth/authenticator.js';
 export { parseIdentityLinks, type IdentityLink } from './auth/links.js';
 export { validateTeam, type ValidationInput, type ValidationResult } from './team/validation.js';
 export { TEAM_SEEDS, loadSeedTemplates } from './templates/seeds.js';

@@ -1,3 +1,4 @@
+import { requestContext } from '@hivemagnus/hive-common/hono';
 import { Hono } from 'hono';
 import { ARDENT_STUDIO_API_PREFIX } from '../shared/browser.js';
 import type { AppDeps } from './deps.js';
@@ -20,6 +21,9 @@ import { workRoutes } from './routes/work.js';
 /** The ArdentStudio HTTP API under /api/ardentstudio/v1. */
 export function createApp(deps: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
+  // x-request-id (or x-hive-request-id / x-correlation-id) and W3C traceparent: read, generated
+  // when absent, echoed as x-request-id, and attached to log lines written during the request.
+  app.use('*', requestContext());
   app.use('*', async (c, next) => {
     await next();
     c.header('x-content-type-options', 'nosniff');

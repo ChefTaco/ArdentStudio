@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createTestContext, json, profile, type TestContext } from './helpers.js';
+import { readyResponseSchema } from '../src/shared/browser.js';
 
 let ctx: TestContext;
 afterEach(() => ctx?.close());
@@ -49,5 +50,28 @@ describe('health', () => {
     ctx = await createTestContext();
     ctx.hivemem.healthy = false;
     expect(await (await ctx.call('GET', '/health/ready', { token: null })).json()).toMatchObject({ status: 'not_ready', checks: { hivemem: { status: 'unavailable', error: 'HiveMem down' } } });
+  });
+
+  it('keeps the published readiness body exactly', async () => {
+    ctx = await createTestContext();
+    const body: unknown = await (await ctx.call('GET', '/health/ready', { token: null })).json();
+    expect(readyResponseSchema.strict().safeParse(body).success).toBe(true);
+    expect(body).toEqual({ status: 'ready', checks: {
+      database: { status: 'ok', error: null }, magnus: { status: 'ok', error: null }, hivemem: { status: 'ok', error: null },
+      agents: { status: 'ok', available: 3 },
+    } });
+  });
+});
+
+describe('request context', () => {
+  it('echoes a valid inbound request ID and generates one otherwise', async () => {
+    ctx = await createTestContext();
+    const echoed = await ctx.call('GET', '/health/live', { token: null, headers: { 'x-request-id': 'req-fixture-1' } });
+    expect(echoed.headers.get('x-request-id')).toBe('req-fixture-1');
+    const correlated = await ctx.call('GET', '/health/live', { token: null, headers: { 'x-correlation-id': 'corr-fixture-1' } });
+    expect(correlated.headers.get('x-request-id')).toBe('corr-fixture-1');
+    const generated = await ctx.call('GET', '/projects', { token: null });
+    expect(generated.status).toBe(401);
+    expect(generated.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
   });
 });

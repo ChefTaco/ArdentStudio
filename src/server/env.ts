@@ -1,4 +1,4 @@
-import type { Principal } from '../auth/oathweave.js';
+import type { Principal } from '../auth/authenticator.js';
 
 export interface AppEnv {
   Variables: {
