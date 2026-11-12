@@ -3,9 +3,14 @@ title = "Repository secret scanning"
 [extend]
 useDefault = true
 
+# Global allowlists that list paths must also set targetRules. Without it, a matching path
+# skips the whole file regardless of `condition`, which would hide any other secret in it.
+# With targetRules, only the exact reviewed value in that file is excused.
+
 [[allowlists]]
 description = "Reviewed synthetic test value; exact value and file only."
 condition = "AND"
+targetRules = ["generic-api-key"]
 regexTarget = "secret"
 paths = ['''^test/projects\.test\.ts$''']
 regexes = ['''^fixture\-idempotent\-1$''']
