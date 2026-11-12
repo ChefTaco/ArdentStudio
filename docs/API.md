@@ -42,7 +42,7 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | Area | Route | Permission |
 |---|---|---|
 | Health | `GET /health/live`, `GET /health/ready` | none |
-| Projects | `GET /projects?status=&q=&needs_review=` | projects:read |
+| Projects | `GET /projects?status=&q=&needs_review=&agentRef=` | projects:read |
 | | `POST /projects` | projects:write |
 | | `GET /projects/:id`, `GET /projects/:id/snapshot` | projects:read |
 | | `PATCH /projects/:id`, `POST /projects/:id/archive`, `POST /projects/:id/reopen` | projects:write |
@@ -95,8 +95,12 @@ with the `seq` they are consistent with. Open the stream with `?after=<seq>` to 
 | `active_tasks` | Studio tasks that are `queued`, `running`, `input_required`, `pausing` or `paused` |
 | `last_activity` | `{type, at, text}` for the newest room message, pinned decision, received or reviewed revision, added reference or link, published team, export, or the project's creation or archiving. `text` is built from that record alone, for example `Story Lead asked: Which tone?`. Presence, sync progress and other bookkeeping never count. |
 
-`?needs_review=true` keeps projects with `review_pending > 0` (`false` the others). When a change
-alters a project's counts, the same transaction emits `project.updated` with
+`?needs_review=true` keeps projects with `review_pending > 0` (`false` the others).
+`?agentRef=<magnusNodeId>~<profile>` keeps projects where that agent is bound to a role in the
+published or the draft team (an agent with no roles gets `[]`); it combines with the other filters,
+only narrows what the caller can already list, and a malformed value is a `400 VALIDATION_ERROR`.
+
+When a change alters a project's counts, the same transaction emits `project.updated` with
 `{fields: ["counts"], counts}`, once per change. `last_activity` is not announced on its own: it
 moves with the events that create its records (`message.created`, `decision.created`,
 `deliverable.revision.created`, `review.decision.created`, `file.created`, `link.created`,

@@ -99,6 +99,14 @@ export class TeamRepository {
       .map(role => ({ agent_ref: role.agent_ref!, project_id: row.project_id, project_name: row.project_name, role_key: role.key, role_name: role.name })));
   }
 
+  /** Ids of the projects where an agent is bound to a role in the published or the draft team. */
+  projectsForAgent(agentRef: string): Set<string> {
+    const rows = this.db.prepare(`SELECT DISTINCT r.project_id FROM team_assignments a
+      JOIN team_assignment_revisions r ON r.project_id = a.project_id AND r.revision IN (a.current_revision, a.draft_revision)
+      WHERE EXISTS (SELECT 1 FROM json_each(r.body_json, '$.roles') role WHERE json_extract(role.value, '$.agent_ref') = ?)`).all(agentRef) as Array<{ project_id: string }>;
+    return new Set(rows.map(row => row.project_id));
+  }
+
   // ── Agent bindings: a stable Studio id per Magnus-managed agent ──
 
   ensureBinding(agentRef: string, displayName?: string | null): AgentBinding {

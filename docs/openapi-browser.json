@@ -97,6 +97,15 @@
                 "false"
               ]
             }
+          },
+          {
+            "in": "query",
+            "name": "agentRef",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,128}~[A-Za-z0-9._-]{1,128}$"
+            }
           }
         ],
         "responses": {
@@ -130,7 +139,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
-        "description": "q matches name, brief and tags. needs_review=true keeps projects with review_pending > 0.",
+        "description": "q matches name, brief and tags. needs_review=true keeps projects with review_pending > 0. agentRef keeps projects where that agent is bound to a role in the published or the draft team; an agent with no roles gets an empty list. 400 VALIDATION_ERROR for a malformed agentRef.",
         "security": [
           {
             "oathweave": []

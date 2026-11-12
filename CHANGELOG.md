@@ -14,6 +14,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `GET /projects?agentRef=<magnusNodeId>~<profile>` keeps only the projects where that agent is bound to a role in the published or the draft team. It combines with the other list filters and never widens what the caller can list; a malformed value answers `400 VALIDATION_ERROR`. Without it the response is unchanged. The browser contract and `docs/openapi-browser.json` gain the optional query parameter.
 - Request context on every response: `x-request-id` (also read from `x-hive-request-id` or `x-correlation-id`, generated when absent or unsafe) is echoed, W3C `traceparent` is continued, and log lines written during a request carry `requestId`.
 
 ## [0.2.1] - 2026-11-11
