@@ -1,3 +1,4 @@
+import { createRequestContext, runWithRequestContext } from '@hivemagnus/hive-common/context';
 import { ardentServiceActionRequestSchema, ardentServiceRoutes } from '@hivemagnus/magnus-contracts/ardent-service';
 import { describe, expect, it } from 'vitest';
 import { ChatterMostClient } from '../src/clients/chattermost.js';
@@ -199,6 +200,56 @@ describe('HiveMem client', () => {
     const client = new HiveMemClient({ baseUrl: 'https://hivemem.example.com', tokens: fixedTokens, fetch: fetcher });
     await expect(client.syncKnowledgeSource({ mode: 'preview', workspace_id: 'w', project_id: 'p', source_id: 's', source_uri: 'u', revision: 'r', observed_at: 'x', chunks: [] }))
       .rejects.toEqual(new HiveMemError('content_hash does not match source chunk content', 400));
+  });
+
+  it('refreshes the service token once after a 401 and retries the request', async () => {
+    let issued = 0;
+    let invalidated = 0;
+    const tokens = { token: async () => `fixture-token-${++issued}`, invalidate: () => { invalidated++; } };
+    const workspace = { workspace_id: 'ardentstudio-prj', owner_agent_id: 'ardentstudio' };
+    const sent: (string | null)[] = [];
+    const { calls, fetcher } = recorder((call, index) => {
+      sent.push(headers(call).get('authorization'));
+      return index === 0 ? Response.json({ detail: 'token expired' }, { status: 401 }) : Response.json(workspace);
+    });
+    const client = new HiveMemClient({ baseUrl: 'https://hivemem.example.com', tokens, fetch: fetcher });
+    await expect(client.ensureWorkspace({ workspace_id: 'ardentstudio-prj', title: 'Project' })).resolves.toMatchObject(workspace);
+    expect(invalidated).toBe(1);
+    expect(sent).toEqual(['Bearer fixture-token-1', 'Bearer fixture-token-2']);
+    expect(calls.every(call => call.init.redirect === 'error')).toBe(true);
+  });
+
+  it('gives up after a second 401', async () => {
+    let invalidated = 0;
+    const tokens = { token: async () => 'fixture-service-token', invalidate: () => { invalidated++; } };
+    const { calls, fetcher } = recorder(() => Response.json({ detail: 'not authorized' }, { status: 401 }));
+    const client = new HiveMemClient({ baseUrl: 'https://hivemem.example.com', tokens, fetch: fetcher });
+    await expect(client.ensureWorkspace({ workspace_id: 'w', title: 'Project' })).rejects.toEqual(new HiveMemError('not authorized', 401));
+    expect([calls.length, invalidated]).toEqual([2, 1]);
+  });
+
+  it('propagates the request ID and trace context of the current request', async () => {
+    const { calls, fetcher } = recorder(() => Response.json({ workspace_id: 'w', owner_agent_id: 'ardentstudio' }));
+    const client = new HiveMemClient({ baseUrl: 'https://hivemem.example.com', tokens: fixedTokens, fetch: fetcher });
+    const traceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
+    const context = createRequestContext({ 'x-request-id': 'req-hivemem-1', traceparent });
+    await runWithRequestContext(context, () => client.ensureWorkspace({ workspace_id: 'w', title: 'Project' }));
+    const sent = headers(calls[0]!);
+    expect(sent.get('x-request-id')).toBe('req-hivemem-1');
+    expect(sent.get('traceparent')).toMatch(/^00-0af7651916cd43dd8448eb211c80319c-[0-9a-f]{16}-01$/);
+    expect(sent.get('traceparent')).not.toBe(traceparent);
+    await client.ensureWorkspace({ workspace_id: 'w', title: 'Project' });
+    expect(headers(calls[1]!).has('x-request-id')).toBe(false);
+    expect(headers(calls[1]!).has('traceparent')).toBe(false);
+  });
+
+  it('reports a non-JSON error by its status and probes health without a token', async () => {
+    const { calls, fetcher } = recorder(call => call.url.endsWith('/v1/health') ? Response.json({ status: 'ok' }) : new Response('<html>Bad gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } }));
+    const client = new HiveMemClient({ baseUrl: 'https://hivemem.example.com', tokens: fixedTokens, fetch: fetcher });
+    await expect(client.ensureWorkspace({ workspace_id: 'w', title: 'Project' })).rejects.toEqual(new HiveMemError('HiveMem answered HTTP 502', 502));
+    expect(calls).toHaveLength(1);
+    await expect(client.health()).resolves.toEqual({ status: 'ok' });
+    expect(headers(calls[1]!).has('authorization')).toBe(false);
   });
 });
 

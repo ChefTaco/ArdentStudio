@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 
 - Verify Oathweave tokens with the shared suite verifier from `@hivemagnus/hive-common` instead of a local copy. Accepted principals, audience, permissions, link rules and the zero clock tolerance are unchanged; a malformed `roles` claim, a token over 16 KiB, or a user token whose client ID equals its subject is now refused. The shared Oathweave conformance vectors run in the test suite.
 - `/health/ready` runs its checks through the shared readiness helper. The response body and status codes are unchanged; a failing Magnus agent listing now reports `not_ready` instead of an internal error.
+- Call HiveMem through `@hivemagnus/hivemem-sdk` 1.1.0 instead of a hand-written HTTP client. The Oathweave service token is supplied through the SDK token provider and refreshed once after a 401, redirects are still refused, and errors keep their messages and status codes. Requests made while handling a call now carry its `x-request-id` and `traceparent` to HiveMem.
 
 ### Added
 
