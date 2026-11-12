@@ -5256,6 +5256,70 @@
         ]
       }
     },
+    "/api/ardentstudio/v1/audit/export": {
+      "get": {
+        "operationId": "getAuditExport",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,6}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditExportResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:audit:read"
+        ],
+        "x-idempotent": false,
+        "x-or-permission": "ardentstudio:agents:admin",
+        "x-accept": "any",
+        "description": "Every audit record, oldest first, as HiveAuditRecord v1, keyset-paged on the record id. Accepts an Oathweave service token with ardentstudio:audit:read (no account link needed), or a linked person with ardentstudio:audit:read or ardentstudio:agents:admin. 400 for a malformed cursor or limit. nextCursor is null when caught up.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
     "/api/ardentstudio/v1/projects/{projectId}/stream": {
       "get": {
         "operationId": "getProjectsProjectIdStream",
@@ -5338,7 +5402,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "Oathweave resource token with audience ardentstudio. Permissions: ardentstudio:projects:read, ardentstudio:projects:write, ardentstudio:templates:read, ardentstudio:templates:write, ardentstudio:review:write, ardentstudio:agents:admin."
+        "description": "Oathweave resource token with audience ardentstudio. Permissions: ardentstudio:projects:read, ardentstudio:projects:write, ardentstudio:templates:read, ardentstudio:templates:write, ardentstudio:review:write, ardentstudio:agents:admin, ardentstudio:audit:read."
       }
     },
     "responses": {
@@ -6406,6 +6470,27 @@
           "agent_ref",
           "binding_id",
           "knowledge"
+        ]
+      },
+      "AuditExportResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HiveAuditRecord"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
         ]
       },
       "AvatarPreset": {
@@ -8107,6 +8192,128 @@
         "required": [
           "seq",
           "at"
+        ]
+      },
+      "HiveAuditRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "product": {
+            "type": "string",
+            "enum": [
+              "hivemem",
+              "hiveskills",
+              "ardentstudio",
+              "embermend"
+            ]
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "action": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failure"
+            ]
+          },
+          "actor": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "service",
+                  "agent",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "issuer": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "displayName": {
+                "type": "string",
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "type",
+              "id"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "id": {
+                "type": "string",
+                "maxLength": 256
+              }
+            }
+          },
+          "subject": {
+            "type": "object",
+            "properties": {
+              "actorId": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "agentRef": {
+                "type": "string",
+                "maxLength": 257
+              },
+              "nodeId": {
+                "type": "string",
+                "maxLength": 128
+              }
+            }
+          },
+          "details": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "product",
+          "occurredAt",
+          "action",
+          "outcome",
+          "actor",
+          "target",
+          "subject",
+          "details"
         ]
       },
       "HivememState": {

@@ -104,6 +104,12 @@ permission, except the health routes. Every mutation takes `x-idempotency-key`. 
 [`src/shared/browser.ts`](src/shared/browser.ts) (also exported as
 `@hivemagnus/ardent-studio/browser`).
 
+`GET /api/ardentstudio/v1/audit/export` serves the audit log as suite `HiveAuditRecord` v1
+records for a collector such as Cindertrace. It needs the permission `ardentstudio:audit:read`,
+which an Oathweave service (client_credentials) token for the audience `ardentstudio` may carry,
+or a linked Studio admin (`ardentstudio:agents:admin`). See
+[docs/OATHWEAVE.md](docs/OATHWEAVE.md#audit-export).
+
 ## Container image
 
 ```bash

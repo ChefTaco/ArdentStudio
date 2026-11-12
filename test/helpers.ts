@@ -62,6 +62,21 @@ export async function signToken(keys: Keys, claims: { sub?: string; permissions?
     .sign(keys.privateKey);
 }
 
+/** A client-credentials (service) token: its subject is its client ID and it has no session. */
+export async function signServiceToken(keys: Keys, claims: { clientId?: string; permissions?: string[]; aud?: string } = {}): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const clientId = claims.clientId ?? 'cindertrace-collector';
+  return new SignJWT({ actorType: 'SERVICE_ACCOUNT', clientId, token_type: 'access', permissions: claims.permissions ?? ['ardentstudio:audit:read'], roles: [] })
+    .setProtectedHeader({ alg: 'RS256', kid: 'fixture-key' })
+    .setIssuer(ISSUER)
+    .setAudience(claims.aud ?? 'ardentstudio')
+    .setSubject(clientId)
+    .setJti(crypto.randomUUID())
+    .setIssuedAt(now)
+    .setExpirationTime(now + 600)
+    .sign(keys.privateKey);
+}
+
 /** A userinfo endpoint that answers for any subject unless it is revoked. */
 export function userinfoFetch(revoked: Set<string> = new Set()): typeof fetch {
   return (async (input: string | URL | Request, init?: RequestInit) => {
@@ -126,6 +141,7 @@ export interface TestContext {
   keys: Keys;
   revoked: Set<string>;
   token: (claims?: Parameters<typeof signToken>[1]) => Promise<string>;
+  serviceToken: (claims?: Parameters<typeof signServiceToken>[1]) => Promise<string>;
   call: (method: string, path: string, options?: { token?: string | null; body?: unknown; raw?: BodyInit; headers?: Record<string, string>; key?: string | null }) => Promise<Response>;
   close: () => Promise<void>;
 }
@@ -160,6 +176,7 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
     ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}), ...(options.streamRecheckMs ? { streamRecheckMs: options.streamRecheckMs } : {}) });
   let counter = 0;
   const token = (claims?: Parameters<typeof signToken>[1]) => signToken(keys, claims);
+  const serviceToken = (claims?: Parameters<typeof signServiceToken>[1]) => signServiceToken(keys, claims);
   const defaultToken = await token();
   const call: TestContext['call'] = async (method, path, call = {}) => {
     const headers: Record<string, string> = { ...call.headers };
@@ -171,7 +188,7 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
     return app.request(`${ARDENT_STUDIO_API_PREFIX}${path}`, { method, headers, ...(body !== undefined ? { body } : {}) });
   };
   return {
-    dir, store, blobs, bus, app, magnus, magnusClient, conductor, importer, operations, live, hivemem, knowledge, keys, revoked, token, call,
+    dir, store, blobs, bus, app, magnus, magnusClient, conductor, importer, operations, live, hivemem, knowledge, keys, revoked, token, serviceToken, call,
     close: async () => { await conductor.stop(); await importer.stop(); await operations.stop(); await magnus.close(); db.close(); rmSync(dir, { recursive: true, force: true }); },
   };
 }

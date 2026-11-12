@@ -44,18 +44,22 @@ export function bearerToken(c: Context): string | undefined {
   return match?.[1];
 }
 
-export async function authenticateRequest(c: Context, authenticate: Authenticator, permissions: readonly string[]): Promise<Principal> {
+export async function authenticateRequest(c: Context, authenticate: Authenticator, permissions: readonly string[],
+  options: { accept?: 'user' | 'any'; orPermission?: string | undefined } = {}): Promise<Principal> {
   const token = bearerToken(c);
   if (!token) throw new ApiError(401, 'UNAUTHENTICATED', 'A bearer token is required');
   let principal: Principal;
   try {
-    principal = await authenticate(token);
+    principal = await authenticate(token, options.accept === 'any' ? { accept: 'any' } : {});
   } catch (error) {
     if (error instanceof AccessDenied) throw new ApiError(403, 'NO_ACCOUNT_LINK', 'This identity has no Ardent Project Studio account link');
     throw new ApiError(401, 'UNAUTHENTICATED', 'The bearer token is not valid');
   }
-  const missing = permissions.filter(permission => !principal.permissions.includes(permission as Principal['permissions'][number]));
-  if (missing.length) throw new ApiError(403, 'FORBIDDEN', 'Missing permission', { missing });
+  const holds = (permission: string) => principal.permissions.includes(permission as Principal['permissions'][number]);
+  const missing = permissions.filter(permission => !holds(permission));
+  // The alternative is for linked people (admins); a service only ever holds SERVICE_PERMISSIONS.
+  const admitted = principal.kind !== 'service' && options.orPermission !== undefined && holds(options.orPermission);
+  if (missing.length && !admitted) throw new ApiError(403, 'FORBIDDEN', 'Missing permission', { missing });
   return principal;
 }
 
@@ -78,7 +82,7 @@ export function createRouter(app: Hono<AppEnv>, deps: { store: Store; authentica
   return function register(method: ArdentStudioBrowserRoute['method'], path: string, handler: RouteHandler): void {
     const route = routeDefinition(method, path);
     app.on(method, honoPath(path), async c => {
-      const principal = route.permissions.length ? await authenticateRequest(c, deps.authenticate, route.permissions) : undefined;
+      const principal = route.permissions.length ? await authenticateRequest(c, deps.authenticate, route.permissions, { accept: route.accept ?? 'user', orPermission: route.orPermission }) : undefined;
       c.set('principal', principal);
 
       let idempotencyKey: string | undefined;

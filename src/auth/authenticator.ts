@@ -1,7 +1,8 @@
 // Oathweave resource-token verification for ArdentStudio, using the suite's shared verifier
 // (@hivemagnus/hive-common/oathweave): RS256 only, exact issuer and audience, at most fifteen
 // minutes, USER actor with a session, and an online session check through userinfo.
-// Failure is closed. Studio accepts people only; service tokens are refused.
+// Failure is closed. Studio accepts people only; service tokens are refused everywhere except on
+// routes that opt in (the audit export), where a service gets only SERVICE_PERMISSIONS.
 import {
   createOathweaveVerifier as createSharedVerifier,
   OATHWEAVE_SESSION_CACHE_TTL_MS,
@@ -19,6 +20,7 @@ export interface OathweaveOptions {
 }
 
 export interface OathweaveIdentity {
+  kind: 'user' | 'service';
   subject: string;
   issuer: string;
   sessionId: string;
@@ -28,10 +30,21 @@ export interface OathweaveIdentity {
   expiresAt: number;
 }
 
-export type OathweaveVerifier = (token: string) => Promise<OathweaveIdentity>;
+export interface VerifyOptions {
+  /** `any` also accepts service (client-credentials) tokens. The default is people only. */
+  accept?: 'user' | 'any';
+}
 
-/** A verified, linked caller. */
+export type OathweaveVerifier = (token: string, options?: VerifyOptions) => Promise<OathweaveIdentity>;
+
+/** The only permissions a service token can carry into Studio. */
+export const SERVICE_PERMISSIONS: readonly ArdentStudioPermission[] = ['ardentstudio:audit:read'];
+
+/** A verified, linked caller, or a verified service on a route that accepts services. */
 export interface Principal {
+  /** Absent means a person, as before services were accepted anywhere. */
+  kind?: 'user' | 'service';
+  /** The linked Studio user, or `service:<client id>` for a service. */
   userId: string;
   subject: string;
   issuer: string;
@@ -75,29 +88,46 @@ export function createOathweaveVerifier(
     ...(overrides.fetch ? { fetch: overrides.fetch } : {}),
     ...(overrides.now ? { now: overrides.now } : {}),
   });
-  return async token => {
-    const principal = await verifier.verifyUser(token);
+  return async (token, verifyOptions = {}) => {
+    const principal = verifyOptions.accept === 'any' ? await verifier.verify(token, { accept: 'any' }) : await verifier.verifyUser(token);
     return {
+      kind: principal.kind,
       subject: principal.subject,
       issuer: principal.issuer,
-      sessionId: principal.sessionId,
+      sessionId: principal.kind === 'user' ? principal.sessionId : '',
       permissions: [...principal.permissions],
-      displayName: principal.displayName,
+      displayName: principal.kind === 'user' ? principal.displayName : principal.subject,
       issuedAt: principal.issuedAt,
       expiresAt: principal.expiresAt,
     };
   };
 }
 
-export type Authenticator = (token: string) => Promise<Principal>;
+export type Authenticator = (token: string, options?: VerifyOptions) => Promise<Principal>;
 
-/** Verify a bearer token and map it through its one explicit identity link. */
+/**
+ * Verify a bearer token and map a person through their one explicit identity link. A service
+ * (only with `accept: 'any'`) needs no link and keeps only SERVICE_PERMISSIONS.
+ */
 export function createAuthenticator(verify: OathweaveVerifier, links: readonly IdentityLink[]): Authenticator {
-  return async token => {
-    const identity = await verify(token);
+  return async (token, options = {}) => {
+    const identity = await verify(token, options);
+    if (identity.kind === 'service') {
+      if (options.accept !== 'any') throw new Error('Service tokens are not accepted here');
+      return {
+        kind: 'service',
+        userId: `service:${identity.subject}`,
+        subject: identity.subject,
+        issuer: identity.issuer,
+        displayName: identity.subject,
+        permissions: SERVICE_PERMISSIONS.filter(permission => identity.permissions.includes(permission)),
+        expiresAt: identity.expiresAt,
+      };
+    }
     const link = linkFor(links, identity.issuer, identity.subject);
     if (!link) throw new AccessDenied('An explicit unique account link is required');
     return {
+      kind: 'user',
       userId: link.localUserId,
       subject: identity.subject,
       issuer: identity.issuer,

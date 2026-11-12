@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- `GET /api/ardentstudio/v1/audit/export?after=&limit=`: the append-only audit log as suite `HiveAuditRecord` v1 records (`hiveAuditRecordSchema` in the browser contract), oldest first and keyset-paged on the row id with an opaque cursor (limit 1-200, default 100). Details are flattened to scalars, redacted and capped at 4 KB; agent targets, tasks that ran on an agent and `agent_ref` details fill `subject.agentRef` and `subject.nodeId`. It accepts an Oathweave service token with the new permission `ardentstudio:audit:read` (service tokens stay refused on every other route), or a linked person with `ardentstudio:audit:read` or `ardentstudio:agents:admin`. The browser contract and `docs/openapi-browser.json` gain the route, the permission and the route fields `accept` and `orPermission` (`x-accept`, `x-or-permission`).
+
 ## [0.3.0] - 2026-11-12
 
 ### Changed
