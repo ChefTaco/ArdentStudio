@@ -35,7 +35,8 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | `ardentstudio:templates:read` | Read templates and versions |
 | `ardentstudio:templates:write` | Create templates, add versions, archive; save a project team as a template |
 | `ardentstudio:review:write` | Comment on, accept, reject and finalize deliverables; request revisions (with projects:write); export |
-| `ardentstudio:agents:admin` | New Agent, applying drafts and installing catalog skills through Magnus (Magnus also checks the acting person) |
+| `ardentstudio:agents:admin` | New Agent, applying drafts and installing catalog skills through Magnus (Magnus also checks the acting person); read the audit export |
+| `ardentstudio:audit:read` | Read the audit export. The only permission an Oathweave service token can use, and only on that route |
 
 ## Routes
 
@@ -69,6 +70,7 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | | `POST /revisions/:id/comments`, `POST /comments/:id/resolve`, `POST /revisions/:id/decisions`, `POST /deliverables/:id/final`, `POST /projects/:id/exports` | review:write |
 | | `POST /projects/:id/revision-requests` | review:write + projects:write |
 | Stream | `GET /projects/:id/stream?after=<seq>` | projects:read |
+| Audit | `GET /audit/export?after=&limit=` | audit:read (people or services) or agents:admin (people) |
 
 ## Projects
 
@@ -345,3 +347,28 @@ cannot send the bearer token).
   each message still streaming gets one `replace` with its current text. The stored message
   (`message.updated`) replaces the live text when the turn ends.
 - The stream closes when the token expires or its session ends; reconnect with a fresh token.
+
+## Audit export
+
+`GET /audit/export?after=<cursor>&limit=<n>` returns `{"data": [HiveAuditRecord...], "nextCursor": string|null}`:
+every audit row Studio stores, oldest first, keyset-paged on the row's monotonic id. `after` is the
+opaque `nextCursor` of the previous page (omit it for the start); `limit` is 1 to 200 (default
+100, larger values are clamped). A page holds records strictly after the cursor. Whenever a page
+has records, `nextCursor` is the last record's cursor, even on the last page, so a collector can
+store it and poll again later; it is `null` only when `data` is empty, meaning caught up. A malformed cursor or limit answers `400 VALIDATION_ERROR`.
+
+Each record (`hiveAuditRecordSchema` in `src/shared/browser.ts`, the suite-wide v1 shape):
+
+| Field | Value |
+|---|---|
+| `id` | `ardentstudio:audit:<row id>`, stable |
+| `product` | `ardentstudio` |
+| `occurredAt` | RFC 3339 UTC |
+| `action` | The recorded action, for example `project.create`, `team.publish`, `agent.apply`, `review.export` |
+| `outcome` | `success` (Studio audits completed mutations only) |
+| `actor` | `user` (Oathweave subject and issuer, `displayName` the Studio user), `system`, or `service` |
+| `target` | The audited object's type and id (`project`, `task`, `agent`, `link`, `file`, …); omitted when empty |
+| `subject` | Omitted unless the record is about an agent: `agentRef` and `nodeId` when the record is about an agent: an `agent` target, a `task` that ran on an agent, or an `agent_ref` in the details |
+| `details` | Flat scalars, redacted with the suite log redaction, at most 4 KB. Lists of values are joined with commas, other lists become `<key>_count`, nested objects are dropped |
+
+Permissions: see [Oathweave](OATHWEAVE.md#audit-export).

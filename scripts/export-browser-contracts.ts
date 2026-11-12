@@ -136,6 +136,8 @@ function operation(route: ArdentStudioBrowserRoute): Json {
   for (const status of errors) responses[status] = { $ref: '#/components/responses/Error' };
 
   const result: Json = { operationId: operationId(route), parameters, responses, 'x-permissions': [...route.permissions], 'x-idempotent': route.idempotent };
+  if (route.orPermission) result['x-or-permission'] = route.orPermission;
+  if (route.accept === 'any') result['x-accept'] = 'any';
   if (route.note) result.description = route.note;
   if (route.permissions.length) result.security = [{ oathweave: [] }];
   else result.security = [];

@@ -38,4 +38,20 @@ export class AuditRepository {
       : this.db.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT ?').all(filter.limit ?? 100)) as Array<Omit<AuditEntry, 'detail'> & { detail_json: string }>;
     return rows.map(({ detail_json, ...row }) => ({ ...row, detail: readJson(detail_json, {}) }));
   }
+
+  /** Oldest first, strictly after `afterId`. The id is the table's monotonic key, so pages never skip or repeat. */
+  listAfter(afterId: number, limit: number): AuditEntry[] {
+    const rows = this.db.prepare('SELECT * FROM audit WHERE id > ? ORDER BY id ASC LIMIT ?').all(afterId, limit) as Array<Omit<AuditEntry, 'detail'> & { detail_json: string }>;
+    return rows.map(({ detail_json, ...row }) => ({ ...row, detail: readJson(detail_json, {}) }));
+  }
+
+  /** The Ardent agent each task ran on, for the tasks that have one. */
+  taskAgentRefs(taskIds: readonly string[]): Map<string, string> {
+    const refs = new Map<string, string>();
+    if (!taskIds.length) return refs;
+    const rows = this.db.prepare(`SELECT id, ardent_agent_ref FROM tasks WHERE ardent_agent_ref IS NOT NULL AND id IN (${taskIds.map(() => '?').join(', ')})`)
+      .all(...taskIds) as Array<{ id: string; ardent_agent_ref: string }>;
+    for (const row of rows) refs.set(row.id, row.ardent_agent_ref);
+    return refs;
+  }
 }

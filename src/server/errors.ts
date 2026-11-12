@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import { HiveError } from '@hivemagnus/hive-common/errors';
 import { ZodError } from 'zod';
 import type { Logger } from '../logger.js';
 
@@ -15,6 +16,10 @@ export const notFound = (what: string) => new ApiError(404, 'NOT_FOUND', `${what
 export function errorResponse(c: Context, error: unknown, logger: Logger): Response {
   if (error instanceof ApiError) {
     return c.json({ error: { code: error.code, message: error.message, ...(error.details !== undefined ? { details: error.details } : {}) } }, error.status);
+  }
+  if (HiveError.is(error) && error.status === 400) {
+    // hive-common feed helpers: a malformed cursor or limit.
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: error.message } }, 400);
   }
   if (error instanceof ZodError) {
     return c.json({ error: { code: 'VALIDATION_ERROR', message: 'The request is invalid', details: error.issues.map(issue => ({ path: issue.path.join('.'), message: issue.message })) } }, 400);

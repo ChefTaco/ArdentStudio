@@ -47,11 +47,14 @@ describe('route auth matrix', () => {
       const unlinked = await request(route, await ctx.token({ sub: 'subject-unlinked' }));
       expect(unlinked.status).toBe(403);
       expect((await json(unlinked)).error.code).toBe('NO_ACCOUNT_LINK');
-      const others = await ctx.token({ permissions: ['ardentstudio:agents:admin', 'ardentstudio:review:write'].filter(permission => !route.permissions.includes(permission as never)) });
+      const others = await ctx.token({ permissions: ['ardentstudio:agents:admin', 'ardentstudio:review:write'].filter(permission => !route.permissions.includes(permission as never) && permission !== route.orPermission) });
       expect(await status(await request(route, others))).toBe(403);
       const exact = await request(route, await ctx.token({ permissions: [...route.permissions] }));
       expect([401, 403]).not.toContain(exact.status);
       await exact.body?.cancel();
+      const service = await request(route, await ctx.serviceToken({ permissions: [...route.permissions] }));
+      expect(service.status).toBe(route.accept === 'any' ? 200 : 401);
+      await service.body?.cancel();
       if (route.idempotent) {
         const missing = await request(route, await ctx.token({ permissions: [...route.permissions] }), false);
         expect(missing.status).toBe(400);

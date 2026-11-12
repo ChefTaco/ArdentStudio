@@ -80,6 +80,7 @@ when a required setting is missing or unsafe.
 | `OATHWEAVE_ISSUER` | yes | | Oathweave browser issuer (HTTPS). |
 | `OATHWEAVE_JWKS_URL` | yes | | Oathweave JWKS (HTTPS). |
 | `OATHWEAVE_USERINFO_URL` | yes | | Oathweave userinfo (HTTPS), for session revocation. |
+| `OATHWEAVE_NATIVE_ISSUERS` | no | | Comma-separated Oathweave native issuer ids (its `JWT_ISSUER`). Service tokens they sign are accepted on the audit export only. |
 | `ARDENT_STUDIO_OATHWEAVE_IDENTITIES_JSON` | yes | | Explicit account links; see [docs/OATHWEAVE.md](docs/OATHWEAVE.md). |
 | `ARDENT_STUDIO_OATHWEAVE_TOKEN_URL` | yes | | Oathweave token endpoint for `client_credentials`. |
 | `ARDENT_STUDIO_MAGNUS_URL` | yes | | Magnus control API origin. |
@@ -103,6 +104,12 @@ permission, except the health routes. Every mutation takes `x-idempotency-key`. 
 [`docs/openapi-browser.json`](docs/openapi-browser.json), generated from the zod contract in
 [`src/shared/browser.ts`](src/shared/browser.ts) (also exported as
 `@hivemagnus/ardent-studio/browser`).
+
+`GET /api/ardentstudio/v1/audit/export` serves the audit log as suite `HiveAuditRecord` v1
+records for a collector such as Cindertrace. It needs the permission `ardentstudio:audit:read`,
+which an Oathweave service (client_credentials) token for the audience `ardentstudio` may carry,
+or a linked Studio admin (`ardentstudio:agents:admin`). See
+[docs/OATHWEAVE.md](docs/OATHWEAVE.md#audit-export).
 
 ## Container image
 

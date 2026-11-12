@@ -62,7 +62,7 @@ export function createService(config: Config, options: { logger?: Logger; clock?
   const knowledge = new KnowledgeSync(store, blobs, hivemem, logger);
   const agents = new AgentDirectory(magnus, store);
   const authenticate = options.authenticate ?? createAuthenticator(
-    createOathweaveVerifier({ issuer: config.oathweave.issuer, jwksUrl: config.oathweave.jwksUrl, userinfoUrl: config.oathweave.userinfoUrl }),
+    createOathweaveVerifier({ issuer: config.oathweave.issuer, jwksUrl: config.oathweave.jwksUrl, userinfoUrl: config.oathweave.userinfoUrl, nativeIssuers: config.oathweave.nativeIssuers }),
     config.oathweave.identities,
   );
   const live = new LiveText(bus);

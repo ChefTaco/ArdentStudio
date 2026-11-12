@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
+import { OATHWEAVE_NATIVE_ISSUER_PATTERN } from '@hivemagnus/hive-common/oathweave';
 import { parseIdentityLinks, type IdentityLink } from './auth/links.js';
 import { trimTrailingSlashes } from './url.js';
 
@@ -28,6 +29,8 @@ export interface Config {
     userinfoUrl: string;
     tokenUrl: string;
     identities: IdentityLink[];
+    /** OATHWEAVE_NATIVE_ISSUERS: native issuer ids accepted for service tokens on the audit export. */
+    nativeIssuers: string[];
   };
   magnus: ServiceClientConfig;
   hivemem: ServiceClientConfig;
@@ -52,6 +55,7 @@ export const ENV_CATALOG: ReadonlyArray<{ name: string; required: boolean; secre
   { name: 'OATHWEAVE_ISSUER', required: true, secret: false, description: 'Oathweave browser issuer (HTTPS).' },
   { name: 'OATHWEAVE_JWKS_URL', required: true, secret: false, description: 'Oathweave JWKS URL (HTTPS).' },
   { name: 'OATHWEAVE_USERINFO_URL', required: true, secret: false, description: 'Oathweave userinfo URL (HTTPS), used for online session revocation.' },
+  { name: 'OATHWEAVE_NATIVE_ISSUERS', required: false, secret: false, description: 'Optional comma-separated Oathweave native issuer ids (its JWT issuer name). Service tokens they sign are accepted on the audit export only; never for people.' },
   { name: 'ARDENT_STUDIO_OATHWEAVE_IDENTITIES_JSON', required: true, secret: false, description: 'JSON array of explicit account links: [{issuer, subject, localUserId, displayName?, permissions?}].' },
   { name: 'ARDENT_STUDIO_OATHWEAVE_TOKEN_URL', required: true, secret: false, description: 'Oathweave OAuth token endpoint for the client_credentials grant.' },
   { name: 'ARDENT_STUDIO_MAGNUS_URL', required: true, secret: false, description: 'Magnus control API base URL (the origin that serves /api/v1).' },
@@ -121,6 +125,10 @@ export function loadConfig(env: Env = process.env): Config {
   const jwksUrl = url('OATHWEAVE_JWKS_URL', true);
   const userinfoUrl = url('OATHWEAVE_USERINFO_URL', true);
   const tokenUrl = url('ARDENT_STUDIO_OATHWEAVE_TOKEN_URL', false);
+  const nativeIssuers = (value('OATHWEAVE_NATIVE_ISSUERS') ?? '').split(',').map(item => item.trim()).filter(Boolean);
+  if (nativeIssuers.some(item => !OATHWEAVE_NATIVE_ISSUER_PATTERN.test(item))) {
+    issues.push({ name: 'OATHWEAVE_NATIVE_ISSUERS', message: 'must be comma-separated Oathweave native issuer ids ([a-z][a-z0-9-], at most 64 each)' });
+  }
   let identities: IdentityLink[] = [];
   const identitiesRaw = required('ARDENT_STUDIO_OATHWEAVE_IDENTITIES_JSON');
   if (identitiesRaw) {
@@ -166,7 +174,7 @@ export function loadConfig(env: Env = process.env): Config {
     maxBlobBytes: numeric('ARDENT_STUDIO_MAX_BLOB_BYTES', DEFAULT_MAX_BLOB_BYTES, 1024, 1024 * 1024 * 1024),
     eventRetentionDays: numeric('ARDENT_STUDIO_EVENT_RETENTION_DAYS', DEFAULT_EVENT_RETENTION_DAYS, 1, 3650),
     logLevel: logLevel as Config['logLevel'],
-    oathweave: { issuer, jwksUrl, userinfoUrl, tokenUrl, identities },
+    oathweave: { issuer, jwksUrl, userinfoUrl, tokenUrl, identities, nativeIssuers },
     magnus,
     hivemem,
     chattermost,

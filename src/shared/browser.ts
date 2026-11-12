@@ -17,6 +17,7 @@ export const ARDENT_STUDIO_PERMISSIONS = [
   'ardentstudio:templates:write',
   'ardentstudio:review:write',
   'ardentstudio:agents:admin',
+  'ardentstudio:audit:read',
 ] as const;
 export const permissionSchema = z.enum(ARDENT_STUDIO_PERMISSIONS);
 export type ArdentStudioPermission = z.infer<typeof permissionSchema>;
@@ -1236,6 +1237,42 @@ export const readyResponseSchema = z.object({
   }),
 });
 
+// ── Audit export (HiveAuditRecord v1, shared across the suite) ──
+/** The suite-wide audit record. Every product serves the same shape so one collector can parse them all. */
+const auditScalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+export const hiveAuditRecordSchema = z.object({
+  id: z.string().regex(/^(hivemem|hiveskills|ardentstudio|embermend):audit:[A-Za-z0-9._:-]{1,200}$/),
+  product: z.enum(['hivemem', 'hiveskills', 'ardentstudio', 'embermend']),
+  occurredAt: z.iso.datetime(),
+  action: z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/).max(128),
+  outcome: z.enum(['success', 'failure']),
+  actor: z.object({
+    type: z.enum(['user', 'service', 'agent', 'system']),
+    id: z.string().min(1).max(256),
+    issuer: z.string().max(512).optional(),
+    displayName: z.string().max(256).optional(),
+  }).strict(),
+  /** Omitted when empty. */
+  target: z.object({ type: z.string().max(64).optional(), id: z.string().max(256).optional() }).strict().optional(),
+  /** Omitted when empty. */
+  subject: z.object({ actorId: z.string().max(256).optional(), agentRef: z.string().max(257).optional(), nodeId: z.string().max(128).optional() }).strict().optional(),
+  /** Flat scalars, at most 4 KB serialized, already redacted. Never secrets, memory content, prompts or file contents. */
+  details: z.record(z.string(), auditScalarSchema),
+}).strict();
+export type HiveAuditRecord = z.infer<typeof hiveAuditRecordSchema>;
+
+export const auditExportQuerySchema = z.object({
+  /** The opaque nextCursor of the previous page. Omit for the oldest record. */
+  after: z.string().max(512).optional(),
+  /** 1 to 200; default 100. Larger values are clamped to 200. */
+  limit: z.string().regex(/^\d{1,6}$/).optional(),
+});
+export const auditExportResponseSchema = z.object({
+  data: z.array(hiveAuditRecordSchema),
+  /** The last record's cursor whenever `data` is not empty, even on the last page; null only when `data` is empty (caught up). Send it as `after` to read on. */
+  nextCursor: z.string().nullable(),
+});
+
 // ── Route table ──
 export interface ArdentStudioBrowserRoute {
   method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -1249,6 +1286,10 @@ export interface ArdentStudioBrowserRoute {
   response: z.ZodType | null;
   /** Every listed permission is required. An empty list means no authentication. */
   permissions: readonly ArdentStudioPermission[];
+  /** A linked person holding this permission passes instead of `permissions` (Studio admins). */
+  orPermission?: ArdentStudioPermission;
+  /** `any` also accepts Oathweave service (client-credentials) tokens; the default is people only. */
+  accept?: 'user' | 'any';
   /** The route requires the x-idempotency-key header. */
   idempotent: boolean;
   successStatus?: 201;
@@ -1263,6 +1304,7 @@ const TEMPLATES_READ = ['ardentstudio:templates:read'] as const;
 const TEMPLATES_WRITE = ['ardentstudio:templates:write'] as const;
 const REVIEW = ['ardentstudio:review:write'] as const;
 const AGENTS_ADMIN = ['ardentstudio:agents:admin'] as const;
+const AUDIT_READ = ['ardentstudio:audit:read'] as const;
 
 export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   // Health
@@ -1365,6 +1407,10 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'POST', path: '/projects/{projectId}/exports', requestBody: 'json', request: createExportRequestSchema, response: exportResponseSchema, permissions: REVIEW, idempotent: true, successStatus: 201, note: 'A zip of the final revisions with manifest.json (Ardent manifest fields, review status and decisions). Deliverables without a final revision are listed as excluded; none at all answers 409 NOTHING_FINAL.' },
   { method: 'GET', path: '/files/{fileId}/docx', response: docxDocumentResponseSchema, permissions: READ, idempotent: false, note: 'Answers 501 DOCX_CONVERTER_UNAVAILABLE until the canvas Word codec package is installed.' },
   { method: 'GET', path: '/revisions/{revisionId}/docx', response: docxDocumentResponseSchema, permissions: READ, idempotent: false, note: 'Answers 501 DOCX_CONVERTER_UNAVAILABLE until the canvas Word codec package is installed.' },
+
+  // Audit
+  { method: 'GET', path: '/audit/export', query: auditExportQuerySchema, response: auditExportResponseSchema, permissions: AUDIT_READ, orPermission: 'ardentstudio:agents:admin', accept: 'any', idempotent: false,
+    note: 'Every audit record, oldest first, as HiveAuditRecord v1, keyset-paged on the record id. Accepts an Oathweave service token with ardentstudio:audit:read (no account link needed; native-issuer service tokens too when OATHWEAVE_NATIVE_ISSUERS lists the issuer), or a linked person with ardentstudio:audit:read or ardentstudio:agents:admin. 400 for a malformed cursor or limit. nextCursor is the last record\'s cursor whenever data is not empty, and null only when data is empty (caught up).' },
 
   // Stream
   {
