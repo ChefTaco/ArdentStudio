@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## [0.3.0] - 2026-11-12
+
 ### Changed
 
 - Verify Oathweave tokens with the shared suite verifier from `@hivemagnus/hive-common` instead of a local copy. Accepted principals, audience, permissions, link rules and the zero clock tolerance are unchanged; a malformed `roles` claim, a token over 16 KiB, or a user token whose client ID equals its subject is now refused. The shared Oathweave conformance vectors run in the test suite.
