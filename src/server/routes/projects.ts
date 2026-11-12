@@ -36,6 +36,11 @@ export function projectRoutes(register: ReturnType<typeof createRouter>, deps: A
       const needing = store.summaries.needingReview();
       projects = projects.filter(project => needing.has(project.id) === (filter.needs_review === 'true'));
     }
+    if (filter.agentRef !== undefined) {
+      // Narrows the list the caller can already read; it never adds a project.
+      const bound = store.team.projectsForAgent(filter.agentRef);
+      projects = projects.filter(project => bound.has(project.id));
+    }
     return { body: { projects: projects.map(summary) } };
   });
 

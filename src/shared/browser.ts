@@ -159,6 +159,8 @@ export const listProjectsQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
   /** true: only projects with review_pending > 0. */
   needs_review: z.enum(['true', 'false']).optional(),
+  /** Only projects where this agent (<magnusNodeId>~<profile>) is bound to a role in the published or the draft team. */
+  agentRef: agentRefSchema.optional(),
 });
 export const listProjectsResponseSchema = z.object({ projects: z.array(projectSummarySchema) });
 export const projectResponseSchema = projectSchema;
@@ -1268,7 +1270,7 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'GET', path: '/health/ready', response: readyResponseSchema, permissions: [], idempotent: false, note: 'Answers 503 with the same body when not ready. Checks are cached for 10 seconds.' },
 
   // Projects
-  { method: 'GET', path: '/projects', query: listProjectsQuerySchema, response: listProjectsResponseSchema, permissions: READ, idempotent: false, note: 'q matches name, brief and tags. needs_review=true keeps projects with review_pending > 0.' },
+  { method: 'GET', path: '/projects', query: listProjectsQuerySchema, response: listProjectsResponseSchema, permissions: READ, idempotent: false, note: 'q matches name, brief and tags. needs_review=true keeps projects with review_pending > 0. agentRef keeps projects where that agent is bound to a role in the published or the draft team; an agent with no roles gets an empty list. 400 VALIDATION_ERROR for a malformed agentRef.' },
   { method: 'POST', path: '/projects', requestBody: 'json', request: createProjectRequestSchema, response: projectResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Creates the project HiveMem workspace; when HiveMem is unavailable hivemem.state stays pending and is retried.' },
   { method: 'GET', path: '/projects/{projectId}', response: projectResponseSchema, permissions: READ, idempotent: false },
   { method: 'PATCH', path: '/projects/{projectId}', requestBody: 'json', request: updateProjectRequestSchema, response: projectResponseSchema, permissions: WRITE, idempotent: true, note: 'An archived project is read-only (409) except last_area.' },
