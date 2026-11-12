@@ -67,15 +67,16 @@
     "verify": "npm run privacy:test && npm run scan:secrets && npm run check:private && npm run typecheck && npm run lint && npm test && npm run build && npm run check:contracts && npm run pack:check"
   },
   "dependencies": {
+    "@hivemagnus/hive-common": "^0.1.0",
     "@hivemagnus/magnus-contracts": "2.2.0",
     "@hono/node-server": "^2.1.5",
+    "@photostructure/sqlite": "3.3.1",
     "fflate": "^0.8.3",
     "hono": "^4.13.18",
     "jose": "^6.2.15",
     "pdfjs-dist": "^6.5.438",
     "yaml": "2.9.1",
-    "zod": "^4.6.7",
-    "@photostructure/sqlite": "3.3.1"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^13.1.0",

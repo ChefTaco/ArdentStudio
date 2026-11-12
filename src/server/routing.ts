@@ -2,7 +2,7 @@
 // idempotency rule, query and body schemas the contract publishes are the ones enforced.
 import { createHash } from 'node:crypto';
 import type { Context, Hono } from 'hono';
-import { AccessDenied, type Authenticator, type Principal } from '../auth/oathweave.js';
+import { AccessDenied, type Authenticator, type Principal } from '../auth/authenticator.js';
 import type { Store } from '../db/store.js';
 import { ARDENT_STUDIO_API_PREFIX, ardentStudioBrowserRoutes, IDEMPOTENCY_HEADER, idempotencyKeySchema, type ArdentStudioBrowserRoute } from '../shared/browser.js';
 import type { AppEnv } from './env.js';

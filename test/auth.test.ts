@@ -1,6 +1,11 @@
+import { createRequestContext, runWithRequestContext } from '@hivemagnus/hive-common/context';
+import { runOathweaveConformance } from '@hivemagnus/hive-common/oathweave/conformance';
+import { SignJWT } from 'jose';
 import { describe, expect, it } from 'vitest';
 import { effectivePermissions, linkFor, parseIdentityLinks } from '../src/auth/links.js';
-import { AccessDenied, createAuthenticator, createOathweaveVerifier } from '../src/auth/oathweave.js';
+import { AccessDenied, createAuthenticator, createOathweaveVerifier } from '../src/auth/authenticator.js';
+import { createLogger } from '../src/logger.js';
+import { authenticateRequest } from '../src/server/routing.js';
 import { ISSUER, JWKS_URL, LINKS, makeKeys, signToken, USERINFO_URL, userinfoFetch } from './helpers.js';
 
 describe('Oathweave verification', async () => {
@@ -17,8 +22,8 @@ describe('Oathweave verification', async () => {
 
   it('refuses other audiences, service actors, missing sessions and long lifetimes', async () => {
     await expect(verify(await signToken(keys, { aud: 'magnus' }))).rejects.toThrow();
-    await expect(verify(await signToken(keys, { actorType: 'SERVICE_ACCOUNT' }))).rejects.toThrow(/identity/);
-    await expect(verify(await signToken(keys, { sessionId: null }))).rejects.toThrow(/identity/);
+    await expect(verify(await signToken(keys, { actorType: 'SERVICE_ACCOUNT' }))).rejects.toMatchObject({ reason: 'invalid_claims' });
+    await expect(verify(await signToken(keys, { sessionId: null }))).rejects.toMatchObject({ reason: 'invalid_claims' });
     await expect(verify(await signToken(keys, { lifetime: 3600 }))).rejects.toThrow();
     await expect(verify(await signToken(keys, { iss: 'https://other.example.com' }))).rejects.toThrow();
   });
@@ -26,11 +31,11 @@ describe('Oathweave verification', async () => {
   it('refuses a token whose session was revoked', async () => {
     const token = await signToken(keys, { sub: 'subject-revoked' });
     revoked.add('subject-revoked');
-    await expect(verify(token)).rejects.toThrow(/inactive/);
+    await expect(verify(token)).rejects.toMatchObject({ reason: 'session_inactive' });
   });
 
   it('requires HTTPS endpoints', () => {
-    expect(() => createOathweaveVerifier({ issuer: 'http://identity.example.com', jwksUrl: JWKS_URL, userinfoUrl: USERINFO_URL })).toThrow(/HTTPS/);
+    expect(() => createOathweaveVerifier({ issuer: 'http://identity.example.com', jwksUrl: JWKS_URL, userinfoUrl: USERINFO_URL })).toThrow(/https/);
   });
 
   it('maps a person through exactly one link and narrows permissions to its ceiling', async () => {
@@ -48,6 +53,70 @@ describe('Oathweave verification', async () => {
   });
 });
 
+describe('Oathweave conformance', () => {
+  it('meets the shared Oathweave conformance vectors', async () => {
+    const report = await runOathweaveConformance((token, ctx) => {
+      const verify = createOathweaveVerifier(
+        { issuer: ctx.issuer, audience: ctx.audience, jwksUrl: ctx.jwksUrl, userinfoUrl: ctx.userinfoUrl },
+        { fetch: ctx.fetch, now: () => ctx.nowMs },
+      );
+      // Studio accepts people only, so the valid service token must be refused; the
+      // shared vectors expect a service-accepting verifier to accept it.
+      if (ctx.principal === 'service') {
+        return verify(token).then(
+          () => { throw new Error('Studio accepted a service token'); },
+          (error: unknown) => {
+            if ((error as { reason?: unknown }).reason !== 'wrong_principal_kind') throw error;
+            return { kind: 'service', subject: ctx.vector.expect.outcome === 'accept' ? ctx.vector.expect.subject : '' };
+          },
+        );
+      }
+      return verify(token);
+    }, { strictReasons: true });
+    expect(report.failed).toBe(0);
+  });
+});
+
+describe('verifier rules kept from the Studio verifier', async () => {
+  const keys = await makeKeys();
+  const verify = createOathweaveVerifier({ issuer: ISSUER, jwksUrl: JWKS_URL, userinfoUrl: USERINFO_URL }, { keys: keys.jwks, fetch: userinfoFetch() });
+
+  async function sign(claims: Record<string, unknown>, times: { iat: number; exp: number }): Promise<string> {
+    return new SignJWT({ actorType: 'USER', clientId: 'hivexui-ardentstudio', sessionId: 'fixture-session', permissions: [], ...claims })
+      .setProtectedHeader({ alg: 'RS256', kid: 'fixture-key' })
+      .setIssuer(ISSUER).setAudience('ardentstudio').setSubject('subject-operator').setJti(crypto.randomUUID())
+      .setIssuedAt(times.iat).setExpirationTime(times.exp)
+      .sign(keys.privateKey);
+  }
+
+  it('allows no clock skew', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    await expect(verify(await sign({}, { iat: now - 600, exp: now - 5 }))).rejects.toMatchObject({ reason: 'expired' });
+    await expect(verify(await sign({}, { iat: now + 10, exp: now + 600 }))).rejects.toMatchObject({ reason: 'not_yet_valid' });
+  });
+
+  it('accepts a token without a roles claim', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    await expect(verify(await sign({}, { iat: now, exp: now + 600 }))).resolves.toMatchObject({ subject: 'subject-operator' });
+  });
+
+  it('refuses a service token', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const token = await sign({ actorType: 'SERVICE_ACCOUNT', clientId: 'subject-operator', sessionId: undefined, token_type: 'access' }, { iat: now, exp: now + 600 });
+    await expect(verify(token)).rejects.toMatchObject({ reason: 'wrong_principal_kind' });
+  });
+
+  it('fails closed when the identity provider is unreachable', async () => {
+    const offline = createOathweaveVerifier({ issuer: ISSUER, jwksUrl: JWKS_URL, userinfoUrl: USERINFO_URL },
+      { keys: keys.jwks, fetch: (() => Promise.reject(new Error('offline'))) as typeof fetch });
+    await expect(offline(await signToken(keys))).rejects.toMatchObject({ reason: 'identity_unavailable' });
+    // The router keeps answering 401 UNAUTHENTICATED, as before the shared verifier.
+    const token = await signToken(keys);
+    const c = { req: { header: (name: string) => (name === 'authorization' ? `Bearer ${token}` : undefined) } } as unknown as Parameters<typeof authenticateRequest>[0];
+    await expect(authenticateRequest(c, createAuthenticator(offline, LINKS), [])).rejects.toMatchObject({ status: 401, code: 'UNAUTHENTICATED' });
+  });
+});
+
 describe('identity links', () => {
   it('treats ambiguous links as no link', () => {
     const links = [{ issuer: ISSUER, subject: 's', localUserId: 'a' }, { issuer: ISSUER, subject: 's', localUserId: 'b' }];
@@ -58,5 +127,16 @@ describe('identity links', () => {
   it('applies the link ceiling', () => {
     expect(effectivePermissions({ issuer: ISSUER, subject: 's', localUserId: 'a', permissions: ['ardentstudio:projects:read'] },
       ['ardentstudio:projects:read', 'ardentstudio:projects:write'])).toEqual(['ardentstudio:projects:read']);
+  });
+});
+
+describe('logging', () => {
+  it('adds the request ID to log lines written inside a request', () => {
+    const lines: string[] = [];
+    const log = createLogger('info', line => lines.push(line));
+    runWithRequestContext(createRequestContext({ 'x-request-id': 'req-log-1' }), () => log.info('inside'));
+    log.info('outside');
+    expect(JSON.parse(lines[0]!)).toMatchObject({ message: 'inside', requestId: 'req-log-1' });
+    expect(JSON.parse(lines[1]!)).not.toHaveProperty('requestId');
   });
 });

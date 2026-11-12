@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { serve, type ServerType } from '@hono/node-server';
 import { AgentDirectory } from './agents/directory.js';
 import { OperationRelay } from './agents/operations.js';
-import { createAuthenticator, createOathweaveVerifier, type Authenticator } from './auth/oathweave.js';
+import { createAuthenticator, createOathweaveVerifier, type Authenticator } from './auth/authenticator.js';
 import { BlobStore } from './blobs/store.js';
 import { ChatterMostClient } from './clients/chattermost.js';
 import { HiveMemClient } from './clients/hivemem.js';

@@ -2,7 +2,7 @@ import { streamSSE } from 'hono/streaming';
 import type { z } from 'zod';
 import type { BusMessage } from '../../events/bus.js';
 import type { streamQuerySchema } from '../../shared/browser.js';
-import { STREAM_RECHECK_MS } from '../../auth/oathweave.js';
+import { STREAM_RECHECK_MS } from '../../auth/authenticator.js';
 import { requireProject, type AppDeps } from '../deps.js';
 import { bearerToken, type createRouter } from '../routing.js';
 

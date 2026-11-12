@@ -15,8 +15,11 @@ OATHWEAVE_USERINFO_URL=https://identity.example.com/api/v1/oauth/userinfo
 
 A token is accepted only when it is RS256-signed by the JWKS, has exactly this issuer and the
 audience `ardentstudio`, lives at most fifteen minutes, is a `USER` actor with a session, and its
-session is still active at userinfo (checked online, cached for ten seconds). Open streams re-check
-every five seconds and close at token expiry. Failure is closed.
+session is still active at userinfo (checked online, cached for ten seconds). Token times are
+checked without clock skew. Open streams re-check every five seconds and close at token expiry.
+Failure is closed: an unreachable JWKS or userinfo also answers `401 UNAUTHENTICATED`.
+Verification uses the suite's shared verifier from `@hivemagnus/hive-common`, and the test suite
+runs its Oathweave conformance vectors.
 
 `ARDENT_STUDIO_OATHWEAVE_IDENTITIES_JSON` is a reviewed JSON array of explicit account links:
 

@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Verify Oathweave tokens with the shared suite verifier from `@hivemagnus/hive-common` instead of a local copy. Accepted principals, audience, permissions, link rules and the zero clock tolerance are unchanged; a malformed `roles` claim, a token over 16 KiB, or a user token whose client ID equals its subject is now refused. The shared Oathweave conformance vectors run in the test suite.
+- `/health/ready` runs its checks through the shared readiness helper. The response body and status codes are unchanged; a failing Magnus agent listing now reports `not_ready` instead of an internal error.
+
+### Added
+
+- Request context on every response: `x-request-id` (also read from `x-hive-request-id` or `x-correlation-id`, generated when absent or unsafe) is echoed, W3C `traceparent` is continued, and log lines written during a request carry `requestId`.
+
 ## [0.2.1] - 2026-11-11
 
 ### Security
