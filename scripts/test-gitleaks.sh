@@ -94,4 +94,46 @@ exit 1
 FIXTURE
 chmod +x "$temporary/bin/curl"
 expect_status 2 env XDG_CACHE_HOME="$temporary/missing" PATH="$temporary/bin:$PATH" bash scripts/install-gitleaks.sh
+# Every global path allowlist must name its rules, or the path skips the whole file.
+if awk '/^\[\[/ { if (paths && !rules) bad = 1; global = ($0 == "[[allowlists]]"); paths = rules = 0 }
+  global && /^paths *=/ { paths = 1 } global && /^targetRules *=/ { rules = 1 }
+  END { if (paths && !rules) bad = 1; exit !bad }' "$root/.gitleaks.toml"; then
+  echo 'A global path allowlist in .gitleaks.toml lacks targetRules.' >&2
+  exit 1
+fi
+allowlisted_files=(test/projects.test.ts)
+# File allowlists excuse only their exact reviewed values. Any other credential placed
+# in an allowlisted file must still be reported. Tokens are random and generated here.
+scoped="$temporary/scoped"
+random_token() { head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-36; }
+for allowlisted in "${allowlisted_files[@]}"; do
+  rm -rf "$scoped"
+  mkdir -p "$scoped/scripts" "$scoped/$(dirname "$allowlisted")" "$scoped/elsewhere"
+  cp "$root/scripts/gitleaks.sh" "$scoped/scripts/"
+  cp "$root/.gitleaks.toml" "$scoped/"
+  cp "$root/$allowlisted" "$scoped/$allowlisted"
+  cd "$scoped"
+  git init -q
+  git config user.name 'Security Fixture'
+  git config user.email 'fixture@example.com'
+  git config core.hooksPath /dev/null
+  git add -A
+  expect_status 0 bash scripts/gitleaks.sh --staged
+  # The reviewed value is excused only in its own file.
+  cp "$allowlisted" "elsewhere/$(basename "$allowlisted")"
+  git add elsewhere
+  expect_status 1 bash scripts/gitleaks.sh --staged
+  git rm -rq --cached elsewhere
+  rm -rf elsewhere
+  # A credential for another rule, then for the same rule, is reported in that file.
+  for line in 'note: ghp_%s' 'api_key = "%s"'; do
+    foreign="$(random_token)"
+    cp "$root/$allowlisted" "$allowlisted"
+    printf "\n$line\n" "$foreign" >> "$allowlisted"
+    git add "$allowlisted"
+    expect_status 1 bash scripts/gitleaks.sh --staged
+    if grep -Fq "$foreign" "$temporary/output"; then echo 'Secret leaked into output.' >&2; exit 1; fi
+  done
+  cd "$root"
+done
 echo 'Gitleaks regression checks passed.'
