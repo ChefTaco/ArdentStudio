@@ -44,7 +44,10 @@ async function readAll(limit: number): Promise<HiveAuditRecord[]> {
     const body = auditExportResponseSchema.parse(await json(response));
     expect(body.data.length).toBeLessThanOrEqual(limit);
     records.push(...body.data);
-    if (!body.nextCursor) return records;
+    if (!body.nextCursor) {
+      expect(body.data).toEqual([]);
+      return records;
+    }
     after = body.nextCursor;
   }
   throw new Error('paging did not end');
@@ -62,16 +65,17 @@ describe('GET /audit/export', () => {
     expect(all.slice(0, 5).every(record => record.action === 'project.create')).toBe(true);
   });
 
-  it('returns only records after the cursor, and null when caught up', async () => {
+  it('returns only records after the cursor, the last record\'s cursor on the last page, and null when caught up', async () => {
     const first = await json(await page('?limit=8'));
-    expect(first.nextCursor).toBeNull();
+    expect(first.data).toHaveLength(8);
+    const tail = encodeCursor({ id: native(first.data.at(-1)) });
+    expect(first.nextCursor).toBe(tail);
     const two = await json(await page('?limit=2'));
     const rest = await json(await page(`?after=${two.nextCursor}`));
     expect(rest.data[0].id).toBe(`ardentstudio:audit:${native(two.data[1]) + 1}`);
-    expect(rest.nextCursor).toBeNull();
-    // A cursor at the end picks up records written later.
-    const tail = encodeCursor({ id: native(first.data.at(-1)) });
-    expect((await json(await page(`?after=${tail}`))).data).toEqual([]);
+    expect(rest.nextCursor).toBe(tail);
+    // Caught up: an empty page with a null cursor. The stored cursor picks up records written later.
+    expect(await json(await page(`?after=${tail}`))).toEqual({ data: [], nextCursor: null });
     ctx.store.tx(() => ctx.store.record(actor, 'project.archive', { type: 'project', id: 'prj_01HZZZZZZZZZZZZZZZZZZZZZZZ' }));
     const later = await json(await page(`?after=${tail}`));
     expect(later.data.map((record: HiveAuditRecord) => record.action)).toEqual(['project.archive']);
@@ -142,7 +146,9 @@ describe('GET /audit/export', () => {
     const body = await json(await page('?limit=200'));
     const created: HiveAuditRecord = body.data[0];
     expect(created).toMatchObject({ product: 'ardentstudio', outcome: 'success', action: 'project.create',
-      actor: { type: 'user', id: 'subject-operator', issuer: 'https://identity.example.com', displayName: 'operator' }, target: { type: 'project' }, subject: {}, details: { name: 'Audit 0' } });
+      actor: { type: 'user', id: 'subject-operator', issuer: 'https://identity.example.com', displayName: 'operator' }, target: { type: 'project' }, details: { name: 'Audit 0' } });
+    expect(created).not.toHaveProperty('subject');
+    expect(body.data.every((record: HiveAuditRecord) => record.subject === undefined || Object.keys(record.subject).length > 0)).toBe(true);
     expect(created.occurredAt).toMatch(/Z$/);
     const agent = body.data.find((record: HiveAuditRecord) => record.action === 'agent.presentation');
     expect(agent.subject).toEqual({ agentRef: 'node-a~default', nodeId: 'node-a' });
@@ -161,6 +167,16 @@ describe('toAuditRecord', () => {
       actor: { type: 'system', id: 'system' }, target: { type: 'task', id: 'tsk_1' }, subject: { agentRef: 'node-c~writer', nodeId: 'node-c' }, details: { state: 'cancelled' },
     });
     expect(JSON.stringify(record)).not.toContain('secret-key-value');
+  });
+
+  it('omits an empty target', () => {
+    expect(toAuditRecord({ ...entry, target_type: '', target_id: '' })).not.toHaveProperty('target');
+    expect(toAuditRecord({ ...entry, target_type: 'agent', target_id: 'not-a-ref' })).not.toHaveProperty('subject');
+  });
+
+  it('uses the shared id pattern', () => {
+    expect(() => hiveAuditRecordSchema.parse({ ...toAuditRecord(entry), id: 'ardentstudio:7' })).toThrow();
+    expect(() => hiveAuditRecordSchema.parse({ ...toAuditRecord(entry), id: 'other:audit:7' })).toThrow();
   });
 
   it('maps a service actor', () => {

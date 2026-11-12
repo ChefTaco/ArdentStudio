@@ -78,6 +78,12 @@ describe('configuration', () => {
     expect(loadConfig({ ...base, ARDENT_STUDIO_MAX_BLOB_BYTES: '1048576' }).maxBlobBytes).toBe(1048576);
   });
 
+  it('reads optional native issuers for service tokens', () => {
+    expect(loadConfig(base).oathweave.nativeIssuers).toEqual([]);
+    expect(loadConfig({ ...base, OATHWEAVE_NATIVE_ISSUERS: 'hive-iam, other-iam' }).oathweave.nativeIssuers).toEqual(['hive-iam', 'other-iam']);
+    expect(issues({ ...base, OATHWEAVE_NATIVE_ISSUERS: 'https://identity.example.com' })).toContain('OATHWEAVE_NATIVE_ISSUERS');
+  });
+
   it('documents every variable it reads', () => {
     const source = loadConfig.toString();
     for (const match of source.matchAll(/'((?:ARDENT_STUDIO|OATHWEAVE)_[A-Z_]+)'/g)) {

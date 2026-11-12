@@ -80,6 +80,12 @@ accepts:
   carries no other Studio permission and is refused (`401`) on every other route.
 - a linked person whose token grants `ardentstudio:audit:read` or `ardentstudio:agents:admin`.
 
+Oathweave signs client-credentials tokens with its native issuer (its `JWT_ISSUER`, a name such
+as `hive-iam`, not a URL) unless the client's policy selects the browser issuer. List those native
+issuer ids in the optional comma-separated `OATHWEAVE_NATIVE_ISSUERS`; they are verified with the
+same JWKS. A native issuer is accepted for service tokens only, and so only on this route, never
+for people.
+
 Everyone else gets `403`; a request without a token gets `401`. Declare the collector's client in
 `IAM_MACHINE_CLIENT_POLICIES` with the audience `ardentstudio` and the permission
 `ardentstudio:audit:read`.

@@ -1,7 +1,7 @@
 // The suite audit export: Studio's append-only audit table as HiveAuditRecord v1, oldest first,
 // keyset-paged on the table's monotonic id. Details are flattened to scalars, redacted with the
 // suite's log redaction and capped at 4 KB; they never hold secrets or file contents.
-import { decodeCursor, encodeCursor, feedPage, parseFeedQuery } from '@hivemagnus/hive-common/events';
+import { decodeCursor, encodeCursor, parseFeedQuery } from '@hivemagnus/hive-common/events';
 import { HiveError } from '@hivemagnus/hive-common/errors';
 import { redact } from '@hivemagnus/hive-common/log';
 import type { AuditEntry, AuditRepository } from '../db/repos/audit.js';
@@ -98,17 +98,21 @@ export function toAuditRecord(entry: AuditEntry, taskRefs: Map<string, string> =
     action: entry.action.toLowerCase(),
     outcome: 'success',
     actor: actorOf(entry),
-    target: { type: entry.target_type, id: entry.target_id },
-    subject: agentRef ? { agentRef, nodeId: agentRef.slice(0, agentRef.indexOf('~')) } : {},
+    ...(entry.target_type || entry.target_id ? { target: { ...(entry.target_type ? { type: entry.target_type } : {}), ...(entry.target_id ? { id: entry.target_id } : {}) } } : {}),
+    ...(agentRef ? { subject: { agentRef, nodeId: agentRef.slice(0, agentRef.indexOf('~')) } } : {}),
     details: flattenDetails(entry.detail),
   };
 }
 
-/** One export page for `?after=&limit=`. Throws a 400 HiveError for a malformed query. */
+/**
+ * One export page for `?after=&limit=`. Throws a 400 HiveError for a malformed query.
+ * `nextCursor` is the last record's cursor whenever the page has records, even when it is the
+ * last page, so a collector can store it and poll again; it is null only for an empty page.
+ */
 export function exportAuditPage(audit: AuditRepository, query: URLSearchParams | Readonly<Record<string, string | undefined>>): AuditExportPage {
   const { after, limit } = parseFeedQuery(query, { defaultLimit: AUDIT_EXPORT_DEFAULT_LIMIT, maxLimit: AUDIT_EXPORT_MAX_LIMIT });
-  const entries = audit.listAfter(cursorPosition(after), limit + 1);
+  const entries = audit.listAfter(cursorPosition(after), limit);
   const taskRefs = audit.taskAgentRefs(entries.filter(entry => entry.target_type === 'task').map(entry => entry.target_id));
-  const page = feedPage(entries, limit, entry => encodeCursor({ id: entry.id }));
-  return { data: page.data.map(entry => toAuditRecord(entry, taskRefs)), nextCursor: page.nextCursor };
+  const last = entries.at(-1);
+  return { data: entries.map(entry => toAuditRecord(entry, taskRefs)), nextCursor: last ? encodeCursor({ id: last.id }) : null };
 }

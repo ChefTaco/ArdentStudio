@@ -17,6 +17,11 @@ export interface OathweaveOptions {
   jwksUrl: string;
   userinfoUrl: string;
   audience?: string;
+  /**
+   * Oathweave native issuer identifiers (its JWT issuer name, for example `hive-iam`). Accepted
+   * for service tokens only, so only on routes that accept services (the audit export).
+   */
+  nativeIssuers?: readonly string[];
 }
 
 export interface OathweaveIdentity {
@@ -82,6 +87,7 @@ export function createOathweaveVerifier(
     audience: options.audience ?? ARDENT_STUDIO_AUDIENCE,
     jwksUrl: options.jwksUrl,
     userinfoUrl: options.userinfoUrl,
+    ...(options.nativeIssuers?.length ? { nativeIssuers: options.nativeIssuers, nativeIssuerAccept: 'service' as const } : {}),
     accept: 'user',
     clockToleranceSec: CLOCK_TOLERANCE_SEC,
     ...(overrides.keys ? { keys: overrides.keys } : {}),

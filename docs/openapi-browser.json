@@ -5312,7 +5312,7 @@
         "x-idempotent": false,
         "x-or-permission": "ardentstudio:agents:admin",
         "x-accept": "any",
-        "description": "Every audit record, oldest first, as HiveAuditRecord v1, keyset-paged on the record id. Accepts an Oathweave service token with ardentstudio:audit:read (no account link needed), or a linked person with ardentstudio:audit:read or ardentstudio:agents:admin. 400 for a malformed cursor or limit. nextCursor is null when caught up.",
+        "description": "Every audit record, oldest first, as HiveAuditRecord v1, keyset-paged on the record id. Accepts an Oathweave service token with ardentstudio:audit:read (no account link needed; native-issuer service tokens too when OATHWEAVE_NATIVE_ISSUERS lists the issuer), or a linked person with ardentstudio:audit:read or ardentstudio:agents:admin. 400 for a malformed cursor or limit. nextCursor is the last record's cursor whenever data is not empty, and null only when data is empty (caught up).",
         "security": [
           {
             "oathweave": []
@@ -8199,8 +8199,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 256
+            "pattern": "^(hivemem|hiveskills|ardentstudio|embermend):audit:[A-Za-z0-9._:-]{1,200}$"
           },
           "product": {
             "type": "string",
@@ -8311,8 +8310,6 @@
           "action",
           "outcome",
           "actor",
-          "target",
-          "subject",
           "details"
         ]
       },

@@ -1241,7 +1241,7 @@ export const readyResponseSchema = z.object({
 /** The suite-wide audit record. Every product serves the same shape so one collector can parse them all. */
 const auditScalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 export const hiveAuditRecordSchema = z.object({
-  id: z.string().min(1).max(256),
+  id: z.string().regex(/^(hivemem|hiveskills|ardentstudio|embermend):audit:[A-Za-z0-9._:-]{1,200}$/),
   product: z.enum(['hivemem', 'hiveskills', 'ardentstudio', 'embermend']),
   occurredAt: z.iso.datetime(),
   action: z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/).max(128),
@@ -1252,8 +1252,10 @@ export const hiveAuditRecordSchema = z.object({
     issuer: z.string().max(512).optional(),
     displayName: z.string().max(256).optional(),
   }).strict(),
-  target: z.object({ type: z.string().max(64).optional(), id: z.string().max(256).optional() }).strict(),
-  subject: z.object({ actorId: z.string().max(256).optional(), agentRef: z.string().max(257).optional(), nodeId: z.string().max(128).optional() }).strict(),
+  /** Omitted when empty. */
+  target: z.object({ type: z.string().max(64).optional(), id: z.string().max(256).optional() }).strict().optional(),
+  /** Omitted when empty. */
+  subject: z.object({ actorId: z.string().max(256).optional(), agentRef: z.string().max(257).optional(), nodeId: z.string().max(128).optional() }).strict().optional(),
   /** Flat scalars, at most 4 KB serialized, already redacted. Never secrets, memory content, prompts or file contents. */
   details: z.record(z.string(), auditScalarSchema),
 }).strict();
@@ -1267,7 +1269,7 @@ export const auditExportQuerySchema = z.object({
 });
 export const auditExportResponseSchema = z.object({
   data: z.array(hiveAuditRecordSchema),
-  /** Null when caught up; send it as `after` to read on. */
+  /** The last record's cursor whenever `data` is not empty, even on the last page; null only when `data` is empty (caught up). Send it as `after` to read on. */
   nextCursor: z.string().nullable(),
 });
 
@@ -1408,7 +1410,7 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
 
   // Audit
   { method: 'GET', path: '/audit/export', query: auditExportQuerySchema, response: auditExportResponseSchema, permissions: AUDIT_READ, orPermission: 'ardentstudio:agents:admin', accept: 'any', idempotent: false,
-    note: 'Every audit record, oldest first, as HiveAuditRecord v1, keyset-paged on the record id. Accepts an Oathweave service token with ardentstudio:audit:read (no account link needed), or a linked person with ardentstudio:audit:read or ardentstudio:agents:admin. 400 for a malformed cursor or limit. nextCursor is null when caught up.' },
+    note: 'Every audit record, oldest first, as HiveAuditRecord v1, keyset-paged on the record id. Accepts an Oathweave service token with ardentstudio:audit:read (no account link needed; native-issuer service tokens too when OATHWEAVE_NATIVE_ISSUERS lists the issuer), or a linked person with ardentstudio:audit:read or ardentstudio:agents:admin. 400 for a malformed cursor or limit. nextCursor is the last record\'s cursor whenever data is not empty, and null only when data is empty (caught up).' },
 
   // Stream
   {

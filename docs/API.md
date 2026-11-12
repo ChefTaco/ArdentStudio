@@ -353,8 +353,9 @@ cannot send the bearer token).
 `GET /audit/export?after=<cursor>&limit=<n>` returns `{"data": [HiveAuditRecord...], "nextCursor": string|null}`:
 every audit row Studio stores, oldest first, keyset-paged on the row's monotonic id. `after` is the
 opaque `nextCursor` of the previous page (omit it for the start); `limit` is 1 to 200 (default
-100, larger values are clamped). A page holds records strictly after the cursor, and
-`nextCursor: null` means caught up. A malformed cursor or limit answers `400 VALIDATION_ERROR`.
+100, larger values are clamped). A page holds records strictly after the cursor. Whenever a page
+has records, `nextCursor` is the last record's cursor, even on the last page, so a collector can
+store it and poll again later; it is `null` only when `data` is empty, meaning caught up. A malformed cursor or limit answers `400 VALIDATION_ERROR`.
 
 Each record (`hiveAuditRecordSchema` in `src/shared/browser.ts`, the suite-wide v1 shape):
 
@@ -366,8 +367,8 @@ Each record (`hiveAuditRecordSchema` in `src/shared/browser.ts`, the suite-wide 
 | `action` | The recorded action, for example `project.create`, `team.publish`, `agent.apply`, `review.export` |
 | `outcome` | `success` (Studio audits completed mutations only) |
 | `actor` | `user` (Oathweave subject and issuer, `displayName` the Studio user), `system`, or `service` |
-| `target` | The audited object's type and id (`project`, `task`, `agent`, `link`, `file`, …) |
-| `subject` | `agentRef` and `nodeId` when the record is about an agent: an `agent` target, a `task` that ran on an agent, or an `agent_ref` in the details |
+| `target` | The audited object's type and id (`project`, `task`, `agent`, `link`, `file`, …); omitted when empty |
+| `subject` | Omitted unless the record is about an agent: `agentRef` and `nodeId` when the record is about an agent: an `agent` target, a `task` that ran on an agent, or an `agent_ref` in the details |
 | `details` | Flat scalars, redacted with the suite log redaction, at most 4 KB. Lists of values are joined with commas, other lists become `<key>_count`, nested objects are dropped |
 
 Permissions: see [Oathweave](OATHWEAVE.md#audit-export).

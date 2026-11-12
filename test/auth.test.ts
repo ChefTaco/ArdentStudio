@@ -57,21 +57,12 @@ describe('Oathweave conformance', () => {
   it('meets the shared Oathweave conformance vectors', async () => {
     const report = await runOathweaveConformance((token, ctx) => {
       const verify = createOathweaveVerifier(
-        { issuer: ctx.issuer, audience: ctx.audience, jwksUrl: ctx.jwksUrl, userinfoUrl: ctx.userinfoUrl },
+        { issuer: ctx.issuer, audience: ctx.audience, jwksUrl: ctx.jwksUrl, userinfoUrl: ctx.userinfoUrl, nativeIssuers: ctx.nativeIssuers },
         { fetch: ctx.fetch, now: () => ctx.nowMs },
       );
-      // Studio accepts people only, so the valid service token must be refused; the
-      // shared vectors expect a service-accepting verifier to accept it.
-      if (ctx.principal === 'service') {
-        return verify(token).then(
-          () => { throw new Error('Studio accepted a service token'); },
-          (error: unknown) => {
-            if ((error as { reason?: unknown }).reason !== 'wrong_principal_kind') throw error;
-            return { kind: 'service', subject: ctx.vector.expect.outcome === 'accept' ? ctx.vector.expect.subject : '' };
-          },
-        );
-      }
-      return verify(token);
+      // Service tokens are verified the way the audit export does (accept 'any'); every other
+      // route verifies people only and refuses them (see 'refuses a service token').
+      return ctx.principal === 'service' ? verify(token, { accept: 'any' }) : verify(token);
     }, { strictReasons: true });
     expect(report.failed).toBe(0);
   });
@@ -104,6 +95,26 @@ describe('verifier rules kept from the Studio verifier', async () => {
     const now = Math.floor(Date.now() / 1000);
     const token = await sign({ actorType: 'SERVICE_ACCOUNT', clientId: 'subject-operator', sessionId: undefined, token_type: 'access' }, { iat: now, exp: now + 600 });
     await expect(verify(token)).rejects.toMatchObject({ reason: 'wrong_principal_kind' });
+  });
+
+  it('accepts native-issuer service tokens only where services are accepted, and never native-issuer people', async () => {
+    const native = createOathweaveVerifier({ issuer: ISSUER, jwksUrl: JWKS_URL, userinfoUrl: USERINFO_URL, nativeIssuers: ['hive-iam'] },
+      { keys: keys.jwks, fetch: userinfoFetch() });
+    const now = Math.floor(Date.now() / 1000);
+    const signAs = (iss: string, claims: Record<string, unknown>, sub: string) => new SignJWT({ permissions: ['ardentstudio:audit:read'], roles: [], ...claims })
+      .setProtectedHeader({ alg: 'RS256', kid: 'fixture-key' })
+      .setIssuer(iss).setAudience('ardentstudio').setSubject(sub).setJti(crypto.randomUUID())
+      .setIssuedAt(now).setExpirationTime(now + 600)
+      .sign(keys.privateKey);
+    const service = await signAs('hive-iam', { actorType: 'SERVICE_ACCOUNT', clientId: 'collector', token_type: 'access' }, 'collector');
+    await expect(native(service, { accept: 'any' })).resolves.toMatchObject({ kind: 'service', subject: 'collector', issuer: 'hive-iam' });
+    await expect(native(service)).rejects.toBeDefined();
+    const person = await signAs('hive-iam', { actorType: 'USER', clientId: 'hivexui-ardentstudio', sessionId: 'fixture-session' }, 'subject-operator');
+    await expect(native(person, { accept: 'any' })).rejects.toMatchObject({ reason: 'invalid_issuer' });
+    // Without the setting a native issuer is never accepted.
+    await expect(verify(service, { accept: 'any' })).rejects.toMatchObject({ reason: 'invalid_issuer' });
+    const principal = await createAuthenticator(native, LINKS)(service, { accept: 'any' });
+    expect(principal).toMatchObject({ kind: 'service', userId: 'service:collector', permissions: ['ardentstudio:audit:read'] });
   });
 
   it('fails closed when the identity provider is unreachable', async () => {
