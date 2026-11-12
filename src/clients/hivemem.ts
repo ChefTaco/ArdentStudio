@@ -2,7 +2,10 @@
 // as a revision-aware source (POST /v1/knowledge/sources/sync). ArdentStudio calls it with its
 // own Oathweave service identity (audience `hivemem`), linked in HiveMem's
 // HIVEMEM_OATHWEAVE_SERVICES_JSON with the memories:write and workspaces:write scopes.
+// The HTTP layer is @hivemagnus/hivemem-sdk; this module keeps Studio's own interface on top of it.
 import { createHash } from 'node:crypto';
+import { outboundHeaders } from '@hivemagnus/hive-common/context';
+import { HiveMem, HiveMemHTTPError } from '@hivemagnus/hivemem-sdk';
 import { z } from 'zod';
 import type { ServiceTokenProvider } from './service-token.js';
 import { trimTrailingSlashes } from '../url.js';
@@ -61,34 +64,78 @@ export interface HiveMemClientOptions {
   tokens: Pick<ServiceTokenProvider, 'token' | 'invalidate'>;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  /** Extra headers per request; defaults to the current request context (x-request-id, traceparent). */
+  headers?: () => Record<string, string>;
+}
+
+/** Studio's errors: the server's `detail` (or `error`), else the HTTP status. */
+function translate(error: unknown): unknown {
+  if (!(error instanceof HiveMemHTTPError)) return error;
+  const details = error.details as { detail?: unknown; error?: unknown } | null | undefined;
+  const message = typeof details?.detail === 'string' ? details.detail : typeof details?.error === 'string' ? details.error : `HiveMem answered HTTP ${error.statusCode}`;
+  return new HiveMemError(message.slice(0, 300), error.statusCode);
+}
+
+async function sdkCall<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    throw translate(error);
+  }
+}
+
+/**
+ * The SDK reads an error body as JSON and then as text, which fails on a non-JSON body (a proxy
+ * page, for example). Hand it an empty JSON body instead so the error still carries its status.
+ */
+function jsonErrorBodies(request: typeof fetch): typeof fetch {
+  return async (input, init) => {
+    const response = await request(input, init);
+    if (response.ok || response.headers.get('content-type')?.includes('json')) return response;
+    await response.body?.cancel().catch(() => undefined);
+    return new Response('null', { status: response.status, statusText: response.statusText, headers: { 'content-type': 'application/json' } });
+  };
 }
 
 export class HiveMemClient {
-  private readonly request: typeof fetch;
-  private readonly baseUrl: string;
+  private readonly sdk: HiveMem;
+  private readonly probe: HiveMem;
 
-  constructor(private readonly options: HiveMemClientOptions) {
-    this.request = options.fetch ?? ((input, init) => fetch(input, init));
-    this.baseUrl = trimTrailingSlashes(options.baseUrl);
+  constructor(options: HiveMemClientOptions) {
+    const request = options.fetch ?? ((input, init) => fetch(input, init));
+    const fetchImpl = jsonErrorBodies(request);
+    const headers = options.headers ?? (() => outboundHeaders());
+    this.sdk = new HiveMem({
+      baseUrl: trimTrailingSlashes(options.baseUrl),
+      fetchImpl,
+      headers,
+      // Studio keeps its own retry schedule for knowledge sync; the SDK only retries once after a 401.
+      maxRetries: 0,
+      timeoutMs: options.timeoutMs ?? 30_000,
+      tokenProvider: async ({ forceRefresh }) => {
+        if (forceRefresh) options.tokens.invalidate();
+        return options.tokens.token();
+      },
+    });
+    // Health is unauthenticated: an empty token keeps the SDK from reading one from the environment.
+    this.probe = new HiveMem({ baseUrl: this.sdk.baseUrl, fetchImpl, headers, token: '', maxRetries: 0, timeoutMs: 5_000 });
   }
 
   /** Unauthenticated liveness of the HiveMem service. */
   async health(): Promise<{ status: string }> {
-    const response = await this.request(`${this.baseUrl}/v1/health`, { redirect: 'error', signal: AbortSignal.timeout(5_000) });
-    if (!response.ok) throw new HiveMemError(`HiveMem health answered HTTP ${response.status}`, response.status);
-    return z.object({ status: z.string() }).loose().parse(await response.json());
+    return z.object({ status: z.string() }).loose().parse(await sdkCall(() => this.probe.health()));
   }
 
   /** Create the project workspace. HiveMem returns the existing workspace when it already exists. */
   async ensureWorkspace(input: { workspace_id: string; title: string; description?: string; metadata?: Record<string, string> }) {
-    return workspaceSchema.parse(await this.call('POST', '/v1/workspaces', {
-      workspace_id: input.workspace_id, title: input.title.slice(0, 200), description: input.description ?? null, metadata: input.metadata ?? {},
-    }));
+    return workspaceSchema.parse(await sdkCall(() => this.sdk.createWorkspace(input.workspace_id, {
+      title: input.title.slice(0, 200), description: input.description ?? null, metadata: input.metadata ?? {},
+    })));
   }
 
   async syncKnowledgeSource(body: KnowledgeSyncRequest): Promise<KnowledgeSyncResponse> {
     if (body.chunks.length > HIVEMEM_MAX_CHUNKS) throw new HiveMemError(`A source sync holds at most ${HIVEMEM_MAX_CHUNKS} chunks`, 400);
-    return knowledgeSyncResponseSchema.parse(await this.call('POST', '/v1/knowledge/sources/sync', body));
+    return knowledgeSyncResponseSchema.parse(await sdkCall(() => this.sdk.syncKnowledgeSource({ ...body })));
   }
 
   /** Validate, then write: a preview proves the request before anything changes. */
@@ -96,27 +143,5 @@ export class HiveMemClient {
     const preview = await this.syncKnowledgeSource({ ...body, mode: 'preview' });
     const applied = await this.syncKnowledgeSource({ ...body, mode: 'apply' });
     return { preview, applied };
-  }
-
-  private async call(method: string, path: string, body?: unknown): Promise<unknown> {
-    const attempt = async () => this.request(`${this.baseUrl}${path}`, {
-      method,
-      headers: { authorization: `Bearer ${await this.options.tokens.token()}`, accept: 'application/json', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      redirect: 'error',
-      signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000),
-    });
-    let response = await attempt();
-    if (response.status === 401) {
-      await response.body?.cancel();
-      this.options.tokens.invalidate();
-      response = await attempt();
-    }
-    if (!response.ok) {
-      const detail = await response.json().catch(() => null) as { detail?: unknown; error?: unknown } | null;
-      const message = typeof detail?.detail === 'string' ? detail.detail : typeof detail?.error === 'string' ? detail.error : `HiveMem answered HTTP ${response.status}`;
-      throw new HiveMemError(message.slice(0, 300), response.status);
-    }
-    return response.status === 204 ? null : response.json();
   }
 }

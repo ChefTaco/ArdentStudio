@@ -68,6 +68,7 @@
   },
   "dependencies": {
     "@hivemagnus/hive-common": "^0.1.0",
+    "@hivemagnus/hivemem-sdk": "1.1.0",
     "@hivemagnus/magnus-contracts": "2.2.0",
     "@hono/node-server": "^2.1.5",
     "@photostructure/sqlite": "3.3.1",
