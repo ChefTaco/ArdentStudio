@@ -161,6 +161,13 @@ export class KnowledgeSync {
         chunks: retiring ? [] : [{ chunk_key: 'link', content, content_hash: chunkHash(content), heading: link.title, tags: ['ardentstudio', `link:${link.id}`] }],
       });
       this.logger.info(retiring ? 'Link source retired' : 'Link indexed', { link_id: link.id });
+      // The link was edited or deleted while HiveMem was being called: what was just synced is
+      // already stale. Record its revision (a delete then knows there is a source to retire) and
+      // sync again instead of overwriting the queued state.
+      const latest = retiring ? undefined : this.store.links.get(link.id);
+      if (latest && (latest.deleted_at !== null || linkRevision(latest) !== revision)) {
+        return this.updateLink(link, { state: 'pending', revision, chunks: 1, error: null, attempts: 0, nextAttemptAt: this.store.clock.now() });
+      }
       return retiring
         ? this.updateLink(link, { state: 'not_indexed', revision: null, chunks: null, error: null, nextAttemptAt: null })
         : this.updateLink(link, { state: 'indexed', revision, chunks: 1, error: null, nextAttemptAt: null });
