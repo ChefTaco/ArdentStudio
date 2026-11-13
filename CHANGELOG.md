@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## [0.4.1] - 2026-11-13
+
 ### Fixed
 
 - Publishing a team publishes only the draft body it validated: a draft saved by someone else while Magnus was asked for agent facts now answers `409 TEAM_REVISION_CONFLICT` instead of being published unchecked.
