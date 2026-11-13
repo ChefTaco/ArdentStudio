@@ -79,9 +79,20 @@ export class TaskFollower {
         this.mode = 'poll';
         if (await this.poll()) { this.mode = 'done'; return; }
       } else {
+        // Ardent sends no done event for input_required, and the state event that announced it may
+        // already be behind the cursor: read the task so such a turn is not followed forever.
+        if (await this.finished()) { this.mode = 'done'; return; }
         await this.sleep(this.reconnect);
       }
     }
+  }
+
+  /** After a clean stream end: hand over the final record when the task has finished. An unreadable task is asked again after the next stream. */
+  private async finished(): Promise<boolean> {
+    const task = await this.magnus.task(this.agentRef, this.ardentTaskId, { signal: this.abort.signal }).catch(() => undefined);
+    if (this.stopped || !task || !(ARDENT_FINISHED as readonly string[]).includes(task.state)) return false;
+    await this.hooks.done(task);
+    return true;
   }
 
   /** One SSE subscription. True when the task finished. */

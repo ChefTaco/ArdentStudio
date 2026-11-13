@@ -73,7 +73,8 @@ characters) keeps the start of the brief and the newest messages and marks what 
 One Server-Sent Events subscription per accepted task through Magnus
 (`GET …/tasks/:taskId/stream`): journal events (`task.event`, resumable by sequence), live reply
 text (`task.text`, `task.delta`) and the final record (`task.done`). Ardent ends a stream after 60
-seconds; the follower reconnects with `after=<last handled sequence>`. When a stream fails, the
+seconds; the follower reads the task (a turn that ended `input_required` has no `task.done`) and,
+when it has not finished, reconnects with `after=<last handled sequence>`. When a stream fails, the
 follower polls `…/tasks/:id/events?after=` and the task every 1 to 5 seconds for a while, then tries
 the stream again.
 

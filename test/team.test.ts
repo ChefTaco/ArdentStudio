@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createProject, createTestContext, json, profile, type TestContext } from './helpers.js';
+import { createProject, createTestContext, json, profile, teamRole, type TestContext } from './helpers.js';
 
 let ctx: TestContext;
 afterEach(() => ctx?.close());
@@ -69,6 +69,31 @@ describe('team assignment', () => {
     expect(error.details.validation.issues.map((issue: { code: string }) => issue.code)).toContain('deliverable_without_producer');
     expect((await ctx.call('POST', `/projects/${project.id}/team/apply-template`, { body: { template_id: research.id, version: 1 } })).status).toBe(409);
     expect((await ctx.call('POST', `/projects/${project.id}/team/apply-template`, { body: { template_id: research.id, version: 1, replace_draft: true } })).status).toBe(200);
+  });
+
+  it('publishes only the draft body it validated', async () => {
+    ctx = await createTestContext();
+    const project = await createProject(ctx);
+    const body = { roles: [teamRole('lead', 'Story Lead', 'node1~lead', { coordinator: true })], relationships: [], stages: [] };
+    expect((await ctx.call('PUT', `/projects/${project.id}/team/draft`, { body: { base_revision: null, body } })).status).toBe(200);
+    // Someone else saves the draft (same revision number, no bound agent) while publish waits for Magnus.
+    const memoryStatus = ctx.magnusClient.memoryStatus.bind(ctx.magnusClient);
+    let saves = 0;
+    ctx.magnusClient.memoryStatus = async (...args) => {
+      const answer = await memoryStatus(...args);
+      if (saves++ === 0) {
+        const draft = ctx.store.team.draft(project.id)!;
+        ctx.store.tx(() => ctx.store.team.saveDraft(project.id, { baseRevision: null, sourceTemplate: undefined, userId: 'viewer',
+          body: { ...draft.body, roles: draft.body.roles.map(role => ({ ...role, agent_ref: null, binding_id: null })) } }));
+      }
+      return answer;
+    };
+    const published = await ctx.call('POST', `/projects/${project.id}/team/publish`, { body: { draft_revision: 1 } });
+    expect(saves).toBeGreaterThan(0);
+    expect(published.status).toBe(409);
+    expect((await json(published)).error.code).toBe('TEAM_REVISION_CONFLICT');
+    expect(ctx.store.team.pointers(project.id)).toEqual({ current: null, draft: 1 });
+    expect(ctx.store.team.draft(project.id)!.body.roles[0]!.agent_ref).toBeNull();
   });
 
   it('validates an arbitrary body without saving and reports what Magnus cannot answer', async () => {

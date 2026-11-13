@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Publishing a team publishes only the draft body it validated: a draft saved by someone else while Magnus was asked for agent facts now answers `409 TEAM_REVISION_CONFLICT` instead of being published unchecked.
+- A reference link edited or deleted while its knowledge sync was calling HiveMem is synced again (or its source retired) instead of being left `indexed` with the old text.
+- A turn that ended in Ardent `input_required` is finished even when the task could not be read right after its state event; the follower reads the task after each stream that ends without a final record instead of following it forever.
+- A JSON body sent without a declared length is refused with `413 PAYLOAD_TOO_LARGE` once it passes 1 MiB instead of being buffered whole first.
+- The Magnus event-stream parser keeps an event whole when a chunk ends between the CR and LF of a line ending.
+- Shutdown ends an artifact transfer in progress instead of waiting for it; the import stays due and runs after the restart.
+
 ## [0.4.0] - 2026-11-12
 
 ### Added

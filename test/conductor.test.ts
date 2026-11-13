@@ -234,6 +234,23 @@ describe('conductor following', () => {
     await waitFor(() => studioTask(posted.tasks[0].id).state === 'completed');
     expect(ctx.store.room.messageForArdentTask(ardent!.id)!.body_md).toBe('Proposed a scale.');
   });
+  it('finishes a turn that asked for input when the task could not be read right after its state event', async () => {
+    const { team } = await room();
+    ctx.magnus.streamLimitMs = 60;
+    const posted = await post(team.id, { body_md: 'Outline it.' });
+    const [ardent] = await ctx.magnus.submitted(1);
+    await followed(posted.tasks[0].id);
+    const task = ctx.magnusClient.task.bind(ctx.magnusClient);
+    let reads = 0;
+    ctx.magnusClient.task = async (...args) => { if (reads++ === 0) throw new Error('Magnus unavailable'); return task(...args); };
+    // Ardent keeps input_required out of its stream's done set: the stream just ends.
+    ctx.magnus.finish(ardent!.id, { state: 'input_required', result: 'Which tone: grim or hopeful?' });
+    await waitFor(() => studioTask(posted.tasks[0].id).state === 'input_required');
+    expect(reads).toBeGreaterThan(1);
+    expect(ctx.store.room.messageForArdentTask(ardent!.id)!.body_md).toBe('Which tone: grim or hopeful?');
+    await waitFor(() => ctx.conductor.followerOf(posted.tasks[0].id) === undefined);
+  });
+
   it('finishes a task whose journal pages Magnus cannot relay', async () => {
     const { team } = await room();
     const posted = await post(team.id, { body_md: 'Outline it.' });

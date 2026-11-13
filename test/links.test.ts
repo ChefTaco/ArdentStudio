@@ -66,6 +66,41 @@ describe('reference links', () => {
     expect((await ctx.call('POST', `/projects/${project.id}/links`, { body: { url: 'https://example.com/a', title: 'Again' } })).status).toBe(201);
   });
 
+  it('syncs again when a link is edited or deleted while HiveMem is being called', async () => {
+    ctx = await createTestContext();
+    const project = await createProject(ctx);
+    const sync = ctx.hivemem.syncKnowledgeSourceChecked;
+    let during: (() => Promise<unknown>) | undefined;
+    ctx.hivemem.syncKnowledgeSourceChecked = async body => {
+      const answer = await sync(body);
+      const act = during;
+      during = undefined;
+      await act?.();
+      return answer;
+    };
+    const settle = async () => { await ctx.knowledge.idle(); await ctx.knowledge.runPass(); };
+
+    const edited = await json(await ctx.call('POST', `/projects/${project.id}/links`, { body: { url: 'https://example.com/a', title: 'First' } }));
+    await ctx.knowledge.idle();
+    during = () => ctx.call('PATCH', `/links/${edited.id}`, { body: { title: 'Renamed' } });
+    await ctx.call('POST', `/links/${edited.id}/reindex`);
+    await settle();
+    expect(during).toBeUndefined();
+    expect(ctx.hivemem.syncs.at(-1)!.chunks[0]!.content).toBe('Reference link: Renamed\n\nhttps://example.com/a');
+    expect(ctx.store.links.get(edited.id)!.knowledge.state).toBe('indexed');
+
+    // Deleted during its first sync: the source HiveMem just received is retired.
+    during = async () => {
+      const created = ctx.store.links.list(project.id).find(item => item.url === 'https://example.com/b')!;
+      await ctx.call('DELETE', `/links/${created.id}`);
+    };
+    const removed = await json(await ctx.call('POST', `/projects/${project.id}/links`, { body: { url: 'https://example.com/b', title: 'Second' } }));
+    await settle();
+    expect(during).toBeUndefined();
+    expect(ctx.hivemem.syncs.at(-1)).toMatchObject({ source_id: `ardentstudio:link:${removed.id}`, chunks: [] });
+    expect(ctx.store.links.get(removed.id)!.knowledge).toMatchObject({ state: 'not_indexed', revision: null });
+  });
+
   it('refuses link changes on an archived project', async () => {
     ctx = await createTestContext();
     const project = await createProject(ctx);

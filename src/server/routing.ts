@@ -63,12 +63,30 @@ export async function authenticateRequest(c: Context, authenticate: Authenticato
   return principal;
 }
 
+/** The body as UTF-8 text. A body without a declared length is refused at the limit instead of being buffered whole. */
+async function readLimitedText(body: ReadableStream<Uint8Array> | null): Promise<string> {
+  if (!body) return '';
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > JSON_BODY_LIMIT) {
+      await reader.cancel().catch(() => undefined);
+      throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'The JSON body is too large');
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
+
 async function readJsonBody(c: Context): Promise<{ value: unknown; text: string }> {
   const length = Number(c.req.header('content-length') ?? '0');
   if (length > JSON_BODY_LIMIT) throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'The JSON body is too large');
   const type = c.req.header('content-type') ?? '';
-  const text = await c.req.text();
-  if (Buffer.byteLength(text) > JSON_BODY_LIMIT) throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'The JSON body is too large');
+  const text = await readLimitedText(c.req.raw.body);
   if (!text.trim()) return { value: {}, text: '' };
   if (!/^application\/json\b/i.test(type)) throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Send the body as application/json');
   try { return { value: JSON.parse(text) as unknown, text }; } catch { throw new ApiError(400, 'VALIDATION_ERROR', 'The body is not valid JSON'); }

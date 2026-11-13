@@ -50,6 +50,8 @@ export class ArtifactImporter {
   private again = false;
   private timer: NodeJS.Timeout | undefined;
   private stopped = false;
+  /** Aborts the transfer in progress when the importer stops. */
+  private transfer = new AbortController();
   private readonly store: Store;
 
   constructor(private readonly options: ImporterOptions) {
@@ -72,12 +74,15 @@ export class ArtifactImporter {
 
   start(): void {
     this.stopped = false;
+    if (this.transfer.signal.aborted) this.transfer = new AbortController();
     this.kick();
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
+    // A transfer has no deadline of its own: end it rather than wait for a large or stalled file.
+    this.transfer.abort();
     await this.running;
   }
 
@@ -116,10 +121,12 @@ export class ArtifactImporter {
     if (!task) { this.settle(row, 'failed', 'The task that registered this file no longer exists'); return; }
     if (this.store.review.revisionByArtifact(row.artifact_id)) { this.store.tx(() => this.store.review.settleImport(row.id, { state: 'imported' })); return; }
     try {
-      const { body } = await this.options.magnus.artifactStream(row.agent_ref, row.sha256);
+      const { body } = await this.options.magnus.artifactStream(row.agent_ref, row.sha256, { signal: this.transfer.signal });
       const blob = await this.options.blobs.put(Readable.fromWeb(body as NodeReadableStream<Uint8Array>), row.mime, row.sha256);
       this.record(row, task, blob.size);
     } catch (error) {
+      // Interrupted by shutdown, not a failed attempt: the row stays due and is imported after the restart.
+      if (this.stopped) return;
       const attempts = row.attempts + 1;
       const permanent = error instanceof BlobTooLargeError
         || (error instanceof MagnusError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429);
