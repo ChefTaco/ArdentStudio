@@ -273,6 +273,19 @@ describe('SSE parser', () => {
     expect(events).toEqual([{ event: 'a', data: 'one\ntwo', id: '7' }, { event: 'message', data: 'plain' }]);
   });
 
+  it('keeps an event whole when a chunk ends between CR and LF', async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of ['event: a\r', '\ndata: one\r', '\n\r', '\nevent: b\rdata: two\r\r']) controller.enqueue(encoder.encode(part));
+        controller.close();
+      },
+    });
+    const events = [];
+    for await (const event of parseSse(body)) events.push(event);
+    expect(events).toEqual([{ event: 'a', data: 'one' }, { event: 'b', data: 'two' }]);
+  });
+
   it('refuses an oversized event', async () => {
     const run = async () => { for await (const _event of parseSse(stream(`data: ${'x'.repeat(100)}\n\n`), 10)) { /* drain */ } };
     await expect(run()).rejects.toThrow(/size limit/);
