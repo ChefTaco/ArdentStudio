@@ -35,6 +35,20 @@ function register(ardentTaskId: string, name: string, mime: string, bytes: Uint8
 const SVG = encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M0 0L100 100"/></svg>');
 
 describe('artifact importer', () => {
+  it('ends a stalled transfer when it stops and leaves the import due', async () => {
+    const { project, ardentTaskId } = await setup();
+    let opened = 0;
+    ctx.magnusClient.artifactStream = async (_ref, _sha256, context = {}) => {
+      opened++;
+      // Headers arrived, then the relay went quiet.
+      return { size: undefined, body: new ReadableStream<Uint8Array>({ start(controller) { context.signal?.addEventListener('abort', () => controller.error(context.signal!.reason)); } }) };
+    };
+    const { artifactId } = register(ardentTaskId, 'region-map.svg', 'image/svg+xml', SVG);
+    await waitFor(() => opened === 1);
+    await ctx.importer.stop();
+    expect(ctx.store.review.imports(project.id)).toMatchObject([{ artifact_id: artifactId, state: 'pending', attempts: 0, error: null }]);
+  });
+
   it('streams a registered artifact into the blob store and records a verified revision', async () => {
     const { project, team, task, ardentTaskId } = await setup();
     const { digest, artifactId } = register(ardentTaskId, 'region-map.svg', 'image/svg+xml', SVG);
