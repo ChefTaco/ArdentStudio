@@ -84,6 +84,11 @@ export function teamRoutes(register: ReturnType<typeof createRouter>, deps: AppD
     const actor = actorOf(principal);
     try {
       store.tx(() => {
+        // Saving a draft keeps its revision number, so the number alone cannot show that the body
+        // changed while Magnus was asked for agent facts. Only the body that was validated is published.
+        if (JSON.stringify(store.team.draft(project.id)?.body) !== JSON.stringify(draft.body)) {
+          throw new TeamConflictError(`Draft r${revision} changed while it was being validated`);
+        }
         const previous = store.team.pointers(project.id).current;
         const published = store.team.publish(project.id, revision, actor.userId);
         store.emit(project.id, 'team.revision.published', { revision: published.revision, previous_revision: previous });

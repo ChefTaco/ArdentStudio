@@ -146,6 +146,7 @@ when absent and are never overwritten. Bodies that look like they contain creden
 
 A project has at most one draft and one current (published) revision. `PUT …/team/draft` takes the
 `base_revision` it builds on; a newer published revision answers `409 TEAM_REVISION_CONFLICT`.
+`POST …/team/publish` answers the same code when the draft was saved again while it was being validated.
 Roles bind agents by `agent_ref`; the server assigns a stable `binding_id`.
 
 Validation (`POST …/team/validate`, and in every team response):
