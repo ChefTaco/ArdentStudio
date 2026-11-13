@@ -90,4 +90,23 @@ describe('projects', () => {
     expect(snapshot).toMatchObject({ project: { id: project.id }, files: [], team: { current: null, draft: null, validation: null } });
     expect((await ctx.call('GET', '/projects/prj_01JUNKJUNKJUNKJUNKJUNKJUNK/snapshot')).status).toBe(404);
   });
+
+  it('refuses an oversized JSON body that declares no length without reading all of it', async () => {
+    ctx = await createTestContext();
+    const chunk = new TextEncoder().encode('a'.repeat(64 * 1024));
+    let sent = 0;
+    const raw = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= 16 * 1024 * 1024) { controller.close(); return; }
+        sent += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    const response = await ctx.app.request('/api/ardentstudio/v1/projects', { method: 'POST', body: raw, duplex: 'half',
+      headers: { authorization: `Bearer ${await ctx.token()}`, 'content-type': 'application/json', 'x-idempotency-key': 'fixture-key-oversized' } } as RequestInit);
+    expect(response.status).toBe(413);
+    expect((await json(response)).error.code).toBe('PAYLOAD_TOO_LARGE');
+    expect(sent).toBeLessThan(2 * 1024 * 1024);
+    expect(ctx.store.projects.list({ status: 'all' })).toEqual([]);
+  });
 });
