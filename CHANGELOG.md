@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## [0.4.1] - 2026-11-14
+
 ### Fixed
 
 - An artifact import or file upload no longer crashes the server when the transfer is aborted or the upstream
