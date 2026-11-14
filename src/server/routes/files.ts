@@ -21,7 +21,7 @@ export function fileRoutes(register: ReturnType<typeof createRouter>, deps: AppD
     let blob;
     try {
       // Streamed to a temp file, fsynced, renamed and re-verified; never buffered whole in memory.
-      blob = await blobs.put(Readable.fromWeb(stream as import('node:stream/web').ReadableStream<Uint8Array>), mime.data);
+      blob = await blobs.put(stream as ReadableStream<Uint8Array>, mime.data);
     } catch (error) {
       if (error instanceof BlobTooLargeError) throw new ApiError(413, 'PAYLOAD_TOO_LARGE', `Files are limited to ${blobs.maxBytes} bytes`);
       throw error;

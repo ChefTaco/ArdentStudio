@@ -10,6 +10,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- An artifact import or file upload no longer crashes the server when the transfer is aborted or the upstream
+  stream fails while the blob's temp file is still opening. The blob store reads web streams directly and releases
+  a source it refuses before reading.
 - Publishing a team publishes only the draft body it validated: a draft saved by someone else while Magnus was asked for agent facts now answers `409 TEAM_REVISION_CONFLICT` instead of being published unchecked.
 - A reference link edited or deleted while its knowledge sync was calling HiveMem is synced again (or its source retired) instead of being left `indexed` with the old text.
 - A turn that ended in Ardent `input_required` is finished even when the task could not be read right after its state event; the follower reads the task after each stream that ends without a final record instead of following it forever.

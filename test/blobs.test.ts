@@ -45,6 +45,32 @@ describe('blob store', () => {
     expect((db.prepare('SELECT COUNT(*) AS n FROM blobs').get() as { n: number }).n).toBe(0);
   });
 
+  it('reads a web stream directly and reports its error to the caller, not to the process', async () => {
+    const uncaught: unknown[] = [];
+    const onUncaught = (error: unknown) => { uncaught.push(error); };
+    process.on('uncaughtException', onUncaught);
+    try {
+      const ok = await store.put(new ReadableStream<Uint8Array>({ start(c) { c.enqueue(Buffer.from('web')); c.close(); } }), 'text/plain');
+      expect(ok.sha256).toBe(sha('web'));
+      // Errors while the temp file is still being opened: a Readable.fromWeb() wrapper made by the
+      // caller had no listener yet at that moment, so this used to escape as an uncaught exception.
+      const failing = new ReadableStream<Uint8Array>({ start(c) { c.error(new Error('upstream ended')); } });
+      await expect(store.put(failing, 'text/plain')).rejects.toThrow('upstream ended');
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(uncaught).toEqual([]);
+      expect(readdirSync(join(dir, 'blobs', 'tmp'))).toEqual([]);
+    } finally {
+      process.off('uncaughtException', onUncaught);
+    }
+  });
+
+  it('releases a source it refuses before reading', async () => {
+    let cancelled = false;
+    const source = new ReadableStream<Uint8Array>({ pull(c) { c.enqueue(Buffer.from('x')); }, cancel() { cancelled = true; } });
+    await expect(store.put(source, 'text/plain', 'not-a-digest')).rejects.toBeInstanceOf(BlobIntegrityError);
+    expect(cancelled).toBe(true);
+  });
+
   it('refuses content that does not match an expected digest', async () => {
     await expect(store.putBytes(Buffer.from('content'), 'text/plain', sha('other'))).rejects.toBeInstanceOf(BlobIntegrityError);
     expect(store.get(sha('content'))).toBeUndefined();
