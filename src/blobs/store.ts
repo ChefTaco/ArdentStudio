@@ -5,7 +5,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { open, rename, rm, stat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Readable } from 'node:stream';
+import { Readable } from 'node:stream';
 import type { Db } from '../db/database.js';
 import type { Clock } from '../db/json.js';
 
@@ -60,13 +60,26 @@ export class BlobStore {
     return this.put((async function* () { yield bytes; })(), mime, expectedSha256);
   }
 
-  /** Stream bytes into the store. Throws BlobTooLargeError past the cap and BlobIntegrityError on a digest mismatch. */
-  async put(source: AsyncIterable<Uint8Array> | Readable, mime: string, expectedSha256?: string): Promise<BlobRecord> {
-    if (expectedSha256 !== undefined && !SHA.test(expectedSha256)) throw new BlobIntegrityError('Expected digest is not a SHA-256 hex string');
+  /**
+   * Stream bytes into the store. Throws BlobTooLargeError past the cap and BlobIntegrityError on a digest mismatch.
+   *
+   * Pass a web `ReadableStream` as it is, not wrapped in `Readable.fromWeb()`: a wrapper made before
+   * this method starts reading has no error listener while the temp file opens, so an abort or an
+   * upstream error in that window is an uncaught exception that ends the process. A source that is
+   * never read (an early refusal) is released.
+   */
+  async put(source: AsyncIterable<Uint8Array> | Readable | ReadableStream<Uint8Array>, mime: string, expectedSha256?: string): Promise<BlobRecord> {
+    let handle: Awaited<ReturnType<typeof open>>;
     const temp = join(this.tmp, `${randomBytes(12).toString('hex')}.part`);
+    try {
+      if (expectedSha256 !== undefined && !SHA.test(expectedSha256)) throw new BlobIntegrityError('Expected digest is not a SHA-256 hex string');
+      handle = await open(temp, 'wx', 0o600);
+    } catch (error) {
+      await release(source);
+      throw error;
+    }
     const hash = createHash('sha256');
     let size = 0;
-    const handle = await open(temp, 'wx', 0o600);
     try {
       try {
         for await (const chunk of source as AsyncIterable<Uint8Array>) {
@@ -152,4 +165,13 @@ export class BlobStore {
     const handle = await open(path, 'r');
     try { await handle.sync(); } finally { await handle.close(); }
   }
+}
+
+/** End a source that will not be read, so its producer stops and its error, if any, is consumed. */
+async function release(source: AsyncIterable<Uint8Array> | Readable | ReadableStream<Uint8Array>): Promise<void> {
+  try {
+    if (source instanceof Readable) source.destroy();
+    else if (typeof (source as ReadableStream<Uint8Array>).cancel === 'function') await (source as ReadableStream<Uint8Array>).cancel();
+    else await (source as AsyncIterable<Uint8Array>)[Symbol.asyncIterator]().return?.();
+  } catch { /* the source was already errored: nothing to release */ }
 }

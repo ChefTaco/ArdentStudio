@@ -49,6 +49,15 @@ describe('artifact importer', () => {
     expect(ctx.store.review.imports(project.id)).toMatchObject([{ artifact_id: artifactId, state: 'pending', attempts: 0, error: null }]);
   });
 
+  it('treats a transfer that fails before the first byte as a failed attempt, never a process crash', async () => {
+    const { project, ardentTaskId } = await setup({});
+    ctx.magnusClient.artifactStream = async () => ({ size: undefined, body: new ReadableStream<Uint8Array>({ start(controller) { controller.error(new Error('relay reset')); } }) });
+    const { artifactId } = register(ardentTaskId, 'region-map.svg', 'image/svg+xml', SVG);
+    const [row] = await waitFor(() => { const rows = ctx.store.review.imports(project.id); return rows[0]?.attempts === 1 ? rows : undefined; });
+    expect(row).toMatchObject({ artifact_id: artifactId, state: 'pending', attempts: 1 });
+    expect(row!.error).toContain('relay reset');
+  });
+
   it('streams a registered artifact into the blob store and records a verified revision', async () => {
     const { project, team, task, ardentTaskId } = await setup();
     const { digest, artifactId } = register(ardentTaskId, 'region-map.svg', 'image/svg+xml', SVG);

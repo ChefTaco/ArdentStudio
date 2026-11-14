@@ -3,8 +3,6 @@
 // bytes from Magnus into the blob store, checks them against the registered SHA-256, and records
 // a deliverable revision that supersedes the previous one. A file that fails verification is never
 // recorded; the room says so.
-import { Readable } from 'node:stream';
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { z } from 'zod';
 import { BlobIntegrityError, BlobTooLargeError, type BlobStore } from '../blobs/store.js';
 import { MagnusError, type MagnusClient } from '../clients/magnus.js';
@@ -122,7 +120,7 @@ export class ArtifactImporter {
     if (this.store.review.revisionByArtifact(row.artifact_id)) { this.store.tx(() => this.store.review.settleImport(row.id, { state: 'imported' })); return; }
     try {
       const { body } = await this.options.magnus.artifactStream(row.agent_ref, row.sha256, { signal: this.transfer.signal });
-      const blob = await this.options.blobs.put(Readable.fromWeb(body as NodeReadableStream<Uint8Array>), row.mime, row.sha256);
+      const blob = await this.options.blobs.put(body as ReadableStream<Uint8Array>, row.mime, row.sha256);
       this.record(row, task, blob.size);
     } catch (error) {
       // Interrupted by shutdown, not a failed attempt: the row stays due and is imported after the restart.
