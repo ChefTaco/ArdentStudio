@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## [0.4.2] - 2026-11-15
+
 ### Changed
 
 - `@hivemagnus/magnus-contracts` 3.0.3 (was 2.2.0), the Magnus release the suite runs. The Ardent service contract
