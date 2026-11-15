@@ -1,4 +1,4 @@
-import { requestContext } from '@hivemagnus/hive-common/hono';
+import { requestContext, securityHeaders } from '@hivemagnus/hive-common/hono';
 import { Hono } from 'hono';
 import { ARDENT_STUDIO_API_PREFIX } from '../shared/browser.js';
 import type { AppDeps } from './deps.js';
@@ -25,13 +25,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   // x-request-id (or x-hive-request-id / x-correlation-id) and W3C traceparent: read, generated
   // when absent, echoed as x-request-id, and attached to log lines written during the request.
   app.use('*', requestContext());
-  app.use('*', async (c, next) => {
-    await next();
-    c.header('x-content-type-options', 'nosniff');
-    c.header('referrer-policy', 'no-referrer');
-    c.header('x-frame-options', 'DENY');
-    if (!c.res.headers.has('cache-control')) c.header('cache-control', 'no-store');
-  });
+  // The suite baseline (nosniff, no-referrer, frame DENY), set once the handler is done, and
+  // no-store unless the route chose its own cache policy.
+  app.use('*', securityHeaders({ apply: 'after', headers: c => ({ 'cache-control': c.res.headers.has('cache-control') ? undefined : 'no-store' }) }));
   app.onError((error, c) => errorResponse(c, error, deps.logger));
   app.notFound(c => c.json({ error: { code: 'NOT_FOUND', message: c.req.path.startsWith(ARDENT_STUDIO_API_PREFIX) ? 'No such route' : 'Not found' } }, 404));
 

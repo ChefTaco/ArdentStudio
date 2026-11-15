@@ -67,9 +67,9 @@
     "verify": "npm run privacy:test && npm run scan:secrets && npm run check:private && npm run typecheck && npm run lint && npm test && npm run build && npm run check:contracts && npm run pack:check"
   },
   "dependencies": {
-    "@hivemagnus/hive-common": "^0.4.0",
+    "@hivemagnus/hive-common": "^0.5.0",
     "@hivemagnus/hivemem-sdk": "1.1.0",
-    "@hivemagnus/magnus-contracts": "2.2.0",
+    "@hivemagnus/magnus-contracts": "3.0.3",
     "@hono/node-server": "^2.1.5",
     "@photostructure/sqlite": "3.3.1",
     "fflate": "^0.8.3",
