@@ -49,6 +49,9 @@ describe('files', () => {
     expect(download.headers.get('content-type')).toBe('application/octet-stream');
     expect(download.headers.get('x-blob-mime')).toBe('text/markdown');
     expect(download.headers.get('content-disposition')).toMatch(/^attachment/);
+    // A route's own cache policy is kept; the suite baseline headers are still set.
+    expect(download.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+    expect(download.headers.get('x-content-type-options')).toBe('nosniff');
     expect(await download.text()).toBe(text);
     const types = ctx.store.events.after(project.id, 0).map(event => event.type);
     expect(types).toContain('file.created');

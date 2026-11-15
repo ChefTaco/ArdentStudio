@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## [0.4.2] - 2026-11-15
+
+### Changed
+
+- `@hivemagnus/magnus-contracts` 3.0.3 (was 2.2.0), the Magnus release the suite runs. The Ardent service contract
+  Studio calls (`ardentServiceRoutes`, the action bodies and answers, `ARDENT_STUDIO_CAPABILITY`) is unchanged from
+  2.2.0, and so are the Magnus routes, the service-identity route allowlist and the error codes Studio handles; the
+  Magnus 3.0 breaking changes concern node credentials only. No Studio behaviour changes.
+- `@hivemagnus/hive-common` ^0.5.0 (was ^0.4.0). The baseline response headers (`nosniff`, `no-referrer`, frame
+  `DENY`) come from its `securityHeaders()` middleware instead of a local copy; responses are unchanged, including
+  `no-store` unless a route sets its own cache policy. With the 0.5.0 redaction fixes, audit export details also mask
+  keys containing `jwt`, `bearer` or `signature`.
+
 ## [0.4.1] - 2026-11-14
 
 ### Fixed

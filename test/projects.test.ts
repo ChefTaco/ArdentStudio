@@ -4,6 +4,18 @@ import { createProject, createTestContext, json, type TestContext } from './help
 let ctx: TestContext;
 afterEach(() => ctx?.close());
 
+describe('response headers', () => {
+  it('sends the suite baseline and no-store on answers, refusals and unknown routes', async () => {
+    ctx = await createTestContext();
+    for (const response of [await ctx.call('GET', '/projects'), await ctx.call('GET', '/projects', { token: null }), await ctx.call('GET', '/no-such-route')]) {
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
+      expect(response.headers.get('cache-control')).toBe('no-store');
+    }
+  });
+});
+
 describe('projects', () => {
   it('creates a project with its requested deliverables and HiveMem workspace', async () => {
     ctx = await createTestContext();
