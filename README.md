@@ -24,7 +24,7 @@ the live project event stream and the suite audit export (`GET /api/ardentstudio
 
 | Dependency | Required | Why |
 |---|---|---|
-| [Magnus](https://github.com/ChefTaco/magnus) with **at least one Ardent agent** | Yes | All agent access goes through Magnus. Studio never talks to nodes or Ardent directly. |
+| [Magnus](https://github.com/ChefTaco/magnus) with **at least one Ardent agent** | Yes | All agent access goes through Magnus. Studio never talks to nodes or Ardent directly. In a Hive suite, `./hive.sh ardent setup` creates the first assistant through Magnus's New Agent workflow; Studio's New Agent creates more. |
 | [HiveMem](https://github.com/ChefTaco/HiveMem) | Yes | Each project has a HiveMem workspace; reference files are synced into it as knowledge. |
 | [Oathweave](https://github.com/ChefTaco/Oathweave) | Yes | Sign-in for people (audience `ardentstudio`) and ArdentStudio's own service identity. |
 | ChatterMost | No | Optional one-way announcements through an incoming webhook. |

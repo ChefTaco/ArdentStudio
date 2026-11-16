@@ -2,8 +2,23 @@
 
 Guidance for contributors (human or AI) working on ArdentStudio, the Ardent Project Studio
 service of the Hive:Magnus suite. It owns Studio projects, templates, team revisions, the
-conversation transcript, review records and the project event feed. This repository is public
-and Apache-2.0; preserve LICENSE and NOTICE.
+conversation transcript, review records and the project event feed. Its only UI is the fullscreen
+Studio module of HiveXUI (`/studio`); it reaches Ardent agents only through Magnus and needs HiveMem
+and Oathweave. This repository is public and Apache-2.0; preserve LICENSE and NOTICE.
+
+## Layout
+
+| Path | Contents |
+|---|---|
+| `src/main.ts`, `src/service.ts`, `src/config.ts` | CLI (`serve`, `env`, `version`), service wiring and the fail-fast environment schema |
+| `src/shared/browser.ts` | Browser contract and route table that HiveXUI vendors (see below) |
+| `src/server/` | Hono app, router, errors and one file per route area in `routes/` |
+| `src/clients/` | Magnus, HiveMem, Oathweave service-token and ChatterMost clients |
+| `src/conductor/` | Starts and follows agent turns; derives agent activity ([docs/CONDUCTOR.md](docs/CONDUCTOR.md)) |
+| `src/agents/`, `src/team/`, `src/templates/`, `src/review/`, `src/knowledge/` | Agent Studio and New Agent relay, team revisions and proposals, seed templates, Deliverable Review, HiveMem knowledge sync |
+| `src/db/`, `src/blobs/`, `src/events/`, `src/audit/` | SQLite store and migrations, content-addressed blobs, event bus, audit export |
+| `docs/` | API, conductor, Oathweave and operations guides, and the generated `openapi-browser.json` |
+| `test/` | Vitest suites with a fake Magnus (`test/fake-magnus.ts`) |
 
 ## Privacy
 
@@ -19,14 +34,17 @@ notes, or real user data, in code, tests, fixtures, docs, or commit messages:
   present; never copy it into tracked content.
 - Install the hooks with `npm run hooks:install` and never bypass them (`--no-verify`). They run
   `scripts/check-private-data.sh` (forbidden paths and the optional, gitignored `.private-terms`
-  denylist, also on commit messages) and `scripts/scan-secrets.sh`.
+  denylist, also on commit messages), `scripts/scan-secrets.sh` and the pinned Gitleaks
+  (`scripts/gitleaks.sh`). Install Gitleaks first with `bash scripts/install-gitleaks.sh`; a
+  missing binary fails the hooks (see CONTRIBUTING.md).
 
 ## Studio rules
 
 - **Agents only through Magnus.** Every agent read and action goes through the Magnus control
   API (`src/clients/magnus.ts`) with ArdentStudio's Oathweave service identity. Never call a
   fleet node, a Magnus node agent or an Ardent management API directly, and never store an
-  Ardent or node token. New agents are created only by Magnus's New Agent capability.
+  Ardent or node token. New agents are created only by Magnus's New Agent capability (in a Hive
+  suite, `./hive.sh ardent setup` uses the same workflow for the first assistant).
 - **Never fabricate agent activity.** Presence, task state, messages, development records and
   deliverables come from real Ardent records relayed by Magnus. No idle animations driven by
   timers, no placeholder replies, no inferred "working" state, no reasoning or chain-of-thought.
@@ -51,6 +69,16 @@ notes, or real user data, in code, tests, fixtures, docs, or commit messages:
 - Every mutation takes `x-idempotency-key`, runs in one transaction with its audit row and its
   project events, and publishes events only after commit.
 - The audit table is append-only. Template versions and published team revisions are immutable.
+
+## Magnus and Ardent versions
+
+Studio follows Ardent through Magnus. Routes, action bodies and answers come from
+`@hivemagnus/magnus-contracts/ardent-service`. Every Ardent release is followed by a Magnus release
+that moves Magnus's Ardent pin, regenerates its Ardent contract and updates the node agent. When
+Studio starts using a new Ardent capability, bump `@hivemagnus/magnus-contracts` to the Magnus
+release that exposes it and keep the fallback for older agents: features are gated on the node
+agent's Studio level and the agent's Ardent version (see [docs/CONDUCTOR.md](docs/CONDUCTOR.md)), and
+a Magnus without an action answers `MAGNUS_UPGRADE_REQUIRED`.
 
 ## Storage
 
