@@ -119,7 +119,7 @@ references them, always as `application/octet-stream` attachments (the recorded 
 `purpose=reference` files are synced into the project's HiveMem workspace as one knowledge source
 per file (`source_id` `ardentstudio:file:<file id>`, revision = the file's SHA-256), preview first,
 then apply. `knowledge.state` is `pending`, `indexing`, `indexed`, `failed` (retried with backoff,
-or `POST /files/:id/reindex`) or `unsupported` (images; DOCX until the canvas codec package).
+or `POST /files/:id/reindex`) or `unsupported` (images, and DOCX, whose text extraction is not available yet).
 Attachments and avatars are `not_indexed`.
 
 ### Links
@@ -228,7 +228,7 @@ Agent Studio (`:ref` is `<nodeId>~<profile>`):
   draft that still changes configuration is rebased on the newest configuration revision.
   Skill and model changes take effect after the profile restarts: their results and the response
   carry `activation_required`. Magnus does not let Studio's service identity run `service-restart`,
-  so `restart.available` is `false` and the restart is done from the Magnus console. `active_tasks`
+  so `restart.available` is `false` and the restart is done in Magnus (the UI's Magnus Ardent installations page). `active_tasks`
   counts Studio tasks still running on the agent; they keep the instructions they started with.
 - **Install a catalog skill** (`POST /agents/:ref/skills/install`, `{source: "hiveskills", name,
   version, channel?, enable?, revision?}`) runs Magnus's `skill-install` as the acting person, whom
