@@ -14,7 +14,7 @@ A project has three areas:
 3. **Agent Studio**: agent tuning, previews, development records and **Deliverable Review**
    (verified deliverable revisions, anchored comments, revision requests, decisions and exports).
 
-The current release, 0.4.2, covers projects, reference files with HiveMem knowledge sync,
+The current release, 0.4.3, covers projects, reference files with HiveMem knowledge sync,
 templates, team assignment, agents through Magnus (Agent Studio drafts, streaming previews, apply,
 development records and New Agent), the conversation room with its conductor, Deliverable Review,
 the live project event stream and the suite audit export (`GET /api/ardentstudio/v1/audit/export`).

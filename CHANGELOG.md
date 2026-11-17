@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## [0.4.3] - 2026-11-17
+
+### Changed
+
+- `@hivemagnus/magnus-contracts` 3.1.2 (was 3.0.3), the Magnus release the suite runs. The Ardent service contract
+  Studio calls (`ardentServiceRoutes`, the action bodies and answers, `ARDENT_STUDIO_CAPABILITY`) and
+  `ARDENT_CONTEXT_ITEMS_MAX_BYTES` are unchanged; between the two releases the contracts only add the read-only node
+  software status schema and route, which Studio does not use. No Studio behaviour changes.
+
 ## [0.4.2] - 2026-11-15
 
 ### Changed
