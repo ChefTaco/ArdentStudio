@@ -27,6 +27,14 @@ export function checkTemplateBody(store: Store, kind: TemplateKind, body: AgentT
   const team = body as TeamTemplateBody;
   const validation = validateTeam({ mode: 'template', roles: team.roles, relationships: team.relationships });
   if (!validation.can_publish) throw new ApiError(422, 'TEAM_INVALID', 'The team has errors', { validation });
+  const roleKeys = new Set(team.roles.map(role => role.key));
+  const workflowKeys = new Set<string>();
+  for (const workflow of team.workflows ?? []) {
+    if (workflowKeys.has(workflow.key)) throw new ApiError(422, 'WORKFLOW_INVALID', `Two workflows have the key "${workflow.key}"`);
+    workflowKeys.add(workflow.key);
+    const unknown = workflow.spec.nodes.find(node => !roleKeys.has(node.role));
+    if (unknown) throw new ApiError(422, 'WORKFLOW_INVALID', `Workflow "${workflow.key}" node "${unknown.key}" names role "${unknown.role}", which the template does not have`);
+  }
   for (const role of team.roles) {
     const ref = role.agent_template_ref;
     if (!ref) continue;

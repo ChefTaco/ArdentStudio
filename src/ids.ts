@@ -24,6 +24,7 @@ export const ID_PREFIXES = {
   developmentComment: 'dvc',
   link: 'lnk',
   teamProposal: 'prp',
+  workflowRun: 'wfr',
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

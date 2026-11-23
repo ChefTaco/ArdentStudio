@@ -24,6 +24,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Workflows: a small DAG of sub-prompts (at most 16 nodes, acyclic, exactly one output) whose nodes run as ordinary
+  tasks of team roles, branching and joining. A node starts when every node it needs is done, with their results
+  and imported artifact references (`ardent-artifact:<sha256>`) as context items marked as data; a failed node
+  blocks its dependents and the run, with `retry`, `skip` (optional nodes) and `cancel_run`. Completed nodes are
+  never resubmitted after a restart. Routes `GET`/`POST /projects/:id/workflow-runs`,
+  `GET /projects/:id/workflow-runs/:runId` and `POST …/nodes/:key/actions`; events `workflow.run.created`,
+  `workflow.run.updated` and `workflow.node.updated`; optional `workflows[]` in team template bodies (see
+  [docs/CONDUCTOR.md](docs/CONDUCTOR.md#workflows)). Migration 8 adds `workflow_runs`, `workflow_nodes` and the task
+  columns `workflow_run_id`, `workflow_node_key` and `workflow_attempt` (unique together); existing rows are
+  unchanged.
 - Execution references (HiveCommon execution context v1, attribution only): every task records its root, parent
   and self references for requests, groups, hand-offs (with the source's Ardent task as an input), reassignments,
   discussion turns and assignment revisions (see [docs/CONDUCTOR.md](docs/CONDUCTOR.md#execution-references)).

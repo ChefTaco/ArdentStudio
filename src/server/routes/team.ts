@@ -160,6 +160,11 @@ export function teamRoutes(register: ReturnType<typeof createRouter>, deps: AppD
       roles: revision.body.roles.map(({ agent_ref: _agent, binding_id: _binding, knowledge: _knowledge, ...role }) => role),
       relationships: revision.body.relationships, stages: revision.body.stages, integrations: ['hivemem'], runtime_req: { ardent: null, backend: 'any' },
     };
+    // A new version keeps the base version's workflows whose roles the team still has.
+    const base = input.template_id && input.base_version !== undefined ? store.templates.version(input.template_id, input.base_version) : undefined;
+    const roleKeys = new Set(template.roles.map(role => role.key));
+    const workflows = base?.kind === 'team' ? (base.body.workflows ?? []).filter(workflow => workflow.spec.nodes.every(node => roleKeys.has(node.role))) : [];
+    if (workflows.length) template.workflows = workflows;
     checkTemplateBody(store, 'team', template);
     const actor = actorOf(principal);
     let id: string;

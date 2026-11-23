@@ -4433,6 +4433,307 @@
         }
       }
     },
+    "/api/ardentstudio/v1/projects/{projectId}/workflow-runs": {
+      "get": {
+        "operationId": "getProjectsProjectIdWorkflowRuns",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "active",
+                "finished",
+                "all"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWorkflowRunsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Newest first, at most 50. active: running or blocked.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postProjectsProjectIdWorkflowRuns",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Starts a workflow: an inline spec, or template_ref with the key of a workflow of that team template version. 400 VALIDATION_ERROR for a spec with more than 16 nodes, a cycle, an unknown need or other than exactly one output. Every role must be bound in the published team (409 TEAM_NOT_READY; 422 UNKNOWN_ROLE). Each node becomes an ordinary task of its role when all its needs are done, with their results and imported artifact references as context items (data). Progress arrives as workflow.run.* and workflow.node.updated.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkflowRunRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/workflow-runs/{runId}": {
+      "get": {
+        "operationId": "getProjectsProjectIdWorkflowRunsRunId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/workflow-runs/{runId}/nodes/{nodeKey}/actions": {
+      "post": {
+        "operationId": "postProjectsProjectIdWorkflowRunsRunIdNodesNodeKeyActions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "nodeKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "retry: a failed node runs again as a new task (attempt + 1, source.workflow.retry_of). skip: a node that is not required is skipped (its task is cancelled when it runs); dependents go on without its result. cancel_run: the run is cancelled and its active node tasks with it. 409 ACTION_UNAVAILABLE when the node does not offer the action (see actions).",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowNodeActionRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/ardentstudio/v1/projects/{projectId}/deliverables": {
       "get": {
         "operationId": "getProjectsProjectIdDeliverables",
@@ -7463,6 +7764,24 @@
         ],
         "additionalProperties": false
       },
+      "CreateWorkflowRunRequestInput": {
+        "type": "object",
+        "properties": {
+          "spec": {
+            "$ref": "#/components/schemas/WorkflowSpecInput"
+          },
+          "template_ref": {
+            "$ref": "#/components/schemas/TemplateRefInput"
+          },
+          "workflow": {
+            "$ref": "#/components/schemas/WorkflowNodeKey"
+          },
+          "inputs": {
+            "$ref": "#/components/schemas/WorkflowInputs"
+          }
+        },
+        "additionalProperties": false
+      },
       "Decision": {
         "type": "object",
         "properties": {
@@ -8858,6 +9177,20 @@
           "templates"
         ]
       },
+      "ListWorkflowRunsResponse": {
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowRun"
+            }
+          }
+        },
+        "required": [
+          "runs"
+        ]
+      },
       "LiveResponse": {
         "type": "object",
         "properties": {
@@ -9642,7 +9975,10 @@
           "link.created",
           "link.updated",
           "link.deleted",
-          "team.proposal.updated"
+          "team.proposal.updated",
+          "workflow.run.created",
+          "workflow.run.updated",
+          "workflow.node.updated"
         ]
       },
       "ProjectId": {
@@ -12165,6 +12501,13 @@
           },
           "runtime_req": {
             "$ref": "#/components/schemas/RuntimeRequirement"
+          },
+          "workflows": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamWorkflow"
+            }
           }
         },
         "required": [
@@ -12236,6 +12579,13 @@
           },
           "runtime_req": {
             "$ref": "#/components/schemas/RuntimeRequirementInput"
+          },
+          "workflows": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamWorkflowInput"
+            }
           }
         },
         "required": [
@@ -12290,6 +12640,60 @@
           "kind",
           "body"
         ]
+      },
+      "TeamWorkflow": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/WorkflowNodeKey"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "purpose": {
+            "default": "",
+            "type": "string",
+            "maxLength": 2000
+          },
+          "spec": {
+            "$ref": "#/components/schemas/WorkflowSpec"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "purpose",
+          "spec"
+        ]
+      },
+      "TeamWorkflowInput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/WorkflowNodeKey"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "purpose": {
+            "default": "",
+            "type": "string",
+            "maxLength": 2000
+          },
+          "spec": {
+            "$ref": "#/components/schemas/WorkflowSpecInput"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "spec"
+        ],
+        "additionalProperties": false
       },
       "TemplateDetail": {
         "type": "object",
@@ -12865,6 +13269,510 @@
           "can_start_room",
           "agent_facts"
         ]
+      },
+      "WorkflowAction": {
+        "type": "string",
+        "enum": [
+          "retry",
+          "skip",
+          "cancel_run"
+        ]
+      },
+      "WorkflowArtifactRef": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "ref",
+          "name",
+          "sha256",
+          "mime",
+          "size"
+        ]
+      },
+      "WorkflowInputs": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,47}$"
+        },
+        "additionalProperties": {
+          "type": "string",
+          "maxLength": 8000
+        }
+      },
+      "WorkflowNode": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/WorkflowNodeKey"
+          },
+          "role": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "title": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "needs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowNodeKey"
+            }
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "join_rule": {
+            "type": "string",
+            "const": "all"
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "state": {
+            "$ref": "#/components/schemas/WorkflowNodeState"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "attempt": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "task_id": {
+                  "$ref": "#/components/schemas/TaskId"
+                }
+              },
+              "required": [
+                "attempt",
+                "task_id"
+              ]
+            }
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowNodeResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "blocked_by": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowNodeKey"
+            }
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowAction"
+            }
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "key",
+          "role",
+          "title",
+          "prompt",
+          "needs",
+          "required",
+          "join_rule",
+          "attempt",
+          "state",
+          "task_id",
+          "attempts",
+          "result",
+          "error",
+          "blocked_by",
+          "actions",
+          "updated_at"
+        ]
+      },
+      "WorkflowNodeActionRequestInput": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/WorkflowAction"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "WorkflowNodeKey": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,47}$"
+      },
+      "WorkflowNodeResult": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "$ref": "#/components/schemas/TaskId"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowArtifactRef"
+            }
+          }
+        },
+        "required": [
+          "task_id",
+          "state",
+          "summary",
+          "artifacts"
+        ]
+      },
+      "WorkflowNodeSpec": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/WorkflowNodeKey"
+          },
+          "role": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "needs": {
+            "default": [],
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowNodeKey"
+            }
+          },
+          "required": {
+            "default": true,
+            "type": "boolean"
+          },
+          "join": {
+            "default": "all",
+            "type": "string",
+            "const": "all"
+          }
+        },
+        "required": [
+          "key",
+          "role",
+          "prompt",
+          "needs",
+          "required",
+          "join"
+        ]
+      },
+      "WorkflowNodeSpecInput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/WorkflowNodeKey"
+          },
+          "role": {
+            "$ref": "#/components/schemas/RoleKey"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "needs": {
+            "default": [],
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowNodeKey"
+            }
+          },
+          "required": {
+            "default": true,
+            "type": "boolean"
+          },
+          "join": {
+            "default": "all",
+            "type": "string",
+            "const": "all"
+          }
+        },
+        "required": [
+          "key",
+          "role",
+          "prompt"
+        ],
+        "additionalProperties": false
+      },
+      "WorkflowNodeState": {
+        "type": "string",
+        "enum": [
+          "waiting",
+          "ready",
+          "running",
+          "done",
+          "failed",
+          "blocked",
+          "skipped",
+          "cancelled"
+        ]
+      },
+      "WorkflowRun": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/WorkflowRunId"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/WorkflowRunState"
+          },
+          "output": {
+            "$ref": "#/components/schemas/WorkflowNodeKey"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/WorkflowSpec"
+          },
+          "spec_sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "inputs": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "source_template": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowSourceTemplate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "root_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowNode"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "state",
+          "output",
+          "spec",
+          "spec_sha256",
+          "inputs",
+          "source_template",
+          "root_ref",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "finished_at",
+          "nodes"
+        ]
+      },
+      "WorkflowRunId": {
+        "type": "string",
+        "pattern": "^wfr_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "WorkflowRunState": {
+        "type": "string",
+        "enum": [
+          "running",
+          "blocked",
+          "completed",
+          "failed",
+          "cancelled"
+        ]
+      },
+      "WorkflowSourceTemplate": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "workflow": {
+            "$ref": "#/components/schemas/WorkflowNodeKey"
+          }
+        },
+        "required": [
+          "template_id",
+          "version",
+          "workflow"
+        ]
+      },
+      "WorkflowSpec": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "nodes": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowNodeSpec"
+            }
+          },
+          "output": {
+            "$ref": "#/components/schemas/WorkflowNodeKey"
+          }
+        },
+        "required": [
+          "nodes",
+          "output"
+        ]
+      },
+      "WorkflowSpecInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "nodes": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowNodeSpecInput"
+            }
+          },
+          "output": {
+            "$ref": "#/components/schemas/WorkflowNodeKey"
+          }
+        },
+        "required": [
+          "nodes",
+          "output"
+        ],
+        "additionalProperties": false
       }
     }
   }

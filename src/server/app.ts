@@ -18,6 +18,7 @@ import { streamRoutes } from './routes/stream.js';
 import { teamRoutes } from './routes/team.js';
 import { templateRoutes } from './routes/templates.js';
 import { workRoutes } from './routes/work.js';
+import { workflowRoutes } from './routes/workflows.js';
 
 /** The ArdentStudio HTTP API under /api/ardentstudio/v1. */
 export function createApp(deps: AppDeps): Hono<AppEnv> {
@@ -42,6 +43,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   agentStudioRoutes(register, deps);
   roomRoutes(register, deps);
   workRoutes(register, deps);
+  workflowRoutes(register, deps);
   reviewRoutes(register, deps);
   auditRoutes(register, deps);
   streamRoutes(register, deps);

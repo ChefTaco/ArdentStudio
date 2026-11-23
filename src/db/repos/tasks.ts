@@ -54,7 +54,11 @@ export interface StudioTask {
   /** Earlier Ardent task ids of this task, oldest first (continuations). */
   ardent_attempts: string[];
   recovery: unknown;
+  /** The workflow node attempt this task runs, or null. */
+  workflow: TaskWorkflow | null;
 }
+
+export interface TaskWorkflow { run_id: string; node_key: string; attempt: number }
 
 interface TaskRow {
   id: string; project_id: string; title: string; mode: TaskMode; role_key: string | null; binding_id: string | null; assignment_revision: number | null;
@@ -64,6 +68,7 @@ interface TaskRow {
   dispatch: TaskDispatch | null; submit_attempts: number; finished_at: string | null; progress_json: string | null;
   execution_json: string | null; root_ref: string | null; parent_ref: string | null; submit_payload_json: string | null; submit_next_at: number | null;
   ardent_attempts_json: string | null; recovery_json: string | null;
+  workflow_run_id: string | null; workflow_node_key: string | null; workflow_attempt: number | null;
 }
 
 const NO_PROGRESS: TaskProgress = { model_started: false, tool: null };
@@ -79,6 +84,8 @@ const toTask = (row: TaskRow): StudioTask => ({
   execution: parseExecutionContext(readJson<unknown>(row.execution_json, null)) ?? null, root_ref: row.root_ref, parent_ref: row.parent_ref,
   submit_payload: readJson<FrozenSubmission | null>(row.submit_payload_json, null), submit_next_at: row.submit_next_at,
   ardent_attempts: readJson<string[]>(row.ardent_attempts_json, []), recovery: readJson<unknown>(row.recovery_json, null),
+  workflow: row.workflow_run_id && row.workflow_node_key && row.workflow_attempt !== null
+    ? { run_id: row.workflow_run_id, node_key: row.workflow_node_key, attempt: row.workflow_attempt } : null,
 });
 
 export class TaskRepository {
@@ -86,16 +93,19 @@ export class TaskRepository {
 
   create(input: { projectId: string; title: string; mode: TaskMode; roleKey?: string | null; bindingId?: string | null; assignmentRevision?: number | null;
     source?: Record<string, unknown>; mission?: unknown; agentRef?: string | null; reassignedFrom?: string | null; createdBy: string;
-    conversationId?: string | null; triggerMessageId?: string | null; instructionsMd?: string; groupId?: string | null; groupPosition?: number; state?: 'queued' | 'paused' }): StudioTask {
+    conversationId?: string | null; triggerMessageId?: string | null; instructionsMd?: string; groupId?: string | null; groupPosition?: number; state?: 'queued' | 'paused';
+    workflow?: TaskWorkflow }): StudioTask {
     const id = newId('task');
     const now = this.clock.now().toISOString();
     this.db.prepare(`INSERT INTO tasks (id, project_id, title, mode, role_key, binding_id, assignment_revision, source_json, mission_json, ardent_agent_ref,
-      state, reassigned_from, created_by, created_at, updated_at, conversation_id, trigger_message_id, instructions_md, group_id, group_position)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      state, reassigned_from, created_by, created_at, updated_at, conversation_id, trigger_message_id, instructions_md, group_id, group_position,
+      workflow_run_id, workflow_node_key, workflow_attempt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       id, input.projectId, input.title, input.mode, input.roleKey ?? null, input.bindingId ?? null, input.assignmentRevision ?? null,
       writeJson(input.source ?? {}), input.mission === undefined ? null : writeJson(input.mission), input.agentRef ?? null,
       input.state ?? 'queued', input.reassignedFrom ?? null, input.createdBy, now, now, input.conversationId ?? null, input.triggerMessageId ?? null,
-      input.instructionsMd ?? '', input.groupId ?? null, input.groupPosition ?? 0);
+      input.instructionsMd ?? '', input.groupId ?? null, input.groupPosition ?? 0,
+      input.workflow?.run_id ?? null, input.workflow?.node_key ?? null, input.workflow?.attempt ?? null);
     return this.get(id)!;
   }
 
@@ -137,6 +147,17 @@ export class TaskRepository {
 
   inConversation(conversationId: string): StudioTask[] {
     return (this.db.prepare('SELECT * FROM tasks WHERE conversation_id = ? ORDER BY created_at, id').all(conversationId) as TaskRow[]).map(toTask);
+  }
+
+  /** The task of one workflow node attempt, if it was created. */
+  forWorkflowNode(runId: string, nodeKey: string, attempt: number): StudioTask | undefined {
+    const row = this.db.prepare('SELECT * FROM tasks WHERE workflow_run_id = ? AND workflow_node_key = ? AND workflow_attempt = ?').get(runId, nodeKey, attempt) as TaskRow | undefined;
+    return row ? toTask(row) : undefined;
+  }
+
+  /** Every node task of a workflow run, oldest first. */
+  inWorkflowRun(runId: string): StudioTask[] {
+    return (this.db.prepare('SELECT * FROM tasks WHERE workflow_run_id = ? ORDER BY workflow_node_key, workflow_attempt').all(runId) as TaskRow[]).map(toTask);
   }
 
   /** Active tasks of one agent binding in a project. */

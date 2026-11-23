@@ -66,6 +66,8 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | | `POST /projects/:id/decisions`, `POST /decisions/:id/supersede` | projects:write |
 | Tasks | `GET /projects/:id/tasks?state=&conversation_id=` | projects:read |
 | | `POST /projects/:id/tasks`, `POST /tasks/:id/pause`, `…/resume`, `…/cancel`, `…/reassign` | projects:write |
+| Workflows | `GET /projects/:id/workflow-runs?state=`, `GET /projects/:id/workflow-runs/:runId` | projects:read |
+| | `POST /projects/:id/workflow-runs`, `POST /projects/:id/workflow-runs/:runId/nodes/:key/actions` | projects:write |
 | Review | `GET /projects/:id/deliverables`, `GET /deliverables/:id`, `GET /revisions/:id`, `GET /revisions/:id/comments`, `GET /projects/:id/exports`, `GET /files/:id/docx`, `GET /revisions/:id/docx` | projects:read |
 | | `POST /revisions/:id/comments`, `POST /comments/:id/resolve`, `POST /revisions/:id/decisions`, `POST /deliverables/:id/final`, `POST /projects/:id/exports` | review:write |
 | | `POST /projects/:id/revision-requests` | review:write + projects:write |
@@ -140,7 +142,8 @@ Agent and team templates have immutable versions. `POST /templates/:id/versions`
 `base_version` it edits; a newer version answers `409 VERSION_CONFLICT`. Seed templates (Research
 Team, Development Team, Adventure Studio, Deliberation Panel and their agent templates) are loaded on start
 when absent and are never overwritten. Bodies that look like they contain credentials answer
-`422 CREDENTIAL_LIKE_VALUE`; team templates with structural errors answer `422 TEAM_INVALID`.
+`422 CREDENTIAL_LIKE_VALUE`; team templates with structural errors answer `422 TEAM_INVALID`. A team template may also define
+workflows ([Workflows](#workflows)).
 
 ## Team assignment
 
@@ -287,7 +290,47 @@ waits for a person's answer. `POST /projects/:id/tasks` creates an `assignment` 
 for a role. Pause takes effect at Ardent's next step boundary (`pausing`, then `paused`); an agent
 whose Magnus node agent predates pausing answers `409 AGENT_UPGRADE_REQUIRED`. An unstarted task is
 held instead. `reassign` cancels an active task and creates the same work for another role with
-`reassigned_from`.
+`reassigned_from` (a workflow node's task answers `409 NOT_REASSIGNABLE`: retry or skip the node).
+
+## Workflows
+
+A workflow is a small DAG of sub-prompts whose nodes run as ordinary tasks of team roles
+([CONDUCTOR.md](CONDUCTOR.md#workflows)). `POST /projects/:id/workflow-runs` takes either an inline
+`spec` or `template_ref` (`{template_id, version}`) with `workflow`, the key of a workflow in that
+team template version's `workflows`, plus optional `inputs` (up to 16 string values every node
+receives as data):
+
+```json
+{ "spec": { "name": "Valley research", "output": "synthesis", "nodes": [
+    { "key": "research_a", "role": "writer", "prompt": "Research the drowned valley villages." },
+    { "key": "research_b", "role": "mapper", "prompt": "Map the flooded roads.", "required": false },
+    { "key": "synthesis", "role": "lead", "prompt": "Write the outline from both notes.", "needs": ["research_a", "research_b"] } ] },
+  "inputs": { "tone": "grim" } }
+```
+
+- **Spec.** At most 16 nodes. A node has `key`, `role` (a role of the published team), `prompt` (up
+  to 20 000 characters), optional `title`, `needs` (node keys), `required` (default `true`) and
+  `join` (`all`). The graph must be acyclic, every need must exist, and there is exactly one output:
+  `output` names a required node that no node needs and that every other node leads to. Anything
+  else is `400 VALIDATION_ERROR` with the issues in `details`. A role the team does not have is
+  `422 UNKNOWN_ROLE`; an unbound role or no published team is `409 TEAM_NOT_READY`.
+- **Run.** `GET …/workflow-runs/:runId` returns the run (`state`: `running`, `blocked`,
+  `completed`, `failed` (reserved), `cancelled`) with its spec, `spec_sha256`, `root_ref` and one
+  entry per node: `state` (`waiting`, `ready`, `running`, `done`, `failed`, `blocked`, `skipped`,
+  `cancelled`), `attempt`, `task_id`, `attempts`, `result` (`{task_id, state, summary, artifacts}`
+  with `ardent-artifact:<sha256>` references), `error`, `blocked_by` and `actions`. The list route
+  answers the newest 50 (`state=active|finished|all`).
+- **Actions.** `POST …/nodes/:key/actions` with `{action}`: `retry` (a `failed` node runs again as
+  attempt n+1 in a new task with `source.workflow.retry_of`), `skip` (a node that is not required,
+  before or while it runs, or after it failed; its task is cancelled) and `cancel_run` (any node
+  key; the run and its active node tasks are cancelled). An action the node does not offer answers
+  `409 ACTION_UNAVAILABLE` with `details.actions`.
+- **Events.** `workflow.run.created` and `workflow.run.updated` (`{run}`, on state changes) and
+  `workflow.node.updated` (`{run_id, run_state, node}`); node tasks emit the usual `task.*` events.
+- **Templates.** Team template bodies may carry `workflows: [{key, name, purpose, spec}]` (at most
+  8); their roles must be the template's (`422 WORKFLOW_INVALID`). Template versions stay
+  immutable, so a run names the version it came from (`source_template`). Saving a project team as
+  a new version keeps the base version's workflows whose roles still exist.
 
 ## Deliverable review
 
@@ -331,7 +374,7 @@ held instead. `reassign` cancels an active task and creates the same work for an
 `GET /projects/:id/stream?after=<seq>` is server-sent events. Read it with `fetch` (EventSource
 cannot send the bearer token).
 
-- Persisted events (`project.*`, `file.*`, `link.*`, `team.*`, `conversation.*`, `message.*`, `task.*`, `decision.*` …)
+- Persisted events (`project.*`, `file.*`, `link.*`, `team.*`, `conversation.*`, `message.*`, `task.*`, `decision.*`, `workflow.*` …)
   carry their per-project `seq` as the SSE `id` and replay after `?after=`. Without `after` the
   stream starts at the current end.
 - `reset` (`{seq, reason}`) means the cursor is older than the retained events

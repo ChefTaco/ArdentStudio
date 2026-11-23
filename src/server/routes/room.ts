@@ -192,6 +192,8 @@ export function roomRoutes(register: ReturnType<typeof createRouter>, deps: AppD
         source: { answer_to: clarification.id, question: clarification.body_md, answers_task: asked.id }, createdBy: actor.userId,
         conversationId: conversation.id, triggerMessageId: answer.id,
       });
+      // A workflow node that asked continues in the answer's task.
+      conductor.workflows.continued(asked.id, task);
       store.record(actor, 'clarification.answer', { type: 'message', id: clarification.id }, { answer_id: answer.id, task_id: task.id }, idempotencyKey);
       return { message: answer, tasks: [publicTask(task)] };
     });

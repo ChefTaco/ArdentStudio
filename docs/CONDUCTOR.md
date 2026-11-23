@@ -181,6 +181,51 @@ summary in the desired output (`decision`, `short_doc` or `options`) and the dis
 Without a bound coordinator it ends with a note instead. Stopping cancels unstarted turns and
 cancels the running one through Magnus.
 
+## Workflows
+
+A workflow (`src/conductor/workflows.ts`) is a small directed acyclic graph of sub-prompts: for
+example two independent research nodes that feed one synthesis node. A person starts one with an
+inline spec or a team template's workflow (`POST /projects/:id/workflow-runs`, see
+[API.md](API.md#workflows)). The run and its nodes are stored in `workflow_runs` and
+`workflow_nodes` (migration 8) with the validated spec, so everything below is re-derived from the
+database.
+
+- **Nodes are ordinary tasks.** A node becomes a task when every node it needs is `done` (or
+  `skipped`): an `assignment` for the node's role in the current published team, posted in the team
+  conversation, with the node prompt as its instructions and
+  `source.workflow = {run_id, node_key, attempt}`. The role's agent, mission tools, hand-off edges
+  and grants apply as for any assignment; a workflow adds no permission of its own, and starting
+  one needs the same permission as creating a task. Each node attempt has at most one task
+  (`tasks.workflow_run_id`, `workflow_node_key`, `workflow_attempt` are unique together), so
+  re-evaluating a run never creates a second one.
+- **Inputs are data.** The node task's context items are the run's `inputs` (when given) and, per
+  needed node, a JSON item `Workflow result: <key> (data)` with that node's role, qualified task
+  reference, state, final reply (the TeamResult summary of a mission) and the artifacts Studio
+  imported from its task as `ardent-artifact:<sha256>` references. Each item says it is material,
+  not instructions. A node waits (`ready`) until the artifact imports of the tasks it needs have
+  settled, so it only ever names files Studio verified. A skipped need appears with `result: null`.
+- **Execution references.** The run is `hx1:studio:<inst>:workflow:<run id>`, the root of its tree
+  (with the starting request's `x-request-id`). A node task's parent is the run, its `inputs` are
+  the tasks of the nodes it needed, and its `attempt` is the node attempt.
+- **Completion.** A node is `done` when its task ends `completed` or `partial`; the result is kept
+  in `workflow_nodes.result_json`. A clarification does not end a node: the answer's task
+  continues it and its result completes the node. The run is `completed` when its output node is
+  done.
+- **Failure.** A node whose task ends `failed`, `unknown` or `cancelled` is `failed`, as is a node
+  whose role has no bound agent when it should start. Every node that needs a failed, blocked or
+  cancelled node is `blocked`, and the run is `blocked` with the actions a person can take:
+  `retry` (attempt n+1, a new task with `retry_of`), `skip` (only nodes with `required: false`;
+  dependents go on without the result) and `cancel_run` (cancels active node tasks through the
+  usual cancel path). Agents cannot act on a run. A node task cannot be reassigned.
+- **Restart.** On start the conductor resumes following every accepted task (node tasks included)
+  and then re-evaluates every running or blocked run: `done` nodes keep their results and are never
+  resubmitted, `running` nodes are followed through their Studio task, and nodes whose needs
+  finished meanwhile start. An agent-level interruption inside a node is handled by the task's own
+  recovery, like any task.
+- **Events.** `workflow.run.created`, `workflow.run.updated` (state changes) and
+  `workflow.node.updated` (`{run_id, run_state, node}`) on the project stream, next to the node
+  tasks' `task.*` events.
+
 ## Activity
 
 Agent activity (`presence.updated`, and `activity` in the snapshot) is the ArdentStudio service's
