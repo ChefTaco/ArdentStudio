@@ -595,4 +595,57 @@ ALTER TABLE tasks ADD COLUMN recovery_json TEXT;
 CREATE INDEX tasks_root_ref ON tasks (root_ref);
 `,
   },
+  {
+    id: 8,
+    name: 'workflow_runs',
+    sql: `
+-- Workflows: a small DAG of sub-prompts whose nodes run as ordinary Studio tasks
+-- (docs/CONDUCTOR.md#workflows). The run keeps its validated spec; each node keeps its state,
+-- current attempt and task, and the result of the task that completed it.
+CREATE TABLE workflow_runs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects (id),
+  name TEXT,
+  spec_json TEXT NOT NULL,
+  spec_sha256 TEXT NOT NULL,
+  inputs_json TEXT NOT NULL DEFAULT '{}',
+  source_template_json TEXT,
+  state TEXT NOT NULL CHECK (state IN ('running', 'blocked', 'completed', 'failed', 'cancelled')),
+  root_ref TEXT,
+  execution_json TEXT,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE INDEX workflow_runs_project ON workflow_runs (project_id, created_at);
+CREATE INDEX workflow_runs_state ON workflow_runs (state);
+
+CREATE TABLE workflow_nodes (
+  run_id TEXT NOT NULL REFERENCES workflow_runs (id),
+  node_key TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  title TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  needs_json TEXT NOT NULL DEFAULT '[]',
+  required INTEGER NOT NULL DEFAULT 1 CHECK (required IN (0, 1)),
+  join_rule TEXT NOT NULL DEFAULT 'all' CHECK (join_rule IN ('all')),
+  attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt >= 1),
+  task_id TEXT REFERENCES tasks (id),
+  state TEXT NOT NULL CHECK (state IN ('waiting', 'ready', 'running', 'done', 'failed', 'blocked', 'skipped', 'cancelled')),
+  result_json TEXT,
+  error TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, node_key)
+);
+CREATE INDEX workflow_nodes_task ON workflow_nodes (task_id);
+
+-- The node attempt a task runs (also in source_json.workflow). One task per (run, node, attempt).
+ALTER TABLE tasks ADD COLUMN workflow_run_id TEXT;
+ALTER TABLE tasks ADD COLUMN workflow_node_key TEXT;
+ALTER TABLE tasks ADD COLUMN workflow_attempt INTEGER;
+CREATE UNIQUE INDEX tasks_workflow_node ON tasks (workflow_run_id, workflow_node_key, workflow_attempt) WHERE workflow_run_id IS NOT NULL;
+`,
+  },
 ];

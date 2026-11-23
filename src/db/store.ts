@@ -15,6 +15,7 @@ import { COUNT_EVENT_TYPES, ProjectSummaryRepository } from './repos/summaries.j
 import { TaskRepository } from './repos/tasks.js';
 import { TeamRepository } from './repos/team.js';
 import { TemplateRepository } from './repos/templates.js';
+import { WorkflowRepository } from './repos/workflows.js';
 import type { EventBus } from '../events/bus.js';
 import type { ProjectEventType } from '../events/types.js';
 
@@ -35,6 +36,7 @@ export class Store {
   readonly links: LinkRepository;
   readonly proposals: TeamProposalRepository;
   readonly summaries: ProjectSummaryRepository;
+  readonly workflows: WorkflowRepository;
   private pending: ProjectEventRecord[] = [];
   private depth = 0;
 
@@ -54,6 +56,7 @@ export class Store {
     this.links = new LinkRepository(db, clock);
     this.proposals = new TeamProposalRepository(db, clock);
     this.summaries = new ProjectSummaryRepository(db);
+    this.workflows = new WorkflowRepository(db, clock);
   }
 
   /**

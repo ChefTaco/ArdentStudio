@@ -24,6 +24,7 @@ import { submissionExecution, taskExecution } from './execution.js';
 import { ARDENT_FINISHED, TaskFollower, type DoneRecord, type FollowerOptions } from './follower.js';
 import type { LiveText } from './live.js';
 import { buildMission, composeTurn, HANDOFF_EDGES, type AttachmentText, type TeamRole } from './prompting.js';
+import { WorkflowEngine } from './workflows.js';
 
 export type ConductorMagnus = Pick<MagnusClient, 'getInstallation' | 'openSession' | 'prepareSubmission' | 'submitPrepared' | 'streamTask' | 'taskEvents' | 'task'
   | 'cancelTask' | 'pauseTask' | 'resumeTask'>;
@@ -161,11 +162,15 @@ export class Conductor {
   private readonly store: Store;
   private readonly magnus: ConductorMagnus;
   private readonly instance: string;
+  /** Workflow runs: their nodes are tasks this conductor queues and follows. */
+  readonly workflows: WorkflowEngine;
 
   constructor(private readonly options: ConductorOptions) {
     this.store = options.store;
     this.magnus = options.magnus;
     this.instance = options.studioInstanceId ?? 'local';
+    this.workflows = new WorkflowEngine({ store: this.store, host: this, instance: this.instance, logger: options.logger });
+    this.addContextProvider(task => this.workflows.contextFor(task));
   }
 
   /** Register a journal hook (for example the artifact importer). */
@@ -188,6 +193,7 @@ export class Conductor {
     this.stopped = false;
     for (const task of this.store.tasks.following()) this.follow(task);
     for (const conversation of this.runningDiscussions()) this.advanceDiscussion(conversation.id);
+    this.workflows.recover();
     this.kick();
     void this.probe();
     this.presenceTimer = setInterval(() => { void this.probe(); }, this.options.presenceMs ?? 30_000);
@@ -412,7 +418,7 @@ export class Conductor {
     const requestId = currentRequestId();
     return taskExecution(task, {
       instance: this.instance,
-      lookup: { task: id => this.store.tasks.get(id), discussionTurns: conversationId => this.store.tasks.inConversation(conversationId) },
+      lookup: { task: id => this.store.tasks.get(id), discussionTurns: conversationId => this.store.tasks.inConversation(conversationId), workflow: task => this.workflows.executionFor(task) },
       ...(requestId ? { requestId } : {}),
     });
   }
@@ -485,6 +491,7 @@ export class Conductor {
       const conversationId = task.conversation_id ?? this.store.room.teamConversation(task.project_id)?.id;
       if (handler) handler.finished(failed, { state: 'failed', reply: null, error: reason });
       else if (conversationId) this.systemMessage(conversationId, `${this.roleName(task)}: ${task.title}. ${reason}`, { task_id: task.id }, task.trigger_message_id);
+      this.workflows.taskFinished(failed, { state: 'failed', reply: null, error: reason });
       this.refreshActivity(task.project_id, task.binding_id);
     });
     this.afterFinish(task);
@@ -497,6 +504,7 @@ export class Conductor {
       const cancelled = this.store.tasks.setState(task.id, 'cancelled', { error: null, ardent_state: null, note: reason });
       this.store.emit(task.project_id, 'task.updated', this.taskEvent(cancelled));
       this.modes.get(task.mode)?.finished(cancelled, { state: 'cancelled', reply: null, error: reason });
+      this.workflows.taskFinished(cancelled, { state: 'cancelled', reply: null, error: reason });
       this.refreshActivity(task.project_id, task.binding_id);
     });
     this.afterFinish(task);
@@ -709,6 +717,7 @@ export class Conductor {
         ...(teamResult ? { team_result: { outcome: teamResult.outcome, artifacts: teamResult.artifacts?.length ?? 0 } } : {}),
       });
       this.store.emit(task.project_id, 'task.updated', this.taskEvent(finished));
+      this.workflows.taskFinished(finished, { state, reply: reply || null, error });
       this.refreshActivity(task.project_id, task.binding_id);
     });
     const live = finishedMessage ?? this.store.room.messageForArdentTask(task.ardent.task_id);
@@ -727,6 +736,7 @@ export class Conductor {
       const finished = this.store.tasks.setState(task.id, state, { ...input.outcome, ardent_state: ardentState, error: input.error });
       this.store.emit(task.project_id, 'task.updated', this.taskEvent(finished));
       handler.finished(finished, { state, reply: input.reply || null, error: input.error });
+      this.workflows.taskFinished(finished, { state, reply: input.reply || null, error: input.error });
       this.refreshActivity(task.project_id, task.binding_id);
     });
     this.afterFinish(task);

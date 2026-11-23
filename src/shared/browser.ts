@@ -47,6 +47,7 @@ export const reviewDecisionIdSchema = prefixedId('rvd');
 export const exportIdSchema = prefixedId('exp');
 export const linkIdSchema = prefixedId('lnk');
 export const teamProposalIdSchema = prefixedId('prp');
+export const workflowRunIdSchema = prefixedId('wfr');
 /** A Magnus-managed Ardent profile: `<nodeId>~<profile>`, the same reference Magnus uses. */
 export const agentRefSchema = z.string().regex(/^[A-Za-z0-9._-]{1,128}~[A-Za-z0-9._-]{1,128}$/);
 export const roleKeySchema = z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/);
@@ -308,6 +309,96 @@ const roleFields = {
   stage: stageSchema.nullable(),
 };
 export const templateRoleSchema = z.object(roleFields).strict();
+
+// ── Workflows (spec) ──
+/** A workflow is a small DAG of sub-prompts: each node runs as an ordinary Studio task for a team role. */
+export const WORKFLOW_MAX_NODES = 16;
+export const workflowNodeKeySchema = z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/);
+export const workflowNodeSpecSchema = z.object({
+  key: workflowNodeKeySchema,
+  /** A role of the project's published team. The node runs with that role's agent, tools and grants. */
+  role: roleKeySchema,
+  title: z.string().trim().min(1).max(200).optional(),
+  /** The node's instructions (the task's instructions_md). */
+  prompt: z.string().trim().min(1).max(20_000),
+  /** Nodes whose results this node waits for (a join when there are several). */
+  needs: z.array(workflowNodeKeySchema).max(WORKFLOW_MAX_NODES).default([]),
+  /** A node that is not required may be skipped; its dependents then go on without its result. */
+  required: z.boolean().default(true),
+  /** How the needs join: every one of them done (or skipped). */
+  join: z.literal('all').default('all'),
+}).strict();
+
+interface WorkflowGraph { nodes: ReadonlyArray<{ key: string; needs?: readonly string[] | undefined; required?: boolean | undefined }>; output: string }
+export interface WorkflowGraphIssue { path: Array<string | number>; message: string }
+
+/**
+ * Structural problems of a workflow spec: duplicate keys, unknown or repeated needs, a cycle, an
+ * unknown output, and anything but exactly one output (every other node must lead to it, and no
+ * node may need it).
+ */
+export function workflowGraphIssues(spec: WorkflowGraph): WorkflowGraphIssue[] {
+  const issues: WorkflowGraphIssue[] = [];
+  const index = new Map<string, number>();
+  spec.nodes.forEach((node, position) => {
+    if (index.has(node.key)) issues.push({ path: ['nodes', position, 'key'], message: `Duplicate node key "${node.key}"` });
+    else index.set(node.key, position);
+  });
+  spec.nodes.forEach((node, position) => {
+    const seen = new Set<string>();
+    (node.needs ?? []).forEach((need, at) => {
+      if (need === node.key) issues.push({ path: ['nodes', position, 'needs', at], message: `Node "${node.key}" needs itself` });
+      else if (!index.has(need)) issues.push({ path: ['nodes', position, 'needs', at], message: `Node "${node.key}" needs unknown node "${need}"` });
+      if (seen.has(need)) issues.push({ path: ['nodes', position, 'needs', at], message: `Node "${node.key}" needs "${need}" twice` });
+      seen.add(need);
+    });
+  });
+  if (issues.length) return issues;
+  // Cycles: depth-first search over needs.
+  const state = new Map<string, 'open' | 'done'>();
+  const byKey = new Map(spec.nodes.map(node => [node.key, node]));
+  let cycle: string[] | undefined;
+  const visit = (key: string, path: string[]): void => {
+    if (cycle || state.get(key) === 'done') return;
+    if (state.get(key) === 'open') { cycle = [...path.slice(path.indexOf(key)), key]; return; }
+    state.set(key, 'open');
+    for (const need of byKey.get(key)?.needs ?? []) visit(need, [...path, key]);
+    state.set(key, 'done');
+  };
+  for (const node of spec.nodes) visit(node.key, []);
+  if (cycle) return [{ path: ['nodes'], message: `The workflow has a cycle: ${cycle.join(' → ')}` }];
+  const output = byKey.get(spec.output);
+  if (!output) return [{ path: ['output'], message: `The output node "${spec.output}" is not a node of the workflow` }];
+  if (output.required === false) issues.push({ path: ['output'], message: 'The output node must be required' });
+  spec.nodes.forEach((node, position) => {
+    if ((node.needs ?? []).includes(spec.output)) issues.push({ path: ['nodes', position, 'needs'], message: `Node "${node.key}" needs the output node; the output must be the last node` });
+  });
+  // Exactly one output: every node leads to it.
+  const leads = new Set<string>([spec.output]);
+  const pending = [spec.output];
+  while (pending.length) for (const need of byKey.get(pending.pop()!)?.needs ?? []) if (!leads.has(need)) { leads.add(need); pending.push(need); }
+  spec.nodes.forEach((node, position) => {
+    if (!leads.has(node.key)) issues.push({ path: ['nodes', position, 'key'], message: `Node "${node.key}" does not lead to the output "${spec.output}"; a workflow has exactly one output node` });
+  });
+  return issues;
+}
+
+export const workflowSpecSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  nodes: z.array(workflowNodeSpecSchema).min(1).max(WORKFLOW_MAX_NODES),
+  /** The one node whose result is the workflow's result. */
+  output: workflowNodeKeySchema,
+}).strict().superRefine((spec, ctx) => {
+  for (const issue of workflowGraphIssues(spec)) ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message });
+});
+/** A workflow a team template offers. Its roles are the template's roles. */
+export const teamWorkflowSchema = z.object({
+  key: workflowNodeKeySchema,
+  name,
+  purpose: text(2_000).default(''),
+  spec: workflowSpecSchema,
+}).strict();
+
 export const teamTemplateBodySchema = z.object({
   name,
   category: z.string().trim().min(1).max(64),
@@ -318,6 +409,8 @@ export const teamTemplateBodySchema = z.object({
   stages: z.array(stageSchema).max(STAGES.length),
   integrations: z.array(integrationSchema).max(3),
   runtime_req: runtimeRequirementSchema,
+  /** Workflows a project with this team can start (POST /projects/{projectId}/workflow-runs with template_ref). */
+  workflows: z.array(teamWorkflowSchema).max(8).optional(),
 }).strict();
 
 export const templateKindSchema = z.enum(['agent', 'team']);
@@ -776,6 +869,84 @@ export const createTaskRequestSchema = z.object({
 }).strict();
 export const reassignTaskRequestSchema = z.object({ role_key: roleKeySchema }).strict();
 export const taskResponseSchema = taskSchema;
+
+// ── Workflow runs ──
+export const workflowRunStateSchema = z.enum(['running', 'blocked', 'completed', 'failed', 'cancelled']);
+export const workflowNodeStateSchema = z.enum(['waiting', 'ready', 'running', 'done', 'failed', 'blocked', 'skipped', 'cancelled']);
+export const WORKFLOW_ACTIONS = ['retry', 'skip', 'cancel_run'] as const;
+export const workflowActionSchema = z.enum(WORKFLOW_ACTIONS);
+export type WorkflowAction = z.infer<typeof workflowActionSchema>;
+const workflowInputKey = z.string().regex(/^[a-z][a-z0-9_]{0,47}$/);
+/** Values every node receives as data (a context item), never as instructions. */
+export const workflowInputsSchema = z.record(workflowInputKey, z.string().max(8_000))
+  .refine(value => Object.keys(value).length <= 16, 'At most 16 inputs');
+export const workflowSourceTemplateSchema = z.object({ template_id: templateIdSchema, version: z.number().int(), workflow: workflowNodeKeySchema });
+/** An artifact a node's task delivered that Studio imported: `ardent-artifact:<sha256>`. */
+export const workflowArtifactRefSchema = z.object({ ref: z.string(), name: z.string(), sha256: sha256Schema, mime: z.string(), size: z.number().int() });
+export const workflowNodeResultSchema = z.object({
+  task_id: taskIdSchema,
+  state: z.enum(['completed', 'partial']),
+  /** The task's final reply (the TeamResult summary of a mission). */
+  summary: z.string(),
+  artifacts: z.array(workflowArtifactRefSchema),
+});
+export const workflowNodeSchema = z.object({
+  key: workflowNodeKeySchema,
+  role: roleKeySchema,
+  title: z.string(),
+  prompt: z.string(),
+  needs: z.array(workflowNodeKeySchema),
+  required: z.boolean(),
+  join_rule: z.literal('all'),
+  /** 1, counting up with every retry. Each attempt is a new task. */
+  attempt: z.number().int(),
+  state: workflowNodeStateSchema,
+  /** The current attempt's task, else the last attempt's. */
+  task_id: taskIdSchema.nullable(),
+  /** Every attempt's task, oldest first. */
+  attempts: z.array(z.object({ attempt: z.number().int(), task_id: taskIdSchema })),
+  result: workflowNodeResultSchema.nullable(),
+  error: z.string().nullable(),
+  /** Needs that keep a blocked node from starting. */
+  blocked_by: z.array(workflowNodeKeySchema),
+  /** What a person can do with this node now. */
+  actions: z.array(workflowActionSchema),
+  updated_at: isoDate,
+});
+export const workflowRunSchema = z.object({
+  id: workflowRunIdSchema,
+  project_id: projectIdSchema,
+  name: z.string().nullable(),
+  state: workflowRunStateSchema,
+  output: workflowNodeKeySchema,
+  spec: workflowSpecSchema,
+  spec_sha256: sha256Schema,
+  inputs: z.record(z.string(), z.string()),
+  source_template: workflowSourceTemplateSchema.nullable(),
+  /** The run's qualified execution reference `hx1:studio:<inst>:workflow:<run id>`, the parent of every node task. */
+  root_ref: z.string().nullable(),
+  created_by: z.string(),
+  created_at: isoDate,
+  updated_at: isoDate,
+  finished_at: isoDate.nullable(),
+  nodes: z.array(workflowNodeSchema),
+});
+export const createWorkflowRunRequestSchema = z.object({
+  /** An inline workflow. Send this or template_ref with workflow. */
+  spec: workflowSpecSchema.optional(),
+  /** A team template version that defines the workflow. */
+  template_ref: templateRefSchema.optional(),
+  /** The key of the template's workflow. */
+  workflow: workflowNodeKeySchema.optional(),
+  inputs: workflowInputsSchema.optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.spec !== undefined && (value.template_ref !== undefined || value.workflow !== undefined)) ctx.addIssue({ code: 'custom', path: ['spec'], message: 'Send spec or template_ref with workflow, not both' });
+  else if (value.spec === undefined && (value.template_ref === undefined || value.workflow === undefined)) ctx.addIssue({ code: 'custom', path: ['template_ref'], message: 'Send spec, or template_ref with workflow' });
+});
+export const listWorkflowRunsQuerySchema = z.object({ state: z.enum(['active', 'finished', 'all']).default('all') });
+export const listWorkflowRunsResponseSchema = z.object({ runs: z.array(workflowRunSchema) });
+export const workflowRunResponseSchema = workflowRunSchema;
+export const workflowNodeActionRequestSchema = z.object({ action: workflowActionSchema }).strict();
 export const postMessageResponseSchema = z.object({ message: messageSchema, tasks: z.array(taskSchema) });
 export const answerRequestSchema = z.object({ body_md: z.string().trim().min(1).max(20_000), option: z.string().trim().min(1).max(300).optional() }).strict();
 export const followUpRequestSchema = z.object({ body_md: z.string().trim().max(20_000).default('') }).strict();
@@ -1205,6 +1376,7 @@ export const PROJECT_EVENT_TYPES = [
   'deliverable.revision.created', 'review.comment.created', 'review.comment.updated', 'review.decision.created',
   'export.created', 'agent.operation.updated', 'deliverable.updated', 'artifact.import.updated',
   'link.created', 'link.updated', 'link.deleted', 'team.proposal.updated',
+  'workflow.run.created', 'workflow.run.updated', 'workflow.node.updated',
 ] as const;
 export const projectEventTypeSchema = z.enum(PROJECT_EVENT_TYPES);
 /** A persisted event. The SSE `id` is its seq. */
@@ -1392,6 +1564,12 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'POST', path: '/tasks/{taskId}/resume', response: taskResponseSchema, permissions: WRITE, idempotent: true },
   { method: 'POST', path: '/tasks/{taskId}/cancel', response: taskResponseSchema, permissions: WRITE, idempotent: true },
   { method: 'POST', path: '/tasks/{taskId}/reassign', requestBody: 'json', request: reassignTaskRequestSchema, response: taskResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Cancels the task when it is still active and creates the same work for another role, with reassigned_from.' },
+
+  // Workflow runs
+  { method: 'GET', path: '/projects/{projectId}/workflow-runs', query: listWorkflowRunsQuerySchema, response: listWorkflowRunsResponseSchema, permissions: READ, idempotent: false, note: 'Newest first, at most 50. active: running or blocked.' },
+  { method: 'POST', path: '/projects/{projectId}/workflow-runs', requestBody: 'json', request: createWorkflowRunRequestSchema, response: workflowRunResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Starts a workflow: an inline spec, or template_ref with the key of a workflow of that team template version. 400 VALIDATION_ERROR for a spec with more than 16 nodes, a cycle, an unknown need or other than exactly one output. Every role must be bound in the published team (409 TEAM_NOT_READY; 422 UNKNOWN_ROLE). Each node becomes an ordinary task of its role when all its needs are done, with their results and imported artifact references as context items (data). Progress arrives as workflow.run.* and workflow.node.updated.' },
+  { method: 'GET', path: '/projects/{projectId}/workflow-runs/{runId}', response: workflowRunResponseSchema, permissions: READ, idempotent: false },
+  { method: 'POST', path: '/projects/{projectId}/workflow-runs/{runId}/nodes/{nodeKey}/actions', requestBody: 'json', request: workflowNodeActionRequestSchema, response: workflowRunResponseSchema, permissions: WRITE, idempotent: true, note: 'retry: a failed node runs again as a new task (attempt + 1, source.workflow.retry_of). skip: a node that is not required is skipped (its task is cancelled when it runs); dependents go on without its result. cancel_run: the run is cancelled and its active node tasks with it. 409 ACTION_UNAVAILABLE when the node does not offer the action (see actions).' },
 
   // Deliverable review
   { method: 'GET', path: '/projects/{projectId}/deliverables', response: listDeliverablesResponseSchema, permissions: READ, idempotent: false, note: 'Deliverables with every revision, plus artifact imports that are still pending or failed.' },

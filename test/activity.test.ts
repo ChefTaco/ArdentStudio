@@ -14,7 +14,7 @@ function task(overrides: Partial<StudioTask> = {}): StudioTask {
     reassigned_from: null, created_by: 'operator', created_at: NOW.toISOString(), updated_at: NOW.toISOString(), conversation_id: 'cnv_1',
     trigger_message_id: null, instructions_md: '', group_id: null, group_position: 0, dispatch: null, submit_attempts: 0, finished_at: null,
     progress: { model_started: false, tool: null }, execution: null, root_ref: null, parent_ref: null, submit_payload: null, submit_next_at: null,
-    ardent_attempts: [], recovery: null, ...overrides,
+    ardent_attempts: [], recovery: null, workflow: null, ...overrides,
   };
 }
 const accepted = (overrides: Partial<StudioTask> = {}) => task({ ...overrides, ardent: { agent_ref: 'node1~scout', task_id: `ardent-${counter + 1}`, session_id: null, event_cursor: 0 } });

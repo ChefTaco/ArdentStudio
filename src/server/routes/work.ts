@@ -125,6 +125,7 @@ export function workRoutes(register: ReturnType<typeof createRouter>, deps: AppD
     const role = revision.body.roles.find(item => item.key === input.role_key);
     if (!role?.agent_ref) throw new ApiError(409, 'TEAM_NOT_READY', `Role "${input.role_key}" has no bound agent in team r${revision.revision}`);
     if (task.mode === 'discussion_turn') throw new ApiError(409, 'NOT_REASSIGNABLE', 'Discussion turns follow the discussion\'s participants');
+    if (task.workflow || store.workflows.nodeOfTask(task.id)) throw new ApiError(409, 'NOT_REASSIGNABLE', 'Workflow nodes run their spec\'s role; retry or skip the node instead');
     if (!TERMINAL_TASK_STATES.includes(task.state) && task.state !== 'input_required') await conductor.cancel(task).catch(conductorError);
     const actor = actorOf(principal);
     const created = store.tx(() => {

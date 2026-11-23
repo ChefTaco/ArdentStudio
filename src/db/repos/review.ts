@@ -193,6 +193,12 @@ export class ReviewRepository {
     return (this.db.prepare('SELECT id FROM artifact_imports WHERE project_id = ? ORDER BY id').all(projectId) as Array<{ id: number }>).map(row => this.importRecord(row.id)!);
   }
 
+  /** A task's artifacts as their imports stand: imported ones, and how many are still pending. */
+  taskImports(taskId: string): { imported: ArtifactImport[]; pending: number } {
+    const rows = (this.db.prepare('SELECT id FROM artifact_imports WHERE task_id = ? ORDER BY id').all(taskId) as Array<{ id: number }>).map(row => this.importRecord(row.id)!);
+    return { imported: rows.filter(row => row.state === 'imported'), pending: rows.filter(row => row.state === 'pending').length };
+  }
+
   settleImport(id: number, update: { state: ImportState; error?: string | null; revisionId?: string | null; retryAt?: Date | null }): void {
     this.db.prepare(`UPDATE artifact_imports SET state = ?, error = ?, revision_id = COALESCE(?, revision_id), next_attempt_at = ?, attempts = attempts + 1, updated_at = ? WHERE id = ?`)
       .run(update.state, update.error ?? null, update.revisionId ?? null, update.retryAt ? update.retryAt.toISOString() : null, this.clock.now().toISOString(), id);

@@ -2,7 +2,7 @@
 // execution context v1), so its Ardent task, model attempts and provider calls can be traced back
 // to the person's request. This is attribution only: nothing in Studio, Magnus or Ardent reads it
 // to choose tools, memory, missions or artifacts, or to grant anything. See docs/CONDUCTOR.md.
-import { childExecution, formatExecutionRef, rootExecution, type ExecutionContext } from '@hivemagnus/hive-common/execution';
+import { childExecution, formatExecutionRef, MAX_EXECUTION_INPUTS, rootExecution, type ExecutionContext } from '@hivemagnus/hive-common/execution';
 import type { StudioTask } from '../db/repos/tasks.js';
 
 export const STUDIO_PRODUCT = 'studio';
@@ -14,7 +14,7 @@ const LOCAL_ID = /^[A-Za-z0-9._:/-]{1,128}$/;
 const MAX_DEPTH = 32;
 
 /** `hx1:studio:<instance>:<kind>:<id>`, or undefined when the id cannot be one. */
-export function studioRef(instance: string, kind: 'request' | 'task', id: string): string | undefined {
+export function studioRef(instance: string, kind: 'request' | 'task' | 'workflow', id: string): string | undefined {
   if (!INSTANCE.test(instance) || !LOCAL_ID.test(id)) return undefined;
   try { return formatExecutionRef({ product: STUDIO_PRODUCT, instance, kind, id }); } catch { return undefined; }
 }
@@ -40,6 +40,11 @@ export interface ExecutionLookup {
   task(id: string): StudioTask | undefined;
   /** The other turns of a discussion conversation. */
   discussionTurns(conversationId: string): StudioTask[];
+  /**
+   * A workflow node task's run context (the run's root) and its causal inputs: the tasks of the
+   * nodes it needs. Undefined when the run is unknown.
+   */
+  workflow?(task: StudioTask): { run: ExecutionContext; inputs: string[] } | undefined;
 }
 
 export interface ExecutionOptions {
@@ -114,6 +119,7 @@ function attemptOf(task: StudioTask): number | undefined {
  * | Reassign | parent = the reassigned-from task |
  * | Discussion turn | parent = the previous turn |
  * | Assignment revision | `attempt` = the team revision (a team proposal: its attempt) |
+ * | Workflow node | parent = the run `hx1:studio:<inst>:workflow:<run id>` (also the root); `inputs` = the needed nodes' tasks; `attempt` = the node attempt |
  *
  * A caused task keeps its cause's root and request ID. A cause's deadline is not inherited: a
  * hand-off is new work with its own deadline, set when it is submitted.
@@ -121,6 +127,14 @@ function attemptOf(task: StudioTask): number | undefined {
 export function taskExecution(task: StudioTask, options: ExecutionOptions, depth = 0): ExecutionContext | undefined {
   const self = studioRef(options.instance, 'task', task.id);
   if (!self) return undefined;
+  if (task.workflow) {
+    const workflow = options.lookup.workflow?.(task);
+    if (workflow) {
+      const inputs = workflow.inputs.flatMap(id => studioRef(options.instance, 'task', id) ?? []).slice(0, MAX_EXECUTION_INPUTS);
+      const { deadline_ms: _deadline, ...run } = workflow.run;
+      return childExecution(run, self, { attempt: task.workflow.attempt, ...(inputs.length ? { inputs } : {}) });
+    }
+  }
   const attempt = attemptOf(task);
   const cause = depth < MAX_DEPTH ? causeOf(task, options.lookup) : undefined;
   if (cause) {

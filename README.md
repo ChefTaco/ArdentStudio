@@ -10,7 +10,8 @@ A project has three areas:
 1. **Team Assignment**: roles, relationships and agent bindings, as draft and published revisions,
    started from versioned templates.
 2. **Team Conversation Room**: the canonical transcript, live agent replies, tasks, clarifications,
-   discussions and decisions, driven by the conductor ([docs/CONDUCTOR.md](docs/CONDUCTOR.md)).
+   discussions, decisions and workflows (small DAGs of sub-prompts that branch and join), driven by
+   the conductor ([docs/CONDUCTOR.md](docs/CONDUCTOR.md)).
 3. **Agent Studio**: agent tuning, previews, development records and **Deliverable Review**
    (verified deliverable revisions, anchored comments, revision requests, decisions and exports).
 
@@ -106,6 +107,15 @@ permission, except the health routes. Every mutation takes `x-idempotency-key`. 
 [`docs/openapi-browser.json`](docs/openapi-browser.json), generated from the zod contract in
 [`src/shared/browser.ts`](src/shared/browser.ts) (also exported as
 `@hivemagnus/ardent-studio/browser`).
+
+Workflow runs (see [docs/API.md](docs/API.md#workflows)):
+
+| Route | Permission |
+|---|---|
+| `GET /projects/:id/workflow-runs?state=active\|finished\|all` | projects:read |
+| `POST /projects/:id/workflow-runs` (`{spec}` or `{template_ref, workflow}`, optional `inputs`) | projects:write |
+| `GET /projects/:id/workflow-runs/:runId` | projects:read |
+| `POST /projects/:id/workflow-runs/:runId/nodes/:key/actions` (`{action: retry\|skip\|cancel_run}`) | projects:write |
 
 `GET /api/ardentstudio/v1/audit/export` serves the audit log as suite `HiveAuditRecord` v1
 records for a collector such as Cindertrace. It needs the permission `ardentstudio:audit:read`,

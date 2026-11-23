@@ -101,7 +101,10 @@ export class ArtifactImporter {
     for (;;) {
       const due = this.store.review.dueImports();
       if (!due.length || this.stopped) break;
-      for (const row of due) await this.importOne(row);
+      for (const row of due) {
+        await this.importOne(row);
+        if (this.store.review.importRecord(row.id)?.state !== 'pending') this.options.conductor.workflows.importsSettled(row.task_id);
+      }
     }
     this.schedule();
   }

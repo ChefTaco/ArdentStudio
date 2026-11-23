@@ -10,7 +10,7 @@ const RECORD_TABLES = [
   'projects', 'requested_deliverables', 'files', 'blobs', 'agent_templates', 'agent_template_versions', 'team_templates', 'team_template_versions',
   'agent_bindings', 'agent_presentation', 'team_assignments', 'team_assignment_revisions', 'room_layouts', 'conversations', 'messages', 'decisions',
   'tasks', 'activity', 'deliverables', 'deliverable_revisions', 'review_comments', 'review_decisions', 'exports', 'agent_drafts', 'development_comments',
-  'events', 'project_event_cursors', 'audit', 'idempotency_keys',
+  'events', 'project_event_cursors', 'audit', 'idempotency_keys', 'workflow_runs', 'workflow_nodes',
 ];
 
 let dir: string;
@@ -46,12 +46,31 @@ describe('migrations', () => {
       VALUES ('tsk_old', 'prj_old', 'Old task', 'turn', '{"message_id":"msg_old"}', 'completed', 'operator', '2026-01-01', '2026-01-01', 'node1~lead',
         '11111111-1111-4111-8111-111111111111', 2);`);
     const before = db.prepare("SELECT * FROM tasks WHERE id = 'tsk_old'").get() as Record<string, unknown>;
-    expect(migrate(db).at(-1)).toBe(7);
+    expect(migrate(db, MIGRATIONS.filter(item => item.id <= 7)).at(-1)).toBe(7);
     const after = db.prepare("SELECT * FROM tasks WHERE id = 'tsk_old'").get() as Record<string, unknown>;
     expect(after).toEqual({ ...before, execution_json: null, root_ref: null, parent_ref: null, submit_payload_json: null, submit_next_at: null,
       ardent_attempts_json: null, recovery_json: null });
     const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'tasks'").all() as Array<{ name: string }>).map(row => row.name);
     expect(indexes).toContain('tasks_root_ref');
+    db.close();
+  });
+
+  it('add the workflow tables and task columns without touching existing rows, one task per node attempt', () => {
+    const db = new Database(':memory:');
+    migrate(db, MIGRATIONS.filter(item => item.id <= 7));
+    db.exec(`PRAGMA foreign_keys = OFF;
+      INSERT INTO tasks (id, project_id, title, mode, source_json, state, created_by, created_at, updated_at)
+      VALUES ('tsk_old', 'prj_old', 'Old task', 'turn', '{}', 'completed', 'operator', '2026-01-01', '2026-01-01');`);
+    const before = db.prepare("SELECT * FROM tasks WHERE id = 'tsk_old'").get() as Record<string, unknown>;
+    expect(migrate(db).at(-1)).toBe(8);
+    expect(db.prepare("SELECT * FROM tasks WHERE id = 'tsk_old'").get()).toEqual({ ...before, workflow_run_id: null, workflow_node_key: null, workflow_attempt: null });
+    const insert = db.prepare(`INSERT INTO tasks (id, project_id, title, mode, source_json, state, created_by, created_at, updated_at, workflow_run_id, workflow_node_key, workflow_attempt)
+      VALUES (?, 'prj_old', 'Node', 'assignment', '{}', 'queued', 'operator', '2026-01-01', '2026-01-01', 'wfr_1', 'research', ?)`);
+    insert.run('tsk_a1', 1);
+    insert.run('tsk_a2', 2);
+    expect(() => insert.run('tsk_dup', 1)).toThrow(/UNIQUE/);
+    expect(() => db.prepare(`INSERT INTO workflow_runs (id, project_id, spec_json, spec_sha256, state, created_by, created_at, updated_at)
+      VALUES ('wfr_x', 'prj_old', '{}', 'x', 'paused', 'operator', 'a', 'a')`).run()).toThrow(/CHECK/);
     db.close();
   });
 
