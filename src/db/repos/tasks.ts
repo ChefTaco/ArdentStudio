@@ -1,5 +1,6 @@
 // The Studio task mirror. Ardent owns execution; these rows record what Studio asked for,
 // under which team revision, where the reply goes, and the Ardent state last observed.
+import { parseExecutionContext, type ExecutionContext } from '@hivemagnus/hive-common/execution';
 import { newId } from '../../ids.js';
 import type { Db } from '../database.js';
 import { readJson, writeJson, type Clock } from '../json.js';
@@ -15,6 +16,27 @@ export const TERMINAL_TASK_STATES: readonly TaskState[] = ['completed', 'partial
 export type TaskDispatch = 'mission' | 'turn';
 /** What the Ardent journal showed of a running task: the model started, and the last tool it tried. */
 export interface TaskProgress { model_started: boolean; tool: string | null }
+/**
+ * A submission frozen on its first attempt. `request` is the exact JSON body sent to Magnus's action
+ * route (mission deadline and idempotency key included); every retry, also after a restart, sends it
+ * unchanged, so an attempt whose answer was lost is answered with the same Ardent task.
+ */
+export interface FrozenSubmission {
+  v: 1;
+  agent_ref: string;
+  dispatch: TaskDispatch;
+  action: 'task-submit' | 'mission-submit';
+  request: string;
+  /** The Ardent session the turn runs in, recorded as used once Ardent accepts it. */
+  session: { conversation_id: string; role_key: string; agent_ref: string; context: 'direct' | 'mission'; session_id: string } | null;
+  /** The newest room message seq the turn showed the agent. */
+  seen_seq: number;
+  /** The mission deadline (epoch ms), when the request is a mission. No attempt starts after it. */
+  deadline_ms: number | null;
+  /** The execution context the attempts carry in x-hive-execution (and in the request when Magnus takes it). */
+  execution: ExecutionContext | null;
+  frozen_at: string;
+}
 
 export interface StudioTask {
   id: string; project_id: string; title: string; mode: TaskMode; role_key: string | null; binding_id: string | null;
@@ -24,6 +46,14 @@ export interface StudioTask {
   conversation_id: string | null; trigger_message_id: string | null; instructions_md: string;
   group_id: string | null; group_position: number; dispatch: TaskDispatch | null; submit_attempts: number; finished_at: string | null;
   progress: TaskProgress;
+  /** Execution ancestry (attribution only): the context and its qualified root and parent references. */
+  execution: ExecutionContext | null; root_ref: string | null; parent_ref: string | null;
+  submit_payload: FrozenSubmission | null;
+  /** When the next submission attempt may start (epoch ms), or null. */
+  submit_next_at: number | null;
+  /** Earlier Ardent task ids of this task, oldest first (continuations). */
+  ardent_attempts: string[];
+  recovery: unknown;
 }
 
 interface TaskRow {
@@ -32,6 +62,8 @@ interface TaskRow {
   ardent_event_cursor: number; state: TaskState; outcome_json: string | null; reassigned_from: string | null; created_by: string; created_at: string; updated_at: string;
   conversation_id: string | null; trigger_message_id: string | null; instructions_md: string; group_id: string | null; group_position: number;
   dispatch: TaskDispatch | null; submit_attempts: number; finished_at: string | null; progress_json: string | null;
+  execution_json: string | null; root_ref: string | null; parent_ref: string | null; submit_payload_json: string | null; submit_next_at: number | null;
+  ardent_attempts_json: string | null; recovery_json: string | null;
 }
 
 const NO_PROGRESS: TaskProgress = { model_started: false, tool: null };
@@ -44,6 +76,9 @@ const toTask = (row: TaskRow): StudioTask => ({
   created_at: row.created_at, updated_at: row.updated_at, conversation_id: row.conversation_id, trigger_message_id: row.trigger_message_id,
   instructions_md: row.instructions_md, group_id: row.group_id, group_position: row.group_position, dispatch: row.dispatch,
   submit_attempts: row.submit_attempts, finished_at: row.finished_at, progress: { ...NO_PROGRESS, ...readJson<Partial<TaskProgress>>(row.progress_json, {}) },
+  execution: parseExecutionContext(readJson<unknown>(row.execution_json, null)) ?? null, root_ref: row.root_ref, parent_ref: row.parent_ref,
+  submit_payload: readJson<FrozenSubmission | null>(row.submit_payload_json, null), submit_next_at: row.submit_next_at,
+  ardent_attempts: readJson<string[]>(row.ardent_attempts_json, []), recovery: readJson<unknown>(row.recovery_json, null),
 });
 
 export class TaskRepository {
@@ -129,6 +164,25 @@ export class TaskRepository {
     this.db.prepare('UPDATE tasks SET state = ?, outcome_json = COALESCE(?, outcome_json), finished_at = CASE WHEN ? THEN COALESCE(finished_at, ?) ELSE NULL END, updated_at = ? WHERE id = ?')
       .run(state, outcome === undefined ? null : writeJson(outcome), finished ? 1 : 0, now, now, id);
     return this.get(id)!;
+  }
+
+  /** Record the task's execution context and its root and parent references. */
+  setExecution(id: string, execution: ExecutionContext): StudioTask {
+    this.db.prepare('UPDATE tasks SET execution_json = ?, root_ref = ?, parent_ref = ?, updated_at = ? WHERE id = ?')
+      .run(writeJson(execution), execution.root, execution.parent ?? null, this.clock.now().toISOString(), id);
+    return this.get(id)!;
+  }
+
+  /** Freeze the first submission attempt. A submission already frozen is kept, so a retry can never change it. */
+  freezeSubmission(id: string, submission: FrozenSubmission): StudioTask {
+    this.db.prepare('UPDATE tasks SET submit_payload_json = COALESCE(submit_payload_json, ?), updated_at = ? WHERE id = ?')
+      .run(writeJson(submission), this.clock.now().toISOString(), id);
+    return this.get(id)!;
+  }
+
+  /** When the next submission attempt may start (epoch ms), or null to clear it. */
+  setSubmitNextAt(id: string, at: number | null): void {
+    this.db.prepare('UPDATE tasks SET submit_next_at = ?, updated_at = ? WHERE id = ?').run(at, this.clock.now().toISOString(), id);
   }
 
   /** Count a failed submission attempt; returns the new count. */

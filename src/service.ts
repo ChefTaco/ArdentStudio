@@ -66,7 +66,7 @@ export function createService(config: Config, options: { logger?: Logger; clock?
     config.oathweave.identities,
   );
   const live = new LiveText(bus);
-  const conductor = new Conductor({ store, blobs, magnus, agents, live, logger });
+  const conductor = new Conductor({ store, blobs, magnus, agents, live, logger, studioInstanceId: config.studioInstanceId });
   const importer = attachReview({ store, blobs, magnus, conductor, logger });
   const operations = new OperationRelay(store, magnus, logger, { onFinished: () => agents.invalidate() });
   const proposer = new TeamProposer(store, agents, conductor);

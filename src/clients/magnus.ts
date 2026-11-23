@@ -11,7 +11,15 @@
 // acting Magnus ADMIN in x-acting-subject (ARDENT_SERVICE_ADMIN_ACTIONS).
 // A node agent reports `capabilities.studio` (ARDENT_STUDIO_CAPABILITY): 1 for sessions, streams and
 // artifacts, 2 for missions, pause and resume, previews and development, 3 for skill-install; below
-// that Magnus answers 409 AGENT_UPGRADE_REQUIRED.
+// that Magnus answers 409 AGENT_UPGRADE_REQUIRED. A node agent that reports `capabilities.lineage` >= 1
+// (Magnus 3.3.0) accepts an optional top-level `execution` (HiveCommon execution context v1) next to
+// `action` and `body` on task-submit and mission-submit; older Magnus refuses unknown fields there.
+//
+// Every call carries x-request-id and traceparent (the current request's, or new ones for background
+// work) and, when the call belongs to a task, x-hive-execution. Magnus ignores headers it does not know.
+import { formatTraceparent, generateRequestId, generateTraceparent, HIVE_HEADERS, outboundHeaders } from '@hivemagnus/hive-common/context';
+import { EXECUTION_HEADER, executionHeaders, type ExecutionContext } from '@hivemagnus/hive-common/execution';
+import { retryAfterFromHeaders } from '@hivemagnus/hive-common/retry';
 import {
   ARDENT_ACTING_SUBJECT_HEADER,
   ARDENT_SERVICE_CONFIG_PATHS,
@@ -59,8 +67,16 @@ export const ACTING_SUBJECT_HEADER = ARDENT_ACTING_SUBJECT_HEADER;
 
 export class MagnusError extends Error {
   override name = 'MagnusError';
-  constructor(message: string, readonly status: number, readonly code: string) { super(message); }
+  /** The wait Magnus asked for with Retry-After, in milliseconds, when it sent one. */
+  readonly retryAfterMs: number | undefined;
+  constructor(message: string, readonly status: number, readonly code: string, options: { retryAfterMs?: number | undefined } = {}) {
+    super(message);
+    this.retryAfterMs = options.retryAfterMs;
+  }
 }
+
+/** The lineage level from which a node agent accepts `execution` on task-submit and mission-submit. */
+export const ARDENT_LINEAGE_CAPABILITY = { execution: 1 } as const;
 
 export interface AgentRefParts { nodeId: string; profile: string }
 const REF_PART = /^[A-Za-z0-9._-]{1,128}$/;
@@ -78,6 +94,15 @@ export interface CallContext {
   /** The Oathweave subject of the person this call acts for. Omit for Studio's own background work. */
   actingSubject?: string | undefined;
   signal?: AbortSignal | undefined;
+  /** The execution context the call belongs to (a task's), sent as x-hive-execution. Attribution only. */
+  execution?: ExecutionContext | undefined;
+}
+
+/** A task-submit or mission-submit action request, validated and serialized once so a retry can resend it unchanged. */
+export interface PreparedSubmission {
+  action: 'task-submit' | 'mission-submit';
+  /** The exact JSON body for POST …/action. */
+  request: string;
 }
 
 export type MagnusArdentProfile = z.infer<typeof ardentServiceProfileSchema>;
@@ -98,7 +123,11 @@ export const magnusArdentInstallationSchema = z.object({
   reachable: z.boolean(),
   error: z.string().nullable(),
   /** The node agent's Studio level (ARDENT_STUDIO_CAPABILITY). Absent on agents that predate it. */
-  capabilities: z.object({ studio: z.number().int().min(0).optional() }).loose().optional(),
+  capabilities: z.object({
+    studio: z.number().int().min(0).optional(),
+    /** Execution lineage level (ARDENT_LINEAGE_CAPABILITY). Absent on agents that predate it, which means 0. */
+    lineage: z.number().int().min(0).optional(),
+  }).loose().optional(),
 });
 export type MagnusArdentInstallation = z.infer<typeof magnusArdentInstallationSchema>;
 
@@ -261,6 +290,26 @@ export class MagnusClient {
     return ardentTaskAdmissionSchema.parse(await this.action(ref, 'task-submit', { body: parsed.data }, context));
   }
 
+  /**
+   * Validate and serialize a task-submit (`dispatch` turn) or mission-submit request. `execution` is included
+   * only when given: send it only to a node agent with lineage >= 1, as older Magnus refuses the field.
+   */
+  prepareSubmission(input: { action: 'task-submit'; body: z.input<typeof ardentTaskSubmitSchema> } | { action: 'mission-submit'; body: z.input<typeof ardentMissionSubmitSchema> },
+    execution?: ExecutionContext): PreparedSubmission {
+    const schema = input.action === 'task-submit' ? ardentTaskSubmitSchema : ardentMissionSubmitSchema;
+    const parsed = schema.safeParse(input.body);
+    if (!parsed.success) {
+      throw new MagnusError(`${input.action === 'task-submit' ? 'Task submission' : 'Mission'} is invalid: ${parsed.error.issues[0]?.message ?? 'invalid'}`, 400, 'VALIDATION_ERROR');
+    }
+    return { action: input.action, request: JSON.stringify({ action: input.action, body: parsed.data, ...(execution ? { execution } : {}) }) };
+  }
+
+  /** Send a prepared submission exactly as it was serialized. */
+  async submitPrepared(ref: string, submission: Pick<PreparedSubmission, 'request'>, context: CallContext = {}) {
+    const { nodeId, profile } = parseAgentRef(ref);
+    return ardentTaskAdmissionSchema.parse(await this.json('POST', `/api/v1/ardent/installations/${nodeId}/profiles/${profile}/action`, context, new SerializedBody(submission.request)));
+  }
+
   async cancelTask(ref: string, taskId: string, context: CallContext = {}): Promise<unknown> {
     return this.action(ref, 'task-cancel', { target: uuid(taskId) }, context);
   }
@@ -396,13 +445,14 @@ export class MagnusClient {
   }
 
   private async send(method: string, path: string, context: CallContext, body?: unknown, extraHeaders: Record<string, string> = {}, timeoutMs = this.options.timeoutMs ?? 20_000): Promise<Response> {
+    const correlation = correlationHeaders(context.execution);
     const attempt = async () => {
-      const headers: Record<string, string> = { authorization: `Bearer ${await this.options.tokens.token()}`, accept: 'application/json', ...extraHeaders };
+      const headers: Record<string, string> = { ...correlation, authorization: `Bearer ${await this.options.tokens.token()}`, accept: 'application/json', ...extraHeaders };
       if (context.actingSubject) headers[ACTING_SUBJECT_HEADER] = context.actingSubject;
       if (body !== undefined) headers['content-type'] = 'application/json';
       const signals = [context.signal, timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined].filter((signal): signal is AbortSignal => Boolean(signal));
       return this.request(`${this.baseUrl}${path}`, {
-        method, headers, redirect: 'error', ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        method, headers, redirect: 'error', ...(body !== undefined ? { body: body instanceof SerializedBody ? body.text : JSON.stringify(body) } : {}),
         ...(signals.length ? { signal: AbortSignal.any(signals) } : {}),
       });
     };
@@ -419,8 +469,31 @@ export class MagnusClient {
   private async fail(response: Response): Promise<never> {
     const parsed = failure.safeParse(await response.json().catch(() => null));
     const message = parsed.success ? parsed.data.error.message.slice(0, 300) : `Magnus answered HTTP ${response.status}`;
-    throw new MagnusError(message, response.status, parsed.success ? parsed.data.error.code : `HTTP_${response.status}`);
+    const retryAfterMs = retryAfterFromHeaders(response.headers);
+    throw new MagnusError(message, response.status, parsed.success ? parsed.data.error.code : `HTTP_${response.status}`, { retryAfterMs });
   }
+}
+
+/** A request body already serialized (a frozen submission): sent byte for byte. */
+class SerializedBody {
+  constructor(readonly text: string) {}
+}
+
+/**
+ * x-request-id, traceparent (and tracestate) of the current request, or new ones for background work, and
+ * x-hive-execution: the call's own execution context when it has one, otherwise the request's.
+ */
+export function correlationHeaders(execution?: ExecutionContext): Record<string, string> {
+  const headers = outboundHeaders();
+  if (!headers[HIVE_HEADERS.requestId]) {
+    headers[HIVE_HEADERS.requestId] = generateRequestId();
+    headers[HIVE_HEADERS.traceparent] = formatTraceparent(generateTraceparent());
+  }
+  if (execution) {
+    delete headers[EXECUTION_HEADER];
+    Object.assign(headers, executionHeaders(execution));
+  }
+  return headers;
 }
 
 function validated<T>(schema: z.ZodType<T>, value: unknown, action: string): T {

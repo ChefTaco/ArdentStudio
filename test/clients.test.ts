@@ -1,4 +1,5 @@
-import { createRequestContext, runWithRequestContext } from '@hivemagnus/hive-common/context';
+import { createRequestContext, isValidTraceparent, runWithRequestContext } from '@hivemagnus/hive-common/context';
+import { decodeExecutionHeader, EXECUTION_HEADER } from '@hivemagnus/hive-common/execution';
 import { ardentServiceActionRequestSchema, ardentServiceRoutes } from '@hivemagnus/magnus-contracts/ardent-service';
 import { describe, expect, it } from 'vitest';
 import { ChatterMostClient } from '../src/clients/chattermost.js';
@@ -138,6 +139,61 @@ describe('Magnus client', () => {
     for (const bad of ['node1', 'node1~', '~lead', 'a~b~c', 'node/1~lead', '../x~y']) expect(() => parseAgentRef(bad), bad).toThrow();
   });
 
+  it('sends prepared submissions byte for byte, with `execution` only when given', async () => {
+    const { calls, fetcher } = recorder(() => Response.json({ success: true, data: { task_id: TASK, state: 'queued' } }));
+    const client = new MagnusClient({ baseUrl: 'https://magnus.example.com', tokens: fixedTokens, fetch: fetcher });
+    const plain = client.prepareSubmission({ action: 'task-submit', body: { prompt: 'Draft', idempotency_key: TASK } });
+    expect(plain).toEqual({ action: 'task-submit', request: JSON.stringify({ action: 'task-submit', body: { prompt: 'Draft', idempotency_key: TASK } }) });
+    const execution = { v: 1 as const, root: 'hx1:studio:local:request:msg_1', self: 'hx1:studio:local:task:tsk_1', attempt: 1 };
+    const carried = client.prepareSubmission({ action: 'task-submit', body: { prompt: 'Draft', idempotency_key: TASK } }, execution);
+    expect(JSON.parse(carried.request)).toEqual({ action: 'task-submit', body: { prompt: 'Draft', idempotency_key: TASK }, execution });
+    expect(() => client.prepareSubmission({ action: 'task-submit', body: { prompt: '', idempotency_key: TASK } })).toThrow(MagnusError);
+    expect(await client.submitPrepared('node1~lead', carried, { execution })).toEqual({ task_id: TASK, state: 'queued' });
+    await client.submitPrepared('node1~lead', carried, { execution });
+    expect(calls[0]!.init.body).toBe(carried.request);
+    expect(calls[1]!.init.body).toBe(carried.request);
+    expect(decodeExecutionHeader(headers(calls[0]!).get(EXECUTION_HEADER))).toEqual(execution);
+  });
+
+  it('sends a request id and traceparent on every call: the current request\'s, or new ones for background work', async () => {
+    const { calls, fetcher } = recorder(() => Response.json({ success: true, data: [] }));
+    const client = new MagnusClient({ baseUrl: 'https://magnus.example.com', tokens: fixedTokens, fetch: fetcher });
+    await client.listProfiles();
+    await client.listProfiles();
+    const [first, second] = calls.map(headers);
+    expect(first!.get('x-request-id')).toBeTruthy();
+    expect(first!.get('x-request-id')).not.toBe(second!.get('x-request-id'));
+    expect(isValidTraceparent(first!.get('traceparent'))).toBe(true);
+    expect(first!.has(EXECUTION_HEADER)).toBe(false);
+    const execution = { v: 1 as const, root: 'hx1:studio:local:request:msg_1', self: 'hx1:studio:local:task:tsk_1' };
+    const request = createRequestContext(new Headers({ 'x-request-id': 'req-fixture-1', traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01' }));
+    request.execution = { v: 1, root: 'hx1:studio:local:request:other' };
+    await runWithRequestContext(request, () => client.listProfiles());
+    await runWithRequestContext(request, () => client.listProfiles({ execution }));
+    expect(headers(calls[2]!).get('x-request-id')).toBe('req-fixture-1');
+    expect(headers(calls[2]!).get('traceparent')).toContain('0af7651916cd43dd8448eb211c80319c');
+    expect(decodeExecutionHeader(headers(calls[2]!).get(EXECUTION_HEADER))?.root).toBe('hx1:studio:local:request:other');
+    // A call's own execution context replaces the request's.
+    expect(decodeExecutionHeader(headers(calls[3]!).get(EXECUTION_HEADER))).toEqual(execution);
+  });
+
+  it('keeps the Retry-After Magnus sent on its error', async () => {
+    const { fetcher } = recorder(() => Response.json({ success: false, error: { code: 'RATE_LIMITED', message: 'Slow down' } }, { status: 429, headers: { 'retry-after': '7' } }));
+    const client = new MagnusClient({ baseUrl: 'https://magnus.example.com', tokens: fixedTokens, fetch: fetcher });
+    const error = await client.listProfiles().catch((caught: unknown) => caught as MagnusError);
+    expect(error).toMatchObject({ status: 429, code: 'RATE_LIMITED', retryAfterMs: 7_000 });
+  });
+
+  it('reads the optional lineage level of a node agent', async () => {
+    const installation = (capabilities: unknown) => Response.json({ success: true, data: { installed: true, version: '3.2.0', owner: 'operator', profiles: [], checkedAt: 'x',
+      nodeId: 'node1', nodeName: 'Node 1', hostname: 'node1.example.com', reachable: true, error: null, capabilities } });
+    let answer = installation({ studio: 4, lineage: 1, recovery: 1 });
+    const client = new MagnusClient({ baseUrl: 'https://magnus.example.com', tokens: fixedTokens, fetch: (async () => answer) as typeof fetch });
+    expect((await client.getInstallation('node1')).capabilities).toMatchObject({ studio: 4, lineage: 1 });
+    answer = installation({ studio: 3 });
+    expect((await client.getInstallation('node1')).capabilities?.lineage).toBeUndefined();
+  });
+
   it('calls only routes and actions the published Magnus service contract allows', async () => {
     const { calls, fetcher } = recorder(() => Response.json({ success: false, error: { code: 'NOT_FOUND', message: 'fixture' } }, { status: 404 }));
     const client = new MagnusClient({ baseUrl: 'https://magnus.example.com', tokens: fixedTokens, fetch: fetcher });
@@ -162,6 +218,8 @@ describe('Magnus client', () => {
       () => client.createAgent({ nodeId: 'node1', profile: 'mapper', soul_md: 'Soul', identity_md: 'Identity', model: { emberpath_alias: 'fixture' }, hivemem: true }, acting),
       () => client.agentOperation('op-1'), async () => { for await (const _ of client.streamAgentOperation('op-1')) break; },
       () => client.resumeAgentOperation('op-1', acting),
+      () => client.submitPrepared(ref, client.prepareSubmission({ action: 'task-submit', body: { prompt: 'Draft', idempotency_key: TASK } })),
+      () => client.submitPrepared(ref, client.prepareSubmission({ action: 'mission-submit', body: { objective: 'Draft', mission, idempotency_key: 'tsk_1' } })),
     ];
     for (const attempt of attempts) await expect(attempt()).rejects.toBeInstanceOf(MagnusError);
     expect(calls).toHaveLength(attempts.length);
@@ -174,7 +232,11 @@ describe('Magnus client', () => {
     for (const call of calls) {
       const url = new URL(call.url);
       expect(routes.some(route => route.method === call.init.method && route.pattern.test(url.pathname)), `${call.init.method} ${url.pathname}`).toBe(true);
-      if (url.pathname.endsWith('/action')) expect(actions.has(JSON.parse(String(call.init.body)).action)).toBe(true);
+      if (url.pathname.endsWith('/action')) {
+        expect(actions.has(JSON.parse(String(call.init.body)).action)).toBe(true);
+        // Without `execution` every action request also passes today's strict Magnus schema.
+        expect(ardentServiceActionRequestSchema.safeParse(JSON.parse(String(call.init.body))).success, String(call.init.body)).toBe(true);
+      }
     }
     for (const action of STUDIO_ACTIONS) expect(actions.has(action), action).toBe(true);
   });

@@ -36,6 +36,13 @@ describe('configuration', () => {
     expect(loadConfig({ ...base, ARDENT_STUDIO_MAGNUS_SCOPE: 'magnus:custom' }).magnus.scope).toBe('magnus:custom');
   });
 
+  it('names this Studio in execution references: local by default, or ARDENT_STUDIO_INSTANCE_ID', () => {
+    expect(loadConfig(base).studioInstanceId).toBe('local');
+    expect(loadConfig({ ...base, ARDENT_STUDIO_INSTANCE_ID: 'inst-0193.studio' }).studioInstanceId).toBe('inst-0193.studio');
+    expect(issues({ ...base, ARDENT_STUDIO_INSTANCE_ID: 'has:colon' })).toEqual(['ARDENT_STUDIO_INSTANCE_ID']);
+    expect(issues({ ...base, ARDENT_STUDIO_INSTANCE_ID: 'x'.repeat(97) })).toEqual(['ARDENT_STUDIO_INSTANCE_ID']);
+  });
+
   it('fails fast naming every missing required variable', () => {
     const required = ENV_CATALOG.filter(entry => entry.required).map(entry => entry.name);
     expect(issues({}).sort()).toEqual([...required].sort());

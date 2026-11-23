@@ -7,6 +7,10 @@ import { trimTrailingSlashes } from './url.js';
 export const DEFAULT_PORT = 8097;
 export const DEFAULT_MAX_BLOB_BYTES = 64 * 1024 * 1024;
 export const DEFAULT_EVENT_RETENTION_DAYS = 30;
+/** The Studio instance in qualified execution references when none is configured. */
+export const DEFAULT_STUDIO_INSTANCE_ID = 'local';
+/** An execution-reference instance: what `hx1:studio:<instance>:…` allows. */
+export const STUDIO_INSTANCE_ID_PATTERN = /^[A-Za-z0-9._-]{1,96}$/;
 
 export interface ServiceClientConfig {
   url: string;
@@ -23,6 +27,8 @@ export interface Config {
   maxBlobBytes: number;
   eventRetentionDays: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  /** ARDENT_STUDIO_INSTANCE_ID: this Studio in qualified execution references (`hx1:studio:<instance>:…`). */
+  studioInstanceId: string;
   oathweave: {
     issuer: string;
     jwksUrl: string;
@@ -52,6 +58,7 @@ export const ENV_CATALOG: ReadonlyArray<{ name: string; required: boolean; secre
   { name: 'ARDENT_STUDIO_MAX_BLOB_BYTES', required: false, secret: false, description: 'Largest stored file in bytes. Default 67108864 (64 MiB).' },
   { name: 'ARDENT_STUDIO_EVENT_RETENTION_DAYS', required: false, secret: false, description: 'Days of project events kept for stream replay. Default 30.' },
   { name: 'ARDENT_STUDIO_LOG_LEVEL', required: false, secret: false, description: 'debug, info, warn or error. Default info.' },
+  { name: 'ARDENT_STUDIO_INSTANCE_ID', required: false, secret: false, description: 'This Studio in qualified execution references (hx1:studio:<instance>:...), such as its Hive Registry installation id. [A-Za-z0-9._-], at most 96. Default local.' },
   { name: 'OATHWEAVE_ISSUER', required: true, secret: false, description: 'Oathweave browser issuer (HTTPS).' },
   { name: 'OATHWEAVE_JWKS_URL', required: true, secret: false, description: 'Oathweave JWKS URL (HTTPS).' },
   { name: 'OATHWEAVE_USERINFO_URL', required: true, secret: false, description: 'Oathweave userinfo URL (HTTPS), used for online session revocation.' },
@@ -121,6 +128,9 @@ export function loadConfig(env: Env = process.env): Config {
   const logLevel = value('ARDENT_STUDIO_LOG_LEVEL') ?? 'info';
   if (!['debug', 'info', 'warn', 'error'].includes(logLevel)) issues.push({ name: 'ARDENT_STUDIO_LOG_LEVEL', message: 'must be debug, info, warn or error' });
 
+  const studioInstanceId = value('ARDENT_STUDIO_INSTANCE_ID') ?? DEFAULT_STUDIO_INSTANCE_ID;
+  if (!STUDIO_INSTANCE_ID_PATTERN.test(studioInstanceId)) issues.push({ name: 'ARDENT_STUDIO_INSTANCE_ID', message: 'must be 1 to 96 characters of [A-Za-z0-9._-]' });
+
   const issuer = url('OATHWEAVE_ISSUER', true, true);
   const jwksUrl = url('OATHWEAVE_JWKS_URL', true);
   const userinfoUrl = url('OATHWEAVE_USERINFO_URL', true);
@@ -174,6 +184,7 @@ export function loadConfig(env: Env = process.env): Config {
     maxBlobBytes: numeric('ARDENT_STUDIO_MAX_BLOB_BYTES', DEFAULT_MAX_BLOB_BYTES, 1024, 1024 * 1024 * 1024),
     eventRetentionDays: numeric('ARDENT_STUDIO_EVENT_RETENTION_DAYS', DEFAULT_EVENT_RETENTION_DAYS, 1, 3650),
     logLevel: logLevel as Config['logLevel'],
+    studioInstanceId,
     oathweave: { issuer, jwksUrl, userinfoUrl, tokenUrl, identities, nativeIssuers },
     magnus,
     hivemem,
