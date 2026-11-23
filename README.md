@@ -78,6 +78,7 @@ when a required setting is missing or unsafe.
 | `ARDENT_STUDIO_MAX_BLOB_BYTES` | | `67108864` | Largest stored file (64 MiB). |
 | `ARDENT_STUDIO_EVENT_RETENTION_DAYS` | | `30` | Event replay window; older cursors get `reset`. |
 | `ARDENT_STUDIO_LOG_LEVEL` | | `info` | `debug`, `info`, `warn` or `error`. |
+| `ARDENT_STUDIO_INSTANCE_ID` | | `local` | This Studio in qualified execution references (`hx1:studio:<instance>:…`), such as its Hive Registry installation id. `[A-Za-z0-9._-]`, at most 96. See [docs/CONDUCTOR.md](docs/CONDUCTOR.md#execution-references). |
 | `OATHWEAVE_ISSUER` | yes | | Oathweave browser issuer (HTTPS). |
 | `OATHWEAVE_JWKS_URL` | yes | | Oathweave JWKS (HTTPS). |
 | `OATHWEAVE_USERINFO_URL` | yes | | Oathweave userinfo (HTTPS), for session revocation. |

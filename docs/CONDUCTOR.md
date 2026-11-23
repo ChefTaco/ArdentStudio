@@ -37,11 +37,56 @@ installation) and the agent's Ardent version:
 | older | `task-submit` with one composed prompt and no session |
 
 The session key is `studio:<project>:<conversation>:<role>`; Ardent answers the same session for
-the same key, so a conversation keeps its context per role. The Ardent idempotency key is derived
-from the Studio task id, so a retried submission (a timeout, a restart between Ardent accepting
-the task and Studio recording it) is the same Ardent task. Magnus failures that may be temporary
-are retried up to five times with backoff; then the task fails with a system message in the room
-that quotes Magnus's reason.
+the same key, so a conversation keeps its context per role.
+
+### Submitting and retrying
+
+The first attempt plans the turn (session, composed request, mission) and **freezes** the exact
+Magnus action body in the task (`tasks.submit_payload_json`) before sending it: the mission and its
+deadline (computed once), the objective and context items, the labels and the Ardent idempotency key,
+which is derived from the Studio task id. Every retry, also after a Studio restart, re-sends that
+body byte for byte and never re-plans it. Ardent hashes the task content into its idempotency check,
+so a submission that reached Ardent but whose answer was lost (a timeout, a restart between Ardent
+accepting the task and Studio recording it) is answered with the same Ardent task instead of an
+"Idempotency key reused with different task content" conflict, even when the room has moved on.
+
+Magnus failures that may be temporary (a network error, 408, 429, 5xx, a service-token failure) are
+retried with exponential backoff and full jitter (HiveCommon `backoffDelay`: 1 s base, 60 s cap),
+waiting at least as long as a `Retry-After` from Magnus (up to 10 minutes; a longer one fails the
+task), and never past the mission deadline. The time of the next attempt is stored
+(`tasks.submit_next_at`), so a restart inside a backoff window waits for it instead of retrying at
+once. After five failed attempts (`maxSubmitAttempts`), or on a permanent refusal, the task fails
+with a system message in the room that quotes Magnus's reason.
+
+### Execution references
+
+Every task carries an execution context (HiveCommon execution context v1) that places it in the
+suite-wide causal tree, stored in `tasks.execution_json` with its `root_ref` and `parent_ref`. It is
+**attribution only**: Studio, Magnus and Ardent never read it to choose tools, memory, missions or
+artifacts, or to grant anything, and it never enters the objective, the prompt or the mission
+(`parent_task` stays `null`). It is recorded when the task is created; a task created before this
+existed gets it on its first submission. `<inst>` is `ARDENT_STUDIO_INSTANCE_ID` (default `local`).
+
+| Studio unit | Reference |
+|---|---|
+| Request (the trigger message) | Root `hx1:studio:<inst>:request:<message id>`; the turn's parent is the root |
+| Group without a trigger message (discussion, team proposal, ordering group) | Root `hx1:studio:<inst>:request:<discussion, proposal or group id>` |
+| Task | Self `hx1:studio:<inst>:task:<task id>`; a task with neither is its own root |
+| Hand-off | Parent = the source task; `inputs` = the source's Ardent task `hx1:ardent:<node>.<profile>:task:<ardent task id>` when known |
+| Reassign | Parent = the reassigned-from task |
+| Discussion turn | Parent = the previous turn (the summary follows the last turn of the last round) |
+| Assignment revision | `attempt` = the team revision the task runs under (a team proposal: its attempt) |
+
+A caused task (hand-off, reassign, discussion turn) keeps its cause's root and request ID, but not
+its deadline. A task started from a person's request records that HTTP request's `x-request-id` as
+`request_id`. On submission the context gains `deadline_ms`, the mission deadline.
+
+Every Magnus call carries `x-request-id` and `traceparent` (the current request's, or new ones for
+background work) and, for a submission, the task's context in `x-hive-execution`; Magnus ignores
+headers it does not know. The context also goes in the action request as a top-level `execution`
+field, next to `action` and `body`, only when the node agent reports `capabilities.lineage` >= 1
+(Magnus 3.3.0): older Magnus validates action requests strictly and would refuse it. Whether it is
+included is decided when the submission is frozen.
 
 The mission (`src/conductor/prompting.ts`):
 

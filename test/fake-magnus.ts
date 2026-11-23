@@ -44,7 +44,15 @@ export class FakeMagnusServer {
    * change the saved configuration (skills.enabled) only; restart() loads it, as a profile restart does.
    */
   skillMap = new Map<string, Array<{ name: string; enabled: boolean }>>();
-  calls: Array<{ method: string; path: string; actingSubject: string | undefined; body?: unknown }> = [];
+  calls: Array<{ method: string; path: string; actingSubject: string | undefined; body?: unknown; raw?: string | undefined; headers: IncomingMessage['headers']; at: number }> = [];
+  /** Node agent lineage level per node (absent: the node reports none, as Magnus before 3.3.0). */
+  lineage = new Map<string, number>();
+  /** Accept the submission but drop the connection before answering, the next n times (an answer lost in transit). */
+  dropSubmitResponses = 0;
+  /** Answer the next n submissions with 503 and this Retry-After (seconds). */
+  retryAfterSubmissions: { count: number; seconds: number } = { count: 0, seconds: 0 };
+  /** Submissions refused because their idempotency key was reused with different content, as Ardent does. */
+  conflicts = 0;
   tasks = new Map<string, FakeTask>();
   sessions = new Map<string, { id: string; key: string; context: string }>();
   /** Answer task streams with 503 (the follower then polls). */
@@ -247,9 +255,10 @@ export class FakeMagnusServer {
     const url = new URL(request.url ?? '/', 'http://fake');
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(chunk as Buffer);
-    const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown> : undefined;
+    const raw = chunks.length ? Buffer.concat(chunks).toString('utf8') : undefined;
+    const body = raw !== undefined ? JSON.parse(raw) as Record<string, unknown> : undefined;
     const actingSubject = request.headers['x-acting-subject'] as string | undefined;
-    this.calls.push({ method: request.method ?? 'GET', path: url.pathname, actingSubject, ...(body !== undefined ? { body } : {}) });
+    this.calls.push({ method: request.method ?? 'GET', path: url.pathname, actingSubject, headers: request.headers, at: Date.now(), ...(body !== undefined ? { body, raw } : {}) });
     if (request.headers.authorization !== 'Bearer fixture-service-token') return fail(response, 401, 'UNAUTHENTICATED', 'bad token');
     const path = url.pathname;
     if (this.fail) return fail(response, 503, 'DEPENDENCY_UNAVAILABLE', 'Magnus unavailable');
@@ -287,14 +296,15 @@ export class FakeMagnusServer {
       const nodeId = match[1]!;
       const profiles = this.profiles.filter(item => item.nodeId === nodeId);
       return ok(response, { installed: true, version: profiles[0]?.installationVersion ?? '2.2.0', owner: 'operator', profiles, checkedAt: new Date().toISOString(),
-        nodeId, nodeName: `Node ${nodeId}`, hostname: `${nodeId}.example.com`, reachable: true, error: null, capabilities: { studio: this.studio.get(nodeId) ?? 2 } });
+        nodeId, nodeName: `Node ${nodeId}`, hostname: `${nodeId}.example.com`, reachable: true, error: null,
+        capabilities: { studio: this.studio.get(nodeId) ?? 2, ...(this.lineage.has(nodeId) ? { lineage: this.lineage.get(nodeId) } : {}) } });
     }
     match = /^\/api\/v1\/ardent\/installations\/([^/]+)\/profiles\/([^/]+)\/(.+)$/.exec(path);
     if (!match) return fail(response, 404, 'NOT_FOUND', 'No such route');
     const [, nodeId, profile, rest] = match as unknown as [string, string, string, string];
     const ref = `${nodeId}~${profile}`;
     const level = this.studio.get(nodeId) ?? 2;
-    if (request.method === 'POST' && rest === 'action') return this.action(response, ref, level, body ?? {}, actingSubject);
+    if (request.method === 'POST' && rest === 'action') return this.action(response, ref, level, body ?? {}, actingSubject, (this.lineage.get(nodeId) ?? 0) >= 1);
     if (request.method !== 'GET') return fail(response, 404, 'NOT_FOUND', 'No such route');
     if (rest === 'memory/status') return ok(response, { status: this.memory.get(ref) ?? 'ready', agent_id: ref, workspace_id: 'default', retrieval: null, storage: null, reason: null });
     if (rest === 'skills') return ok(response, { skills: this.skillMap.get(ref) ?? [] });
@@ -354,9 +364,13 @@ export class FakeMagnusServer {
     set.add(subscriber);
   }
 
-  private action(response: ServerResponse, ref: string, level: number, body: Record<string, unknown>, actingSubject: string | undefined): void {
+  private action(response: ServerResponse, ref: string, level: number, body: Record<string, unknown>, actingSubject: string | undefined, lineage = false): void {
     const action = String(body.action);
     const input = (body.body ?? {}) as Record<string, unknown>;
+    // Magnus's action request schemas are strict: before lineage (3.3.0) an `execution` field is refused.
+    const allowed = new Set(['action', 'target', 'body', ...(lineage && (action === 'task-submit' || action === 'mission-submit') ? ['execution'] : [])]);
+    const unknown = Object.keys(body).filter(key => !allowed.has(key));
+    if (unknown.length) return fail(response, 400, 'VALIDATION_ERROR', `Unrecognized key: "${unknown[0]}"`);
     const needs = (minimum: number) => level < minimum ? (fail(response, 409, 'AGENT_UPGRADE_REQUIRED', `Upgrade the Magnus agent on Node ${ref.split('~')[0]}`), true) : false;
     switch (action) {
       case 'session-open': {
@@ -371,8 +385,19 @@ export class FakeMagnusServer {
         if (action !== 'task-submit' && needs(2)) return;
         if (action === 'preview-submit' && !actingSubject) return fail(response, 403, 'ACTING_SUBJECT_REQUIRED', 'needs a person');
         if (this.failSubmissions > 0) { this.failSubmissions--; return fail(response, 503, 'DEPENDENCY_UNAVAILABLE', 'Ardent node unavailable'); }
+        if (this.retryAfterSubmissions.count > 0) {
+          this.retryAfterSubmissions.count--;
+          response.writeHead(503, { 'content-type': 'application/json', 'retry-after': String(this.retryAfterSubmissions.seconds) });
+          response.end(JSON.stringify({ success: false, error: { code: 'DEPENDENCY_UNAVAILABLE', message: 'Ardent node busy' } }));
+          return;
+        }
         const key = String(input.idempotency_key ?? randomUUID());
         const existing = [...this.tasks.values()].find(item => item.ref === ref && item.idempotency_key === key);
+        // Ardent hashes the task content into its idempotency check: the same key with other content is a conflict.
+        if (existing && JSON.stringify(existing.body) !== JSON.stringify(input)) {
+          this.conflicts++;
+          return fail(response, 409, 'CONFLICT', 'Idempotency key reused with different task content');
+        }
         if (existing) return ok(response, { task_id: existing.id, state: existing.state });
         const id = randomUUID();
         const task: FakeTask = { id, ref, context: action === 'mission-submit' ? 'mission' : action === 'preview-submit' ? 'preview' : 'direct',
@@ -380,6 +405,7 @@ export class FakeMagnusServer {
           state: 'queued', result: null, error: null, events: [], live: undefined };
         this.tasks.set(id, task);
         for (const waiter of this.waiters.splice(0)) waiter();
+        if (this.dropSubmitResponses > 0) { this.dropSubmitResponses--; response.socket?.destroy(); return; }
         return ok(response, { task_id: id, state: 'queued' });
       }
       case 'task-cancel': {

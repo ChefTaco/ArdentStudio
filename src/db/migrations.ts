@@ -576,4 +576,23 @@ CREATE INDEX team_proposals_project ON team_proposals (project_id, created_at);
 ALTER TABLE tasks ADD COLUMN progress_json TEXT;
 `,
   },
+  {
+    id: 7,
+    name: 'task_execution',
+    sql: `
+-- Execution ancestry (attribution only; nothing reads it to grant access): the task's execution
+-- context and its qualified root and parent references (docs/CONDUCTOR.md#execution-references).
+ALTER TABLE tasks ADD COLUMN execution_json TEXT;
+ALTER TABLE tasks ADD COLUMN root_ref TEXT;
+ALTER TABLE tasks ADD COLUMN parent_ref TEXT;
+-- The frozen submission: the exact Magnus action body of the first attempt, which every retry
+-- re-sends unchanged, and when the next attempt may start (epoch ms), so a restart keeps the backoff.
+ALTER TABLE tasks ADD COLUMN submit_payload_json TEXT;
+ALTER TABLE tasks ADD COLUMN submit_next_at INTEGER;
+-- Recovery: earlier Ardent task ids of this Studio task (continuations) and the last recovery state.
+ALTER TABLE tasks ADD COLUMN ardent_attempts_json TEXT;
+ALTER TABLE tasks ADD COLUMN recovery_json TEXT;
+CREATE INDEX tasks_root_ref ON tasks (root_ref);
+`,
+  },
 ];

@@ -38,6 +38,23 @@ describe('migrations', () => {
     db.close();
   });
 
+  it('add the task execution columns to an existing database without touching its rows', () => {
+    const db = new Database(':memory:');
+    migrate(db, MIGRATIONS.filter(item => item.id <= 6));
+    db.exec(`PRAGMA foreign_keys = OFF;
+      INSERT INTO tasks (id, project_id, title, mode, source_json, state, created_by, created_at, updated_at, ardent_agent_ref, ardent_task_id, submit_attempts)
+      VALUES ('tsk_old', 'prj_old', 'Old task', 'turn', '{"message_id":"msg_old"}', 'completed', 'operator', '2026-01-01', '2026-01-01', 'node1~lead',
+        '11111111-1111-4111-8111-111111111111', 2);`);
+    const before = db.prepare("SELECT * FROM tasks WHERE id = 'tsk_old'").get() as Record<string, unknown>;
+    expect(migrate(db).at(-1)).toBe(7);
+    const after = db.prepare("SELECT * FROM tasks WHERE id = 'tsk_old'").get() as Record<string, unknown>;
+    expect(after).toEqual({ ...before, execution_json: null, root_ref: null, parent_ref: null, submit_payload_json: null, submit_next_at: null,
+      ardent_attempts_json: null, recovery_json: null });
+    const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'tasks'").all() as Array<{ name: string }>).map(row => row.name);
+    expect(indexes).toContain('tasks_root_ref');
+    db.close();
+  });
+
   it('refuse an edited migration and a database from a newer version', () => {
     const db = new Database(':memory:');
     migrate(db);

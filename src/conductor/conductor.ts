@@ -3,24 +3,29 @@
 // agents request. It never runs model work, and everything it records comes from a person's
 // request or a real Ardent record. See docs/CONDUCTOR.md.
 import { createHash } from 'node:crypto';
+import { currentRequestId } from '@hivemagnus/hive-common/context';
+import { HiveError } from '@hivemagnus/hive-common/errors';
+import type { ExecutionContext } from '@hivemagnus/hive-common/execution';
+import { backoffDelay, retryAfterFromHeaders, type RetryPolicy } from '@hivemagnus/hive-common/retry';
 import { z } from 'zod';
 import { isAvailable, type AgentDirectory } from '../agents/directory.js';
-import { ARDENT_STUDIO_CAPABILITY, MagnusError, parseAgentRef, type ArdentContextItem, type ArdentTaskEvent, type ArdentTeamMission, type MagnusClient } from '../clients/magnus.js';
+import { ARDENT_LINEAGE_CAPABILITY, ARDENT_STUDIO_CAPABILITY, MagnusError, parseAgentRef, type ArdentContextItem, type ArdentTaskEvent, type ArdentTeamMission, type MagnusClient } from '../clients/magnus.js';
 import { ServiceTokenError } from '../clients/service-token.js';
 import type { BlobStore } from '../blobs/store.js';
 import { hivememProjectId, type Project } from '../db/repos/projects.js';
 import type { Conversation, Discussion, Message, MessageAuthor } from '../db/repos/room.js';
 import { sessionKey, type SessionContext } from '../db/repos/sessions.js';
-import { TERMINAL_TASK_STATES, type StudioTask, type TaskMode, type TaskState } from '../db/repos/tasks.js';
+import { TERMINAL_TASK_STATES, type FrozenSubmission, type StudioTask, type TaskMode, type TaskState } from '../db/repos/tasks.js';
 import type { TeamRevision } from '../db/repos/team.js';
 import type { Store } from '../db/store.js';
 import type { Logger } from '../logger.js';
 import { deriveActivity, excerpt, type ProbeResult } from './activity.js';
+import { submissionExecution, taskExecution } from './execution.js';
 import { ARDENT_FINISHED, TaskFollower, type DoneRecord, type FollowerOptions } from './follower.js';
 import type { LiveText } from './live.js';
 import { buildMission, composeTurn, HANDOFF_EDGES, type AttachmentText, type TeamRole } from './prompting.js';
 
-export type ConductorMagnus = Pick<MagnusClient, 'getInstallation' | 'openSession' | 'submitTask' | 'submitMission' | 'streamTask' | 'taskEvents' | 'task'
+export type ConductorMagnus = Pick<MagnusClient, 'getInstallation' | 'openSession' | 'prepareSubmission' | 'submitPrepared' | 'streamTask' | 'taskEvents' | 'task'
   | 'cancelTask' | 'pauseTask' | 'resumeTask'>;
 
 export interface ConductorOptions {
@@ -34,9 +39,15 @@ export interface ConductorOptions {
   presenceMs?: number;
   /** How long an agent shows Delivering after a verified deliverable revision. Default 20 s. */
   deliveringMs?: number;
-  /** First retry delay for a submission Magnus could not take. Doubles per attempt. Default 1 s. */
+  /** Base retry delay for a submission Magnus could not take: it doubles per attempt (full jitter). Default 1 s. */
   submitRetryMs?: number;
+  /** Upper bound of the submission retry delay. Default 60 s. */
+  submitRetryMaxMs?: number;
   maxSubmitAttempts?: number;
+  /** This Studio in qualified execution references (ARDENT_STUDIO_INSTANCE_ID). Default `local`. */
+  studioInstanceId?: string;
+  /** Random source for retry jitter (tests). */
+  random?: () => number;
   capabilityCacheMs?: number;
   follower?: FollowerOptions;
 }
@@ -72,6 +83,8 @@ interface SubmitPlan {
   prompt: string;
   mission: ArdentTeamMission | undefined;
   labels: Record<string, string>;
+  /** The node agent accepts `execution` in the action request (lineage >= 1). */
+  lineage: boolean;
 }
 
 export class ConductorError extends Error {
@@ -103,6 +116,16 @@ function transient(error: unknown): boolean {
   return !(error instanceof z.ZodError);
 }
 
+/** The wait a peer asked for with Retry-After, from a Magnus or HiveCommon error. */
+function retryAfterOf(error: unknown): number | undefined {
+  if (error instanceof MagnusError) return error.retryAfterMs;
+  if (HiveError.is(error) && error.headers) return retryAfterFromHeaders(error.headers);
+  return undefined;
+}
+
+/** The longest Retry-After a submission waits for; a longer one fails the task. */
+const MAX_SUBMIT_RETRY_AFTER_MS = 10 * 60_000;
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 300) : 'unknown error';
 }
@@ -121,8 +144,7 @@ interface TurnContext { project: Project; revision: TeamRevision; role: TeamRole
 export class Conductor {
   private readonly followers = new Map<string, TaskFollower>();
   private readonly submitting = new Set<string>();
-  private readonly retryAt = new Map<string, number>();
-  private readonly capabilities = new Map<string, { level: number; version: string | null; at: number }>();
+  private readonly capabilities = new Map<string, { level: number; lineage: number; version: string | null; at: number }>();
   /** Last presence probe per agent. Absent until probed. */
   private readonly presence = new Map<string, ProbeResult>();
   /** Re-derive an agent's activity when its Delivering window ends, per project and binding. */
@@ -133,14 +155,17 @@ export class Conductor {
   private pumping: Promise<void> | undefined;
   private pumpAgain = false;
   private retryTimer: NodeJS.Timeout | undefined;
+  private retryDue: number | undefined;
   private presenceTimer: NodeJS.Timeout | undefined;
   private stopped = false;
   private readonly store: Store;
   private readonly magnus: ConductorMagnus;
+  private readonly instance: string;
 
   constructor(private readonly options: ConductorOptions) {
     this.store = options.store;
     this.magnus = options.magnus;
+    this.instance = options.studioInstanceId ?? 'local';
   }
 
   /** Register a journal hook (for example the artifact importer). */
@@ -173,6 +198,8 @@ export class Conductor {
     this.stopped = true;
     if (this.presenceTimer) clearInterval(this.presenceTimer);
     if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    this.retryDue = undefined;
     for (const timer of this.deliveringTimers.values()) clearTimeout(timer);
     this.deliveringTimers.clear();
     await Promise.all([...this.followers.values()].map(follower => follower.stop()));
@@ -205,8 +232,14 @@ export class Conductor {
   private async pump(): Promise<void> {
     const now = Date.now();
     const ready: StudioTask[] = [];
+    let nextRetry: number | undefined;
     for (const task of this.store.tasks.unsubmitted()) {
-      if (this.submitting.has(task.id) || (this.retryAt.get(task.id) ?? 0) > now) continue;
+      if (this.submitting.has(task.id)) continue;
+      // A persisted backoff holds across restarts: the next attempt starts no earlier than submit_next_at.
+      if (task.submit_next_at !== null && task.submit_next_at > now) {
+        nextRetry = Math.min(nextRetry ?? task.submit_next_at, task.submit_next_at);
+        continue;
+      }
       const project = this.store.projects.get(task.project_id);
       if (!project || project.status !== 'active') continue;
       const conversation = task.conversation_id ? this.store.room.conversation(task.conversation_id) : undefined;
@@ -215,6 +248,7 @@ export class Conductor {
       if (ahead.length) { this.refreshActivity(task.project_id, task.binding_id); continue; }
       ready.push(task);
     }
+    if (nextRetry !== undefined) this.scheduleRetry(nextRetry - now);
     await Promise.all(ready.map(task => this.submit(task)));
   }
 
@@ -236,16 +270,16 @@ export class Conductor {
    * A failed or stale agent list never decides this, so a mission is not silently sent as a
    * plain task without its tools.
    */
-  private async capability(agentRef: string): Promise<{ level: number; missions: boolean }> {
+  private async capability(agentRef: string): Promise<{ level: number; missions: boolean; lineage: boolean }> {
     const { nodeId } = parseAgentRef(agentRef);
     let cached = this.capabilities.get(nodeId);
     if (!cached || Date.now() - cached.at >= (this.options.capabilityCacheMs ?? 60_000)) {
       const installation = await this.magnus.getInstallation(nodeId);
-      cached = { level: installation.capabilities?.studio ?? 0, version: installation.version, at: Date.now() };
+      cached = { level: installation.capabilities?.studio ?? 0, lineage: installation.capabilities?.lineage ?? 0, version: installation.version, at: Date.now() };
       this.capabilities.set(nodeId, cached);
     }
     const { level, version } = cached;
-    return { level, missions: level >= ARDENT_STUDIO_CAPABILITY.missions && versionAtLeast(version, [2, 2, 0]) };
+    return { level, missions: level >= ARDENT_STUDIO_CAPABILITY.missions && versionAtLeast(version, [2, 2, 0]), lineage: cached.lineage >= ARDENT_LINEAGE_CAPABILITY.execution };
   }
 
   /** A room turn: the role's agent under the task's team revision, with an Ardent session when the node supports one. */
@@ -253,7 +287,7 @@ export class Conductor {
     const resolved = this.resolve(task);
     if (typeof resolved === 'string') return resolved;
     const { project, revision, role, agentRef } = resolved;
-    const { level, missions } = await this.capability(agentRef);
+    const { level, missions, lineage } = await this.capability(agentRef);
     const conversationId = task.conversation_id ?? this.ensureTeamConversation(project.id, 'conductor').id;
     const context: SessionContext = missions ? 'mission' : 'direct';
     let session = level >= ARDENT_STUDIO_CAPABILITY.bridge ? this.store.sessions.get(conversationId, role.key, agentRef, context) : undefined;
@@ -267,7 +301,7 @@ export class Conductor {
       agentRef, dispatch: missions ? 'mission' : 'turn', session, seenSeq: turn.seenSeq,
       objective: turn.composed.objective, contextItems: turn.composed.contextItems, prompt: turn.composed.prompt,
       mission: missions ? buildMission({ task, project, team: revision.body, role, hivememProjectId: hivememProjectId(project.id), now: new Date() }) : undefined,
-      labels: { 'studio.project': project.id, 'studio.task': task.id, 'studio.conversation': conversationId, 'studio.role': role.key },
+      labels: { 'studio.project': project.id, 'studio.task': task.id, 'studio.conversation': conversationId, 'studio.role': role.key }, lineage,
     };
   }
 
@@ -277,41 +311,42 @@ export class Conductor {
     if (!project) return 'The project no longer exists.';
     const chosen = handler.agent(task);
     if ('error' in chosen) return chosen.error;
-    const { missions } = await this.capability(chosen.agentRef);
+    const { missions, lineage } = await this.capability(chosen.agentRef);
     const dispatch = missions ? 'mission' : 'turn';
     const request = handler.compose(task, { project, dispatch, now: new Date() });
     return {
       agentRef: chosen.agentRef, dispatch, session: undefined, seenSeq: 0, objective: request.objective, contextItems: request.contextItems,
       prompt: request.prompt, mission: missions ? request.mission : undefined,
-      labels: { 'studio.project': project.id, 'studio.task': task.id, 'studio.mode': task.mode },
+      labels: { 'studio.project': project.id, 'studio.task': task.id, 'studio.mode': task.mode }, lineage,
     };
   }
 
+  /**
+   * Submit a task. The first attempt plans the turn and freezes the exact Magnus action body (mission
+   * deadline and idempotency key included) in the task; every retry, also after a restart, sends that
+   * frozen body unchanged, so an attempt whose answer was lost is answered with the same Ardent task
+   * instead of an idempotency conflict.
+   */
   private async submit(task: StudioTask): Promise<void> {
     this.submitting.add(task.id);
+    let frozen = task.submit_payload;
     try {
-      const handler = this.modes.get(task.mode);
-      const plan = handler ? await this.planHandled(task, handler) : await this.planTurn(task);
-      if (typeof plan === 'string') { this.failTask(task, plan); return; }
-      const { agentRef, dispatch, session, mission } = plan;
-      let admission: { task_id: string; state: string };
-      if (mission) {
-        admission = await this.magnus.submitMission(agentRef, {
-          ...(session ? { session_id: session.session_id } : {}), objective: plan.objective, mission,
-          ...(plan.contextItems.length ? { context_items: plan.contextItems } : {}),
-          labels: plan.labels,
-          idempotency_key: task.id,
-        });
-      } else {
-        admission = await this.magnus.submitTask(agentRef, { prompt: plan.prompt, idempotency_key: ardentIdempotencyKey(task.id), ...(session ? { session_id: session.session_id } : {}) });
+      if (!frozen) {
+        const handler = this.modes.get(task.mode);
+        const plan = handler ? await this.planHandled(task, handler) : await this.planTurn(task);
+        if (typeof plan === 'string') { this.failTask(task, plan); return; }
+        frozen = this.freeze(task, plan);
       }
-      this.retryAt.delete(task.id);
+      const admission = await this.magnus.submitPrepared(frozen.agent_ref, frozen, { execution: frozen.execution ?? undefined });
+      const { agent_ref: agentRef, dispatch, session } = frozen;
+      const mission = frozen.action === 'mission-submit' ? (JSON.parse(frozen.request) as { body: { mission: ArdentTeamMission } }).body.mission : undefined;
       let accepted: StudioTask | undefined;
       this.store.tx(() => {
         const current = this.store.tasks.get(task.id)!;
+        this.store.tasks.setSubmitNextAt(task.id, null);
         accepted = this.store.tasks.attachArdent(task.id, { agentRef, taskId: admission.task_id, sessionId: session?.session_id ?? null, dispatch, ...(mission ? { mission } : {}) });
         if (current.state === 'queued' && admission.state === 'running') accepted = this.store.tasks.setState(task.id, 'running');
-        if (session) this.store.sessions.recordTurn(session, plan.seenSeq);
+        if (session) this.store.sessions.recordTurn(session, frozen!.seen_seq);
         this.store.emit(task.project_id, 'task.updated', this.taskEvent(accepted));
         this.refreshActivity(task.project_id, accepted.binding_id);
       });
@@ -325,11 +360,13 @@ export class Conductor {
     } catch (error) {
       if (transient(error)) {
         const attempts = this.store.tasks.countAttempt(task.id);
-        if (attempts < (this.options.maxSubmitAttempts ?? 5)) {
-          const wait = (this.options.submitRetryMs ?? 1_000) * 2 ** (attempts - 1);
-          this.retryAt.set(task.id, Date.now() + wait);
+        const wait = backoffDelay(attempts, this.retryPolicy(), {
+          retryAfterMs: retryAfterOf(error), deadlineMs: frozen?.deadline_ms ?? undefined, ...(this.options.random ? { random: this.options.random } : {}),
+        });
+        if (wait !== null) {
+          this.store.tasks.setSubmitNextAt(task.id, Date.now() + wait);
           this.scheduleRetry(wait);
-          this.options.logger.warn('Task submission failed; retrying', { task_id: task.id, attempts, error: errorText(error) });
+          this.options.logger.warn('Task submission failed; retrying', { task_id: task.id, attempts, retry_ms: wait, error: errorText(error) });
           return;
         }
       }
@@ -339,10 +376,61 @@ export class Conductor {
     }
   }
 
+  private retryPolicy(): RetryPolicy {
+    return { maxAttempts: this.options.maxSubmitAttempts ?? 5, baseMs: this.options.submitRetryMs ?? 1_000, maxMs: this.options.submitRetryMaxMs ?? 60_000,
+      jitter: 'full', maxRetryAfterMs: MAX_SUBMIT_RETRY_AFTER_MS };
+  }
+
+  /** Build the first attempt's exact action body and store it with the task's execution context. */
+  private freeze(task: StudioTask, plan: SubmitPlan): FrozenSubmission {
+    const { agentRef, dispatch, session, mission } = plan;
+    const deadlineMs = mission ? mission.deadline * 1000 : null;
+    const current = this.store.tasks.get(task.id) ?? task;
+    const base = current.execution ?? this.executionOf(current);
+    const execution = base ? submissionExecution(base, deadlineMs) : null;
+    const carried = plan.lineage && execution ? execution : undefined;
+    const prepared = mission
+      ? this.magnus.prepareSubmission({ action: 'mission-submit', body: {
+        ...(session ? { session_id: session.session_id } : {}), objective: plan.objective, mission,
+        ...(plan.contextItems.length ? { context_items: plan.contextItems } : {}),
+        labels: plan.labels,
+        idempotency_key: task.id,
+      } }, carried)
+      : this.magnus.prepareSubmission({ action: 'task-submit', body: { prompt: plan.prompt, idempotency_key: ardentIdempotencyKey(task.id), ...(session ? { session_id: session.session_id } : {}) } }, carried);
+    return this.store.tx(() => {
+      if (execution) this.store.tasks.setExecution(task.id, execution);
+      return this.store.tasks.freezeSubmission(task.id, {
+        v: 1, agent_ref: agentRef, dispatch, action: prepared.action, request: prepared.request,
+        session: session ? { conversation_id: session.conversation_id, role_key: session.role_key, agent_ref: session.agent_ref, context: session.context, session_id: session.session_id } : null,
+        seen_seq: plan.seenSeq, deadline_ms: deadlineMs, execution, frozen_at: this.store.clock.now().toISOString(),
+      }).submit_payload!;
+    });
+  }
+
+  /** The task's execution context from its Studio relationships (src/conductor/execution.ts). */
+  private executionOf(task: StudioTask): ExecutionContext | undefined {
+    const requestId = currentRequestId();
+    return taskExecution(task, {
+      instance: this.instance,
+      lookup: { task: id => this.store.tasks.get(id), discussionTurns: conversationId => this.store.tasks.inConversation(conversationId) },
+      ...(requestId ? { requestId } : {}),
+    });
+  }
+
+  /** Record a new task's execution context. Call inside the transaction that created it. */
+  private stamp(task: StudioTask): StudioTask {
+    const execution = this.executionOf(task);
+    return execution ? this.store.tasks.setExecution(task.id, execution) : task;
+  }
+
+  /** Run the dispatcher again in `ms`, unless it already will sooner. Each run reschedules for the earliest waiting task. */
   private scheduleRetry(ms: number): void {
     if (this.stopped) return;
+    const due = Date.now() + Math.max(0, ms);
+    if (this.retryTimer && this.retryDue !== undefined && this.retryDue <= due) return;
     if (this.retryTimer) clearTimeout(this.retryTimer);
-    this.retryTimer = setTimeout(() => { this.retryTimer = undefined; this.kick(); }, ms + 5);
+    this.retryDue = due;
+    this.retryTimer = setTimeout(() => { this.retryTimer = undefined; this.retryDue = undefined; this.kick(); }, Math.max(0, ms) + 5);
     this.retryTimer.unref();
   }
 
@@ -388,7 +476,6 @@ export class Conductor {
 
   /** A task that could not start: record why, in the task and in the room. */
   private failTask(task: StudioTask, reason: string): void {
-    this.retryAt.delete(task.id);
     this.store.tx(() => {
       const current = this.store.tasks.get(task.id);
       if (!current || FINISHED.includes(current.state)) return;
@@ -526,12 +613,12 @@ export class Conductor {
     if (!target.agent_ref) return refuse(`${target.name} has no bound agent in team r${revision.revision}, so Studio did not start it.`);
     const instructions = [request.data.objective, request.data.deliverables?.length ? `Deliverables: ${request.data.deliverables.join('; ')}` : '',
       request.data.note ? `Note from ${from}: ${request.data.note}` : ''].filter(Boolean).join('\n\n');
-    const created = this.store.tasks.create({
+    const created = this.stamp(this.store.tasks.create({
       projectId: task.project_id, title: excerpt(request.data.objective, 200), mode: 'assignment', roleKey: target.key,
       bindingId: target.binding_id ?? this.store.team.ensureBinding(target.agent_ref).id, assignmentRevision: revision.revision,
       source: { handoff_from: task.role_key, from_task: task.id, ardent_event_seq: event.sequence, relationship: edge.type },
       createdBy: 'conductor', conversationId, instructionsMd: instructions,
-    });
+    }));
     this.store.emit(task.project_id, 'task.created', this.taskEvent(created));
     const message = this.store.room.addMessage({ conversationId, author: this.agentAuthor(task), kind: 'handoff', addressees: [target.key],
       bodyMd: `Handed off to ${target.name}: ${request.data.objective}`, replyTo: task.trigger_message_id,
@@ -670,12 +757,12 @@ export class Conductor {
   queueTurns(input: { project: Project; revision: TeamRevision; conversation: Conversation; message: Message; roles: readonly TeamRole[]; createdBy: string; mode?: 'turn'; source?: Record<string, unknown> }): StudioTask[] {
     const groupId = `${input.message.id}:turns`;
     return input.roles.map((role, position) => {
-      const task = this.store.tasks.create({
+      const task = this.stamp(this.store.tasks.create({
         projectId: input.project.id, title: excerpt(input.message.body_md || 'Reply', 120), mode: input.mode ?? 'turn', roleKey: role.key,
         bindingId: role.binding_id ?? (role.agent_ref ? this.store.team.ensureBinding(role.agent_ref).id : null), assignmentRevision: input.revision.revision,
         source: { message_id: input.message.id, ...input.source }, createdBy: input.createdBy, conversationId: input.conversation.id,
         triggerMessageId: input.message.id, groupId: input.roles.length > 1 ? groupId : null, groupPosition: position,
-      });
+      }));
       this.store.emit(input.project.id, 'task.created', this.taskEvent(task));
       this.refreshActivity(input.project.id, task.binding_id);
       return task;
@@ -684,7 +771,7 @@ export class Conductor {
 
   /** Queue one task (an assignment, follow-up or answer). Call inside a transaction. */
   queueTask(input: Parameters<Store['tasks']['create']>[0]): StudioTask {
-    const task = this.store.tasks.create(input);
+    const task = this.stamp(this.store.tasks.create(input));
     this.store.emit(input.projectId, 'task.created', this.taskEvent(task));
     this.refreshActivity(input.projectId, task.binding_id);
     return task;

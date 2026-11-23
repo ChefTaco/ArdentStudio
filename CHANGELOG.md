@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- A submission whose answer was lost no longer fails with an Ardent idempotency conflict when it is retried, also
+  after a restart. The first attempt freezes the exact Magnus action body, including the mission deadline, in the
+  task, and every retry re-sends it byte for byte instead of re-planning the turn with a fresh deadline and the
+  room's newer messages.
+- The submission backoff survives a restart: the time of the next attempt is stored, so a restart inside a backoff
+  window waits for it instead of retrying at once.
+
+### Changed
+
+- Submission retries use HiveCommon `backoffDelay` (1 s base, 60 s cap, full jitter), wait at least as long as a
+  Magnus `Retry-After` (up to 10 minutes) and stop at the mission deadline. Attempts are still capped at five, and
+  a task that runs out of attempts still fails with a room message.
+- `@hivemagnus/hive-common` ^0.6.0 (was ^0.5.0).
+
+### Added
+
+- Execution references (HiveCommon execution context v1, attribution only): every task records its root, parent
+  and self references for requests, groups, hand-offs (with the source's Ardent task as an input), reassignments,
+  discussion turns and assignment revisions (see [docs/CONDUCTOR.md](docs/CONDUCTOR.md#execution-references)).
+  Migration 7 adds the task columns (`execution_json`, `root_ref`, `parent_ref`, `submit_payload_json`,
+  `submit_next_at`, `ardent_attempts_json`, `recovery_json`) and an index on `root_ref`; existing rows are
+  unchanged. `ardent_attempts_json` and `recovery_json` are reserved for Ardent recovery and not written yet.
+- `ARDENT_STUDIO_INSTANCE_ID` names this Studio in those references (default `local`).
+- Every Magnus call carries `x-request-id` and `traceparent`, and a submission its task's context in
+  `x-hive-execution`. The context also goes in the action request's top-level `execution` field when the node agent
+  reports `capabilities.lineage` >= 1 (Magnus 3.3.0); older Magnus gets no such field.
+
 ## [0.4.3] - 2026-11-17
 
 ### Changed
