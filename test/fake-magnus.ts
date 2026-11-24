@@ -13,7 +13,14 @@ export interface FakeTask {
   idempotency_key: string; state: string; result: string | null; error: string | null;
   events: Array<{ sequence: number; task_id: string; kind: string; detail?: unknown; created_ms: number }>;
   live: { step: number; text: string } | undefined;
+  /** Ardent 3.2.0 recovery (C3), when the task was interrupted. */
+  recovery?: Record<string, unknown> | undefined;
+  /** The task this one continues after a recovery decision. */
+  continuation_of?: string | undefined;
 }
+
+/** Per-profile runtime levels a Magnus 3.3.0 node agent (studio 4) reports. */
+export interface FakeRuntime { recovery: number; lineage: number; artifact_transfer: number; version?: string }
 
 interface Subscriber { send: (event: string, data: unknown, id?: number) => void; end: () => void }
 
@@ -29,7 +36,8 @@ const json = (response: ServerResponse, status: number, body: unknown) => {
   response.end(JSON.stringify(body));
 };
 const ok = (response: ServerResponse, data: unknown, status = 200) => json(response, status, { success: true, data });
-const fail = (response: ServerResponse, status: number, code: string, message: string) => json(response, status, { success: false, error: { code, message } });
+const fail = (response: ServerResponse, status: number, code: string, message: string, details?: unknown) =>
+  json(response, status, { success: false, error: { code, message, ...(details !== undefined ? { details } : {}) } });
 
 export class FakeMagnusServer {
   profiles: MagnusArdentProfile[] = [fakeProfile('node1', 'lead'), fakeProfile('node1', 'scout'), fakeProfile('node2', 'mapper')];
@@ -47,6 +55,16 @@ export class FakeMagnusServer {
   calls: Array<{ method: string; path: string; actingSubject: string | undefined; body?: unknown; raw?: string | undefined; headers: IncomingMessage['headers']; at: number }> = [];
   /** Node agent lineage level per node (absent: the node reports none, as Magnus before 3.3.0). */
   lineage = new Map<string, number>();
+  /** Per-profile runtime levels by agent ref (absent: the profile reports none, as node agents before studio 4). */
+  runtime = new Map<string, FakeRuntime>();
+  /** Renditions Ardent lists per artifact digest (the original first). */
+  renditions = new Map<string, Array<Record<string, unknown>>>();
+  /** Serve this many bytes of a content read, then hold the connection open (a transfer that stalls). */
+  contentStall = new Map<string, number>();
+  /** Ignore Range on content reads and always answer 200 with the whole artifact. */
+  ignoreRanges = false;
+  /** Decisions the task-recovery action received. */
+  recoveryDecisions: Array<{ ref: string; target: string; body: Record<string, unknown> }> = [];
   /** Accept the submission but drop the connection before answering, the next n times (an answer lost in transit). */
   dropSubmitResponses = 0;
   /** Answer the next n submissions with 503 and this Retry-After (seconds). */
@@ -157,7 +175,7 @@ export class FakeMagnusServer {
     task.error = final.error ?? null;
     task.live = undefined;
     if (['completed', 'partial', 'failed', 'cancelled', 'unknown'].includes(final.state)) {
-      for (const subscriber of this.subscribers.get(taskId) ?? []) { subscriber.send('task.done', this.record(task)); subscriber.end(); }
+      for (const subscriber of this.subscribers.get(taskId) ?? []) { subscriber.send('task.done', this.doneRecord(task)); subscriber.end(); }
     }
   }
 
@@ -168,6 +186,55 @@ export class FakeMagnusServer {
 
   openStreams(taskId: string): number {
     return this.subscribers.get(taskId)?.size ?? 0;
+  }
+
+  /** A profile on a Magnus 3.3.0 node agent with Ardent 3.2.0 runtime contracts. */
+  enableRuntime(ref: string, levels: Partial<FakeRuntime> = {}): void {
+    this.studio.set(ref.split('~')[0]!, 4);
+    this.runtime.set(ref, { recovery: 1, lineage: 1, artifact_transfer: 2, version: '3.2.0', ...levels });
+  }
+
+  /**
+   * Ardent restarted and holds the task for a decision: unknown with a recovery awaiting one, journaled
+   * as recovery_held. The task.done record carries no recovery (Ardent's stream sends the stored row).
+   */
+  hold(taskId: string, recovery: Partial<Record<string, unknown>> = {}): void {
+    const task = this.tasks.get(taskId)!;
+    task.recovery = { status: 'awaiting_decision', reason: { code: 'UNSETTLED_EXTERNAL_WRITE', message: 'A write to an external system may or may not have been applied.' },
+      attempt: 1, checkpoint: { step: 2, completed_calls: 1, pending_calls: [{ call_id: 'call_1', tool: 'http_post', effect: 'external_write', dispatched_at: new Date().toISOString(), reconcilable: false }] },
+      actions: ['mark_applied', 'mark_not_applied', 'retry_with_new_deadline', 'abandon'], ...recovery };
+    this.event(taskId, 'recovery_held', { status: task.recovery.status, reason: task.recovery.reason, attempt: 1 });
+    this.finish(taskId, { state: 'unknown', error: 'Interrupted during execution: A write to an external system may or may not have been applied.' });
+  }
+
+  /** Ardent restarted and continues the task under the same id (recovery resumed). */
+  resumeSameId(taskId: string): void {
+    const task = this.tasks.get(taskId)!;
+    task.recovery = { status: 'resumed', reason: { code: 'INTERRUPTED', message: 'Ardent restarted while the task ran.' }, attempt: 2, actions: [] };
+    this.event(taskId, 'recovery_planned', { status: 'ready', attempt: 2 });
+  }
+
+  /** A decision made outside Studio (the Magnus console): the held task continues as a new task. */
+  continueElsewhere(taskId: string, action = 'mark_not_applied'): FakeTask {
+    return this.decide(this.tasks.get(taskId)!, { action })!;
+  }
+
+  private decide(task: FakeTask, body: Record<string, unknown>): FakeTask | undefined {
+    const recovery = task.recovery!;
+    const decided = { action: body.action, by: 'operator', at: new Date().toISOString(), ...(body.note ? { note: body.note } : {}) };
+    if (body.action === 'abandon') {
+      task.recovery = { ...recovery, status: 'resolved', actions: [], decided };
+      this.event(task.id, 'recovery_decided', { action: body.action, continued: false });
+      return undefined;
+    }
+    const id = randomUUID();
+    const continuation: FakeTask = { ...task, id, idempotency_key: `recovery:${task.id}:2`, state: 'running', result: null, error: null, events: [], live: undefined,
+      recovery: undefined, continuation_of: task.id };
+    this.tasks.set(id, continuation);
+    this.event(id, 'recovery_continuation_of', { task_id: task.id, attempt: 2, action: body.action });
+    task.recovery = { ...recovery, status: 'resolved', actions: [], continuation_task_id: id, decided };
+    this.event(task.id, 'recovery_continued', { continuation_task_id: id, attempt: 2, action: body.action });
+    return continuation;
   }
 
   addArtifact(bytes: Uint8Array, mime: string): string {
@@ -246,7 +313,24 @@ export class FakeMagnusServer {
   record(task: FakeTask) {
     return { id: task.id, caller: 'management', context: task.context, session_id: task.session_id, prompt: task.prompt, content_hash: 'x',
       idempotency_key: task.idempotency_key, backend: 'llamacpp', state: task.state, result: task.result, error: task.error,
-      deadline_ms: 0, created_ms: 0, updated_ms: 0 };
+      deadline_ms: 0, created_ms: 0, updated_ms: 0, ...(task.recovery ? { recovery: task.recovery } : {}) };
+  }
+
+  /** The task.done record: Ardent's stream sends the stored row, without the recovery view. */
+  doneRecord(task: FakeTask) {
+    const { recovery: _recovery, ...record } = this.record(task) as ReturnType<FakeMagnusServer['record']> & { recovery?: unknown };
+    return record;
+  }
+
+  /** The runtime gate Magnus 3.3.0 applies to a route or action: the refusal, or undefined. */
+  private runtimeRefusal(ref: string, name: keyof FakeRuntime, level: number): [number, string, string, unknown?] | undefined {
+    if ((this.studio.get(ref.split('~')[0]!) ?? 2) < 4) return [409, 'AGENT_UPGRADE_REQUIRED', `Upgrade the Magnus agent on Node ${ref.split('~')[0]}`];
+    const have = Number(this.runtime.get(ref)?.[name] ?? 0);
+    if (have < level) {
+      const capability = name === 'recovery' ? 'ardent.recovery.v1' : name === 'lineage' ? 'ardent.lineage.v1' : 'artifact-transfer.v2';
+      return [409, 'unsupported_capability', `The profile does not support ${capability}`, { capability, required_version: '3.2.0', installed_version: this.runtime.get(ref)?.version ?? '3.1.4' }];
+    }
+    return undefined;
   }
 
   // ── HTTP ──
@@ -294,7 +378,10 @@ export class FakeMagnusServer {
     let match = /^\/api\/v1\/ardent\/installations\/([^/]+)$/.exec(path);
     if (request.method === 'GET' && match) {
       const nodeId = match[1]!;
-      const profiles = this.profiles.filter(item => item.nodeId === nodeId);
+      const profiles = this.profiles.filter(item => item.nodeId === nodeId).map(item => {
+        const runtime = this.runtime.get(`${nodeId}~${item.id}`);
+        return runtime ? { ...item, version: runtime.version ?? '3.2.0', capabilities: { recovery: runtime.recovery, lineage: runtime.lineage, artifact_transfer: runtime.artifact_transfer } } : item;
+      });
       return ok(response, { installed: true, version: profiles[0]?.installationVersion ?? '2.2.0', owner: 'operator', profiles, checkedAt: new Date().toISOString(),
         nodeId, nodeName: `Node ${nodeId}`, hostname: `${nodeId}.example.com`, reachable: true, error: null,
         capabilities: { studio: this.studio.get(nodeId) ?? 2, ...(this.lineage.has(nodeId) ? { lineage: this.lineage.get(nodeId) } : {}) } });
@@ -326,6 +413,28 @@ export class FakeMagnusServer {
       const page = records.slice(start, start + limit);
       return ok(response, { records: page, next: start + limit < records.length ? String(page.at(-1)!.id) : null });
     }
+    match = /^artifacts\/([a-f0-9]{64})\/(content|renditions)$/.exec(rest);
+    if (match) {
+      const refusal = this.runtimeRefusal(ref, 'artifact_transfer', 2);
+      if (refusal) return fail(response, refusal[0], refusal[1], refusal[2], refusal[3]);
+      const artifact = this.artifacts.get(match[1]!);
+      if (!artifact) return fail(response, 404, 'NOT_FOUND', 'Ardent resource not found');
+      if (match[2] === 'renditions') return ok(response, { renditions: this.renditions.get(match[1]!) ?? [{ sha256: match[1], role: 'original', mime: artifact.mime, size: artifact.bytes.byteLength, purpose: 'download' }] });
+      return this.content(request, response, match[1]!, this.artifactOverride.get(match[1]!) ?? artifact.bytes, artifact.mime);
+    }
+    match = /^tasks\/([0-9a-f-]{36})\/(recovery|lineage)$/.exec(rest);
+    if (match) {
+      const refusal = this.runtimeRefusal(ref, match[2] === 'recovery' ? 'recovery' : 'lineage', 1);
+      if (refusal) return fail(response, refusal[0], refusal[1], refusal[2], refusal[3]);
+      const task = this.tasks.get(match[1]!);
+      if (!task) return fail(response, 404, 'NOT_FOUND', 'Ardent task not found');
+      if (match[2] === 'recovery') return task.recovery ? ok(response, task.recovery) : fail(response, 404, 'NOT_FOUND', 'Task was never interrupted; it has no recovery');
+      const continuations = [...this.tasks.values()].filter(item => item.continuation_of === task.id)
+        .map(item => ({ ref: `hx1:ardent:${ref.replace('~', '.')}:task:${item.id}`, local_task_id: item.id, source: 'continuation', created_ms: 1 }));
+      return ok(response, { task_id: task.id, source: task.continuation_of ? 'continuation' : 'management', children: [], continuations,
+        model_attempts: [{ step: 1, attempt: 1, backend: 'llamacpp', request_id: `req-${task.id.slice(0, 8)}`, ref: null, started_ms: 1, usage: null }],
+        tools: [], artifacts: [], ...(task.continuation_of ? { parent: { ref: `hx1:ardent:${ref.replace('~', '.')}:task:${task.continuation_of}`, local_task_id: task.continuation_of } } : {}) });
+    }
     match = /^artifacts\/([a-f0-9]{64})$/.exec(rest);
     if (match) {
       const artifact = this.artifacts.get(match[1]!);
@@ -348,6 +457,37 @@ export class FakeMagnusServer {
     return fail(response, 404, 'NOT_FOUND', 'No such resource');
   }
 
+  /** Artifact transfer v2 content: Range and If-Range, ETag, Repr-Digest and X-Content-SHA256, as Magnus 3.3.0 relays them. */
+  private content(request: IncomingMessage, response: ServerResponse, sha256: string, bytes: Uint8Array, mime: string): void {
+    const size = bytes.byteLength;
+    const etag = `"${sha256}"`;
+    const headers: Record<string, string> = { 'content-type': mime, 'accept-ranges': 'bytes', etag, 'x-content-sha256': sha256,
+      'repr-digest': `sha-256=:${createHash('sha256').update(bytes).digest('base64')}:`, 'content-disposition': 'attachment; filename="artifact"' };
+    const range = /^bytes=(\d+)-$/.exec(String(request.headers.range ?? ''));
+    const ifRange = request.headers['if-range'];
+    let start = 0;
+    let status = 200;
+    if (range && !this.ignoreRanges && (ifRange === undefined || ifRange === etag)) {
+      start = Number(range[1]);
+      if (start >= size) {
+        response.writeHead(416, { ...headers, 'content-range': `bytes */${size}`, 'content-type': 'application/json' });
+        response.end(JSON.stringify({ success: false, error: { code: 'RANGE_NOT_SATISFIABLE', message: 'Range not satisfiable' } }));
+        return;
+      }
+      status = 206;
+      headers['content-range'] = `bytes ${start}-${size - 1}/${size}`;
+    }
+    headers['content-length'] = String(size - start);
+    response.writeHead(status, headers);
+    const stall = this.contentStall.get(sha256);
+    if (stall !== undefined && start < stall) {
+      // Send up to the stall point, then hold the connection until the client goes away.
+      response.write(Buffer.from(bytes.subarray(start, stall)));
+      return;
+    }
+    response.end(Buffer.from(bytes.subarray(start)));
+  }
+
   private stream(request: IncomingMessage, response: ServerResponse, task: FakeTask, after: number): void {
     if (this.failStreams) return fail(response, 503, 'DEPENDENCY_UNAVAILABLE', 'Ardent stream unavailable');
     this.streamsOpened++;
@@ -360,7 +500,7 @@ export class FakeMagnusServer {
     request.on('close', () => { set.delete(subscriber); clearTimeout(limit); });
     if (task.live) send('task.text', task.live);
     for (const event of task.events.filter(item => item.sequence > after)) send('task.event', event, event.sequence);
-    if (['completed', 'partial', 'failed', 'cancelled', 'unknown'].includes(task.state)) { send('task.done', this.record(task)); subscriber.end(); return; }
+    if (['completed', 'partial', 'failed', 'cancelled', 'unknown'].includes(task.state)) { send('task.done', this.doneRecord(task)); subscriber.end(); return; }
     set.add(subscriber);
   }
 
@@ -413,6 +553,24 @@ export class FakeMagnusServer {
         if (!task) return fail(response, 404, 'NOT_FOUND', 'Ardent task not found');
         if (!['completed', 'partial', 'failed', 'cancelled', 'unknown'].includes(task.state)) this.finish(task.id, { state: 'cancelled', error: 'Cancelled by the operator' });
         return ok(response, this.record(task));
+      }
+      case 'task-recovery': {
+        const refusal = this.runtimeRefusal(ref, 'recovery', 1);
+        if (refusal) return fail(response, refusal[0], refusal[1], refusal[2], refusal[3]);
+        const task = this.tasks.get(String(body.target));
+        if (!task) return fail(response, 404, 'NOT_FOUND', 'Ardent task not found');
+        this.recoveryDecisions.push({ ref, target: String(body.target), body: input });
+        const recovery = task.recovery;
+        if (!recovery) return fail(response, 409, 'CONFLICT', 'Task has no recovery to decide');
+        const decided = recovery.decided as { action?: string } | undefined;
+        if (recovery.status === 'resolved' && decided) {
+          if (decided.action !== input.action) return fail(response, 409, 'CONFLICT', `Recovery was already decided: ${decided.action}`);
+          return ok(response, recovery);
+        }
+        if (recovery.status !== 'awaiting_decision') return fail(response, 409, 'CONFLICT', `Recovery is ${String(recovery.status)}; no decision is valid`);
+        if (!(recovery.actions as string[]).includes(String(input.action))) return fail(response, 409, 'CONFLICT', `${String(input.action)} is not valid now`);
+        this.decide(task, input);
+        return ok(response, task.recovery);
       }
       case 'task-pause': case 'task-resume': {
         if (needs(2)) return;

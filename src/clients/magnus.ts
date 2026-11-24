@@ -15,6 +15,12 @@
 // (Magnus 3.3.0) accepts an optional top-level `execution` (HiveCommon execution context v1) next to
 // `action` and `body` on task-submit and mission-submit; older Magnus refuses unknown fields there.
 //
+// Magnus 3.3.0 node agents (studio 4) also report per-profile runtime levels in the installation report:
+// `recovery` >= 1 (tasks/{id}/recovery and the task-recovery action), `lineage` >= 1 (tasks/{id}/lineage)
+// and `artifact_transfer` >= 2 (artifacts/{sha256}/content with Range, renditions, manifest/v2). A profile
+// below a level answers 409 unsupported_capability with { capability, required_version, installed_version }.
+// Those answers are validated with the local schemas below until a magnus-contracts release carries them.
+//
 // Every call carries x-request-id and traceparent (the current request's, or new ones for background
 // work) and, when the call belongs to a task, x-hive-execution. Magnus ignores headers it does not know.
 import { formatTraceparent, generateRequestId, generateTraceparent, HIVE_HEADERS, outboundHeaders } from '@hivemagnus/hive-common/context';
@@ -69,11 +75,26 @@ export class MagnusError extends Error {
   override name = 'MagnusError';
   /** The wait Magnus asked for with Retry-After, in milliseconds, when it sent one. */
   readonly retryAfterMs: number | undefined;
-  constructor(message: string, readonly status: number, readonly code: string, options: { retryAfterMs?: number | undefined } = {}) {
+  /** error.details of the answer (for unsupported_capability: capability, required_version, installed_version). */
+  readonly details: unknown;
+  constructor(message: string, readonly status: number, readonly code: string, options: { retryAfterMs?: number | undefined; details?: unknown } = {}) {
     super(message);
     this.retryAfterMs = options.retryAfterMs;
+    this.details = options.details;
   }
 }
+
+/** The 409 code of a profile that lacks a runtime capability a route or action needs (Magnus 3.3.0). */
+export const ARDENT_UNSUPPORTED_CAPABILITY = 'unsupported_capability';
+export const ardentUnsupportedCapabilityDetailsSchema = z.object({
+  capability: z.string(), required_version: z.string(), installed_version: z.string().nullable(),
+}).loose();
+
+/** The per-profile runtime levels Studio needs: recovery and lineage reads, and artifact transfer v2. */
+export const ARDENT_RUNTIME_LEVELS = { recovery: 1, lineage: 1, artifact_transfer: 2 } as const;
+export type ArdentRuntimeCapability = keyof typeof ARDENT_RUNTIME_LEVELS;
+/** What one profile offers through Magnus. Levels a node agent does not report are 0. */
+export interface ArdentProfileRuntime { studio: number; version: string | null; recovery: number; lineage: number; artifact_transfer: number }
 
 /** The lineage level from which a node agent accepts `execution` on task-submit and mission-submit. */
 export const ARDENT_LINEAGE_CAPABILITY = { execution: 1 } as const;
@@ -115,7 +136,14 @@ export const magnusArdentInstallationSchema = z.object({
   installed: z.boolean(),
   version: z.string().nullable(),
   owner: z.string(),
-  profiles: z.array(ardentServiceProfileSchema.pick({ id: true, name: true, backend: true, apiPort: true, running: true, a2aEnabled: true, channels: true, error: true })),
+  profiles: z.array(ardentServiceProfileSchema.pick({ id: true, name: true, backend: true, apiPort: true, running: true, a2aEnabled: true, channels: true, error: true }).extend({
+    /** The Ardent version the profile runs (studio >= 4). */
+    version: z.string().nullable().optional(),
+    /** The profile's runtime levels, capped by the node agent (studio >= 4). Absent on older agents, which means 0. */
+    capabilities: z.object({
+      recovery: z.number().int().min(0).optional(), lineage: z.number().int().min(0).optional(), artifact_transfer: z.number().int().min(0).optional(),
+    }).loose().optional(),
+  })),
   checkedAt: z.string(),
   nodeId: z.string(),
   nodeName: z.string(),
@@ -137,7 +165,64 @@ export const ardentTaskSchema = z.object({
   id: z.string(), caller: z.string(), context: z.string(), session_id: z.string().nullable(), prompt: z.string(), content_hash: z.string(),
   idempotency_key: z.string().nullable(), backend: z.string(), state: ardentTaskStateSchema, result: z.string().nullable(), error: z.string().nullable(),
   deadline_ms: z.number(), created_ms: z.number(), updated_ms: z.number(),
+  /** Ardent 3.2.0: the task's execution recovery when it was ever interrupted (validated by ardentTaskRecoverySchema where it is used). */
+  recovery: z.unknown().optional(),
 });
+
+// Ardent 3.2.0 runtime contracts (C3, lineage and artifact transfer v2), as Magnus 3.3.0 relays them.
+export const ARDENT_RECOVERY_ACTIONS = ['mark_applied', 'mark_not_applied', 'retry_with_new_deadline', 'abandon'] as const;
+export const ardentRecoveryActionSchema = z.enum(ARDENT_RECOVERY_ACTIONS);
+export type ArdentRecoveryAction = z.infer<typeof ardentRecoveryActionSchema>;
+export const ARDENT_RECOVERY_STATUSES = ['ready', 'reconciling', 'resumed', 'awaiting_decision', 'unsupported', 'resolved'] as const;
+/** A task's execution recovery (C3). Fields Ardent may add are kept. */
+export const ardentTaskRecoverySchema = z.object({
+  status: z.enum(ARDENT_RECOVERY_STATUSES),
+  reason: z.object({ code: z.string().max(128), message: z.string().max(2000) }),
+  attempt: z.number().int().min(1),
+  checkpoint: z.object({
+    step: z.number().int(), completed_calls: z.number().int().min(0),
+    pending_calls: z.array(z.object({ call_id: z.string(), tool: z.string(), effect: z.string(), dispatched_at: z.string().nullable(), reconcilable: z.boolean() }).loose()).max(256),
+  }).loose().optional(),
+  actions: z.array(ardentRecoveryActionSchema),
+  continuation_task_id: z.string().optional(),
+  decided: z.object({ action: ardentRecoveryActionSchema, by: z.string(), at: z.string(), note: z.string().optional() }).loose().optional(),
+}).loose();
+export type ArdentTaskRecovery = z.infer<typeof ardentTaskRecoverySchema>;
+/** The task-recovery action body: a decision on a task held awaiting_decision. result (mark_applied) is at most 64 KiB. */
+export const ardentTaskRecoveryDecisionSchema = z.object({
+  action: ardentRecoveryActionSchema,
+  call_id: z.string().min(1).max(256).optional(),
+  result: z.unknown().optional().refine(value => value === undefined || new TextEncoder().encode(JSON.stringify(value) ?? '').length <= 64 * 1024, 'Exceeds 65536 bytes'),
+  note: z.string().min(1).max(2000).optional(),
+  deadline_seconds: z.number().int().min(1).max(86_400).optional(),
+}).strict();
+export type ArdentTaskRecoveryDecision = z.infer<typeof ardentTaskRecoveryDecisionSchema>;
+/** GET tasks/{id}/lineage: what the profile knows about a task's causal tree. Relayed as-is; only its frame is checked. */
+export const ardentTaskLineageSchema = z.object({
+  task_id: z.string(),
+  continuations: z.array(z.object({ ref: z.string(), local_task_id: z.string() }).loose()).optional(),
+}).loose();
+export type ArdentTaskLineage = z.infer<typeof ardentTaskLineageSchema>;
+/** GET artifacts/{sha256}/renditions: the original first. */
+export const ardentArtifactRenditionSchema = z.object({
+  sha256: z.string().regex(/^[a-f0-9]{64}$/), role: z.string().min(1).max(64), mime: z.string().min(1).max(200), size: z.number().int().min(0),
+  purpose: z.string().max(64).optional(), width: z.number().int().min(0).optional(), height: z.number().int().min(0).optional(), has_alpha: z.boolean().optional(),
+}).loose();
+export type ArdentArtifactRendition = z.infer<typeof ardentArtifactRenditionSchema>;
+export const ardentArtifactRenditionsSchema = z.object({ renditions: z.array(ardentArtifactRenditionSchema).max(64) }).loose();
+
+/** One read of artifact transfer v2 content: the status, the bytes and what the headers say about them. */
+export interface ArtifactContent {
+  status: 200 | 206;
+  body: ReadableStream<Uint8Array>;
+  /** First byte of the body in the artifact (0 for a 200). */
+  start: number;
+  /** The artifact's whole size when Magnus said it (Content-Range total, or Content-Length of a 200). */
+  total: number | undefined;
+  /** X-Content-SHA256 (or the ETag digest) when sent. */
+  sha256: string | undefined;
+  mime: string | undefined;
+}
 export const ardentStatusSchema = z.object({ version: z.string(), profile: z.string(), backend: z.string(), tasks: z.number().int() });
 export const ardentMemoryStatusSchema = z.object({
   status: z.enum(['ready', 'degraded']), agent_id: z.string(), workspace_id: z.string(),
@@ -150,7 +235,9 @@ export type ArdentResource =
   | 'status' | 'profile' | 'skills' | 'memory/status' | 'sessions' | `sessions/${string}/messages`
   | 'tasks' | `tasks/${string}` | `tasks/${string}/events` | 'identity/soul' | 'identity/identity' | 'config'
   // studio >= 2
-  | `tasks/${string}/artifacts` | `artifacts/${string}/manifest` | 'development';
+  | `tasks/${string}/artifacts` | `artifacts/${string}/manifest` | 'development'
+  // studio >= 4 with the profile's runtime level (ARDENT_RUNTIME_LEVELS)
+  | `tasks/${string}/recovery` | `tasks/${string}/lineage` | `artifacts/${string}/renditions`;
 
 /** Actions released Magnus accepts on POST …/action (an ADMIN person; a service identity gets the Studio subset below). */
 export const RELEASED_ACTIONS = ['profile-create', 'config-validate', 'config-save', 'peer-validate', 'peer-save', 'identity-save', 'identity-restore',
@@ -161,7 +248,9 @@ export const RELEASED_ACTIONS = ['profile-create', 'config-validate', 'config-sa
  * Magnus with a HiveSkills registry, the others studio >= 2 and Ardent 2.2.0.
  */
 export const STUDIO_ACTIONS = ['session-open', 'mission-submit', 'task-pause', 'task-resume', 'preview-submit', 'development-note', 'skill-install'] as const;
-export type MagnusArdentAction = typeof RELEASED_ACTIONS[number] | typeof STUDIO_ACTIONS[number];
+/** Actions of the Ardent 3.2.0 runtime contracts (Magnus 3.3.0, studio >= 4): task-recovery needs the profile's recovery >= 1. */
+export const RUNTIME_ACTIONS = ['task-recovery'] as const;
+export type MagnusArdentAction = typeof RELEASED_ACTIONS[number] | typeof STUDIO_ACTIONS[number] | typeof RUNTIME_ACTIONS[number];
 /** A configuration value a service's config-save may change (ARDENT_SERVICE_CONFIG_PATHS); anything else answers 403 CONFIG_PATH_FORBIDDEN. */
 export type ArdentServiceConfigPath = typeof ARDENT_SERVICE_CONFIG_PATHS[number];
 /**
@@ -198,7 +287,7 @@ export interface MagnusClientOptions {
 }
 
 const envelope = z.object({ success: z.literal(true), data: z.unknown() });
-const failure = z.object({ success: z.literal(false), error: z.object({ code: z.string(), message: z.string() }) });
+const failure = z.object({ success: z.literal(false), error: z.object({ code: z.string(), message: z.string(), details: z.unknown().optional() }) });
 
 export class MagnusClient {
   private readonly request: typeof fetch;
@@ -339,6 +428,67 @@ export class MagnusClient {
     return ardentConfigSavedSchema.parse(await this.action(ref, 'config-save', { body: validated(ardentConfigEditSchema, body, 'config-save') }, context));
   }
 
+  // ── Ardent 3.2.0 runtime contracts (Magnus 3.3.0) ──
+
+  /** A profile's runtime levels from its node's installation report. Levels the node agent does not report are 0. */
+  async runtime(ref: string, context: CallContext = {}): Promise<ArdentProfileRuntime> {
+    const { nodeId, profile } = parseAgentRef(ref);
+    const installation = await this.getInstallation(nodeId, context);
+    const entry = installation.profiles.find(item => item.id === profile);
+    const level = (name: ArdentRuntimeCapability) => entry?.capabilities?.[name] ?? 0;
+    return { studio: installation.capabilities?.studio ?? 0, version: entry?.version ?? installation.version, recovery: level('recovery'),
+      lineage: level('lineage'), artifact_transfer: level('artifact_transfer') };
+  }
+
+  /** A task's execution recovery. recovery >= 1; Magnus answers 404 when the task was never interrupted. */
+  async taskRecovery(ref: string, taskId: string, context: CallContext = {}): Promise<ArdentTaskRecovery> {
+    return ardentTaskRecoverySchema.parse(await this.resource(ref, `tasks/${uuid(taskId)}/recovery`, context));
+  }
+
+  /** Decide a task Ardent holds awaiting_decision (action task-recovery). Answers the recovery; continuation_task_id names the continuation. */
+  async decideRecovery(ref: string, taskId: string, body: ArdentTaskRecoveryDecision, context: CallContext = {}): Promise<ArdentTaskRecovery> {
+    return ardentTaskRecoverySchema.parse(await this.action(ref, 'task-recovery', { target: uuid(taskId), body: validated(ardentTaskRecoveryDecisionSchema, body, 'task-recovery') }, context));
+  }
+
+  /** A task's lineage as the profile records it. lineage >= 1. */
+  async taskLineage(ref: string, taskId: string, context: CallContext = {}): Promise<ArdentTaskLineage> {
+    return ardentTaskLineageSchema.parse(await this.resource(ref, `tasks/${uuid(taskId)}/lineage`, context));
+  }
+
+  /** The renditions of an artifact, the original first. artifact_transfer >= 2. */
+  async artifactRenditions(ref: string, sha256: string, context: CallContext = {}): Promise<ArdentArtifactRendition[]> {
+    return ardentArtifactRenditionsSchema.parse(await this.resource(ref, `artifacts/${sha(sha256)}/renditions`, context)).renditions;
+  }
+
+  /**
+   * Artifact transfer v2 content, streamed. `range` asks for the bytes from an offset (`bytes=<from>-`) and
+   * `ifRange` (the ETag `"<sha256>"`) makes Ardent send the whole artifact instead when it is not that one.
+   * Answers 200 or 206; anything else throws a MagnusError (416 for a range past the end). artifact_transfer >= 2.
+   */
+  async artifactContent(ref: string, sha256: string, options: CallContext & { from?: number; ifRange?: string } = {}): Promise<ArtifactContent> {
+    const { nodeId, profile } = parseAgentRef(ref);
+    const headers: Record<string, string> = { accept: '*/*' };
+    if (options.from !== undefined && options.from > 0) {
+      if (!Number.isSafeInteger(options.from)) throw new MagnusError('Invalid range', 400, 'VALIDATION_ERROR');
+      headers.range = `bytes=${options.from}-`;
+      if (options.ifRange) headers['if-range'] = options.ifRange;
+    }
+    const response = await this.send('GET', `/api/v1/ardent/installations/${nodeId}/profiles/${profile}/artifacts/${sha(sha256)}/content`, options, undefined, headers, 0);
+    if ((response.status !== 200 && response.status !== 206) || !response.body) await this.fail(response);
+    const digest = response.headers.get('x-content-sha256') ?? /^"([a-f0-9]{64})"$/.exec(response.headers.get('etag') ?? '')?.[1] ?? undefined;
+    const length = response.headers.has('content-length') ? Number(response.headers.get('content-length')) : NaN;
+    let start = 0;
+    let total: number | undefined = response.status === 200 && Number.isSafeInteger(length) && length >= 0 ? length : undefined;
+    if (response.status === 206) {
+      const range = /^bytes (\d{1,15})-(\d{1,15})\/(\d{1,15})$/.exec(response.headers.get('content-range') ?? '');
+      if (!range) { await response.body!.cancel().catch(() => undefined); throw new MagnusError('Magnus answered 206 without a usable Content-Range', 502, 'BAD_GATEWAY'); }
+      start = Number(range[1]);
+      total = Number(range[3]);
+    }
+    const mime = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() || undefined;
+    return { status: response.status as 200 | 206, body: response.body!, start, total, sha256: digest && /^[a-f0-9]{64}$/.test(digest) ? digest : undefined, mime };
+  }
+
   // ── Studio routes ──
 
   /** The node agent's Studio level for a node: 0 when it reports none. */
@@ -470,7 +620,8 @@ export class MagnusClient {
     const parsed = failure.safeParse(await response.json().catch(() => null));
     const message = parsed.success ? parsed.data.error.message.slice(0, 300) : `Magnus answered HTTP ${response.status}`;
     const retryAfterMs = retryAfterFromHeaders(response.headers);
-    throw new MagnusError(message, response.status, parsed.success ? parsed.data.error.code : `HTTP_${response.status}`, { retryAfterMs });
+    throw new MagnusError(message, response.status, parsed.success ? parsed.data.error.code : `HTTP_${response.status}`,
+      { retryAfterMs, ...(parsed.success && parsed.data.error.details !== undefined ? { details: parsed.data.error.details } : {}) });
   }
 }
 
@@ -504,6 +655,11 @@ function validated<T>(schema: z.ZodType<T>, value: unknown, action: string): T {
 
 function operationIdOf(value: string): string {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(value)) throw new MagnusError('Invalid operation ID', 400, 'VALIDATION_ERROR');
+  return value;
+}
+
+function sha(value: string): string {
+  if (!/^[a-f0-9]{64}$/.test(value)) throw new MagnusError('Invalid artifact ID', 400, 'VALIDATION_ERROR');
   return value;
 }
 

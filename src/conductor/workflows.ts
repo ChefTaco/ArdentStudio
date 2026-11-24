@@ -189,6 +189,20 @@ export class WorkflowEngine {
     this.evaluate(run.id);
   }
 
+  /**
+   * A held node task runs again (an Ardent recovery continuation of the same Studio task): the node
+   * runs again and its blocked dependents are re-evaluated. A node already retried with a new task
+   * keeps that attempt. Call inside the transaction that switched the task.
+   */
+  taskResumed(task: StudioTask): void {
+    const node = this.store.workflows.nodeOfTask(task.id);
+    if (!node || node.state !== 'failed') return;
+    const run = this.store.workflows.run(node.run_id);
+    if (!run || !ACTIVE_RUN_STATES.includes(run.state)) return;
+    this.change(run, node, { state: 'running', error: null });
+    this.evaluate(run.id);
+  }
+
   /** A clarification answer continues a node's work in a new task: the node follows that task. Call inside the answer's transaction. */
   continued(fromTaskId: string, to: StudioTask): void {
     const node = this.store.workflows.nodeOfTask(fromTaskId);

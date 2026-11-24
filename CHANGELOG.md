@@ -17,6 +17,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- An agent without artifact transfer v2 keeps the whole download only up to 2 MiB (C4); a larger artifact from it
+  fails at once with `TRANSFER_REQUIRES_V2` and a room note instead of being downloaded whole.
+- The Magnus recovery, lineage, rendition and content answers are validated with local schemas in
+  `src/clients/magnus.ts`; a later `@hivemagnus/magnus-contracts` release can replace them.
 - Submission retries use HiveCommon `backoffDelay` (1 s base, 60 s cap, full jitter), wait at least as long as a
   Magnus `Retry-After` (up to 10 minutes) and stop at the mission deadline. Attempts are still capped at five, and
   a task that runs out of attempts still fails with a room message.
@@ -24,6 +28,28 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Task recovery (Ardent 3.2.0 through Magnus 3.3.0, profiles reporting `recovery` >= 1): a task Ardent resumes under
+  the same id stays `running` and shows its recovery; a task Ardent holds for a decision becomes `unknown` with the
+  recovery and the actions Studio can send. `GET /tasks/:id/recovery` reads it, `POST /tasks/:id/recovery`
+  (`{action, call_id?, result?, note?, deadline_seconds?}`) sends a person's decision through the Magnus
+  `task-recovery` action, and a continuation (from the answer, a later read, the journal, or a decision made while
+  Studio was down) is followed as the same Studio task: the old Ardent id joins `ardent.attempts`, the journal is read
+  from the start, the task runs again and still ends with one completion message. Held workflow nodes run again
+  after the decision. Without the capability no action is offered and the route answers `409 RECOVERY_UNSUPPORTED`.
+  New event `task.recovery` (see [docs/CONDUCTOR.md](docs/CONDUCTOR.md#recovery)).
+- `GET /tasks/:id/lineage`: the task's Studio relationships (root, parent, children, hand-offs, reassignments, team
+  and deliverable revisions, workflow node), the Ardent lineage of each Ardent attempt (profiles with `lineage` >= 1)
+  and the Emberpath filter `{executionRoot}`.
+- Tasks carry `execution` (root, parent, self, attempt, inputs), `ardent.attempts` and `recovery` (additive).
+- Artifact transfer v2 (profiles with `artifact_transfer` >= 2): imports pull `…/artifacts/:sha256/content` into
+  `<data>/blobs/.partial/<import id>` and resume after a restart or a dropped connection with `Range` and `If-Range`,
+  re-hashing the partial file as a stream; the whole-file digest is verified before the file enters the blob store.
+  The artifact's renditions are imported with it and listed on the revision (`renditions`). Imports report
+  `received_bytes`, `transfer`, `resumes` and `error_code`; progress arrives as `artifact.import.progress`.
+- `GET /blobs/:sha256` takes one `Range` (206, 416, `If-Range`), sends `X-Content-SHA256`, and with
+  `?disposition=inline` serves raster images inline with their type for previews.
+- Migration 9 adds `artifact_imports.received_bytes`, `transfer`, `resumes` and `error_code`, and the
+  `deliverable_renditions` table; existing rows are unchanged.
 - Workflows: a small DAG of sub-prompts (at most 16 nodes, acyclic, exactly one output) whose nodes run as ordinary
   tasks of team roles, branching and joining. A node starts when every node it needs is done, with their results
   and imported artifact references (`ardent-artifact:<sha256>`) as context items marked as data; a failed node
@@ -39,7 +65,7 @@ All notable changes to this project are documented here. The format follows
   discussion turns and assignment revisions (see [docs/CONDUCTOR.md](docs/CONDUCTOR.md#execution-references)).
   Migration 7 adds the task columns (`execution_json`, `root_ref`, `parent_ref`, `submit_payload_json`,
   `submit_next_at`, `ardent_attempts_json`, `recovery_json`) and an index on `root_ref`; existing rows are
-  unchanged. `ardent_attempts_json` and `recovery_json` are reserved for Ardent recovery and not written yet.
+  unchanged. `ardent_attempts_json` and `recovery_json` hold Ardent recovery (see above).
 - `ARDENT_STUDIO_INSTANCE_ID` names this Studio in those references (default `local`).
 - Every Magnus call carries `x-request-id` and `traceparent`, and a submission its task's context in
   `x-hive-execution`. The context also goes in the action request's top-level `execution` field when the node agent

@@ -3,17 +3,40 @@
 // bytes from Magnus into the blob store, checks them against the registered SHA-256, and records
 // a deliverable revision that supersedes the previous one. A file that fails verification is never
 // recorded; the room says so.
+//
+// From an agent with artifact transfer v2 (profile artifact_transfer >= 2, Magnus 3.3.0) the bytes are
+// pulled from …/artifacts/{sha256}/content into <blobs>/.partial/<import id>. A transfer that stops (a
+// restart, a dropped connection) resumes: the partial file is hashed again as a stream, and the rest is
+// asked for with Range and If-Range. The whole-file digest is verified before the file is renamed into
+// the blob store. The artifact's renditions (previews, model inputs) are imported with it. An older agent
+// keeps the v1 whole download, which C4 limits to 2 MiB: a larger artifact fails with TRANSFER_REQUIRES_V2.
+import { createHash, type Hash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { open, stat, truncate } from 'node:fs/promises';
 import { z } from 'zod';
-import { BlobIntegrityError, BlobTooLargeError, type BlobStore } from '../blobs/store.js';
-import { MagnusError, type MagnusClient } from '../clients/magnus.js';
+import { BlobIntegrityError, BlobTooLargeError, type BlobRecord, type BlobStore } from '../blobs/store.js';
+import { ARDENT_RUNTIME_LEVELS, ARDENT_UNSUPPORTED_CAPABILITY, MagnusError, type MagnusClient } from '../clients/magnus.js';
 import { ServiceTokenError } from '../clients/service-token.js';
 import type { Conductor } from '../conductor/conductor.js';
-import type { ArtifactImport, Deliverable } from '../db/repos/review.js';
+import type { ArtifactImport, Deliverable, DeliverableRendition } from '../db/repos/review.js';
 import type { StudioTask } from '../db/repos/tasks.js';
 import type { Store } from '../db/store.js';
 import type { Logger } from '../logger.js';
 
-export type ImporterMagnus = Pick<MagnusClient, 'artifactStream'>;
+export type ImporterMagnus = Pick<MagnusClient, 'artifactStream' | 'artifactContent' | 'artifactRenditions'>;
+
+/** The largest artifact a v1 (whole) download takes; above it an agent needs artifact transfer v2 (C4). */
+export const TRANSFER_V1_MAX_BYTES = 2 * 1024 * 1024;
+/** How often a running transfer records its progress and announces artifact.import.progress. */
+const PROGRESS_MS = 2_000;
+/** At most this many renditions are imported per artifact. */
+const MAX_RENDITIONS = 16;
+
+/** A transfer failure with a machine-readable code. Permanent failures are not retried. */
+export class TransferError extends Error {
+  override name = 'TransferError';
+  constructor(message: string, readonly code: string, readonly permanent: boolean) { super(message); }
+}
 
 const registered = z.object({
   artifact_id: z.string().min(1).max(128), name: z.string().min(1).max(256), mime: z.string().min(1).max(200),
@@ -73,6 +96,10 @@ export class ArtifactImporter {
   start(): void {
     this.stopped = false;
     if (this.transfer.signal.aborted) this.transfer = new AbortController();
+    // Partial files of imports that are no longer pending are left from a crash between settling and cleanup.
+    for (const id of this.options.blobs.partialImports()) {
+      if (this.store.review.importRecord(id)?.state !== 'pending') void this.options.blobs.removePartial(id);
+    }
     this.kick();
   }
 
@@ -119,28 +146,49 @@ export class ArtifactImporter {
 
   private async importOne(row: ArtifactImport): Promise<void> {
     const task = this.store.tasks.get(row.task_id);
-    if (!task) { this.settle(row, 'failed', 'The task that registered this file no longer exists'); return; }
+    if (!task) { this.settle(row, 'failed', 'The task that registered this file no longer exists', 'TASK_GONE'); return; }
     if (this.store.review.revisionByArtifact(row.artifact_id)) { this.store.tx(() => this.store.review.settleImport(row.id, { state: 'imported' })); return; }
     try {
-      const { body } = await this.options.magnus.artifactStream(row.agent_ref, row.sha256, { signal: this.transfer.signal });
-      const blob = await this.options.blobs.put(body as ReadableStream<Uint8Array>, row.mime, row.sha256);
-      this.record(row, task, blob.size);
+      if (row.size > this.options.blobs.maxBytes) throw new BlobTooLargeError(this.options.blobs.maxBytes);
+      const runtime = await this.options.conductor.runtimeOf(row.agent_ref);
+      let blob: BlobRecord;
+      let renditions: DeliverableRendition[] = [];
+      if (runtime.artifact_transfer >= ARDENT_RUNTIME_LEVELS.artifact_transfer) {
+        blob = await this.ranged(row);
+        renditions = await this.renditions(row, blob);
+      } else {
+        if (row.size > TRANSFER_V1_MAX_BYTES) {
+          throw new TransferError(`it is larger than ${TRANSFER_V1_MAX_BYTES} bytes and the agent does not support artifact transfer v2 (upgrade its Ardent to 3.2.0 or later and its Magnus agent)`,
+            'TRANSFER_REQUIRES_V2', true);
+        }
+        this.store.review.importProgress(row.id, { receivedBytes: 0, transfer: 'whole' });
+        const { body } = await this.options.magnus.artifactStream(row.agent_ref, row.sha256, { signal: this.transfer.signal });
+        blob = await this.options.blobs.put(body as ReadableStream<Uint8Array>, row.mime, row.sha256);
+        this.store.review.importProgress(row.id, { receivedBytes: blob.size, transfer: 'whole' });
+      }
+      this.record(row, task, blob.size, renditions);
+      await this.options.blobs.removePartial(row.id);
     } catch (error) {
-      // Interrupted by shutdown, not a failed attempt: the row stays due and is imported after the restart.
+      // Interrupted by shutdown, not a failed attempt: the row stays due and is imported (resumed) after the restart.
       if (this.stopped) return;
+      if (error instanceof MagnusError && error.code === ARDENT_UNSUPPORTED_CAPABILITY) this.options.conductor.forgetRuntime(row.agent_ref);
       const attempts = row.attempts + 1;
-      const permanent = error instanceof BlobTooLargeError
-        || (error instanceof MagnusError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429);
-      const reason = error instanceof BlobIntegrityError ? 'the received bytes do not match the registered SHA-256'
-        : error instanceof BlobTooLargeError ? `it is larger than the ${this.options.blobs.maxBytes}-byte limit`
-          : error instanceof MagnusError || error instanceof ServiceTokenError ? `Magnus answered: ${error.message.slice(0, 200)}`
-            : `the transfer failed (${error instanceof Error ? error.message.slice(0, 200) : 'unknown error'})`;
+      const permanent = error instanceof BlobTooLargeError || (error instanceof TransferError && error.permanent)
+        || (error instanceof MagnusError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429 && error.code !== ARDENT_UNSUPPORTED_CAPABILITY);
+      const code = error instanceof TransferError ? error.code : error instanceof BlobIntegrityError ? 'DIGEST_MISMATCH' : error instanceof BlobTooLargeError ? 'TOO_LARGE'
+        : error instanceof MagnusError ? 'MAGNUS_REFUSED' : 'TRANSFER_FAILED';
+      const reason = error instanceof TransferError ? error.message
+        : error instanceof BlobIntegrityError ? 'the received bytes do not match the registered SHA-256'
+          : error instanceof BlobTooLargeError ? `it is larger than the ${this.options.blobs.maxBytes}-byte limit`
+            : error instanceof MagnusError || error instanceof ServiceTokenError ? `Magnus answered: ${error.message.slice(0, 200)}`
+              : `the transfer failed (${error instanceof Error ? error.message.slice(0, 200) : 'unknown error'})`;
       if (permanent || attempts >= (this.options.maxAttempts ?? 5)) {
-        this.settle(row, 'failed', reason, task);
+        await this.options.blobs.removePartial(row.id);
+        this.settle(row, 'failed', reason, code, task);
       } else {
         const retryAt = new Date(this.store.clock.now().getTime() + (this.options.retryMs ?? 2_000) * 2 ** (attempts - 1));
         this.store.tx(() => {
-          this.store.review.settleImport(row.id, { state: 'pending', error: reason, retryAt });
+          this.store.review.settleImport(row.id, { state: 'pending', error: reason, errorCode: code, retryAt });
           this.store.emit(row.project_id, 'artifact.import.updated', { import: this.publicImport(row.id) });
         });
         this.options.logger.warn('Artifact import failed; retrying', { artifact_id: row.artifact_id, attempts, error: reason });
@@ -148,19 +196,116 @@ export class ArtifactImporter {
     }
   }
 
-  private settle(row: ArtifactImport, state: 'failed', reason: string, task?: StudioTask): void {
+  /**
+   * Artifact transfer v2: append to the import's partial file from where it stopped, then verify the
+   * whole-file digest and move it into the blob store. The partial file is hashed again as a stream,
+   * so memory stays bounded whatever the size.
+   */
+  private async ranged(row: ArtifactImport): Promise<BlobRecord> {
+    const { blobs } = this.options;
+    const path = blobs.partialPath(row.id);
+    let have = await stat(path).then(info => info.size, () => 0);
+    if (have > row.size) { await truncate(path, 0); have = 0; }
+    let hash = createHash('sha256');
+    if (have > 0) {
+      await hashFile(path, have, hash);
+      this.store.tx(() => {
+        this.store.review.countResume(row.id);
+        this.store.review.importProgress(row.id, { receivedBytes: have, transfer: 'range' });
+        this.store.emit(row.project_id, 'artifact.import.updated', { import: this.publicImport(row.id), resumed_from: have });
+      });
+    } else {
+      this.store.review.importProgress(row.id, { receivedBytes: 0, transfer: 'range' });
+    }
+    if (have < row.size || row.size === 0) {
+      const content = await this.options.magnus.artifactContent(row.agent_ref, row.sha256, { from: have, ifRange: `"${row.sha256}"`, signal: this.transfer.signal });
+      const refuse = async (error: Error) => { await content.body.cancel().catch(() => undefined); return error; };
+      if (content.sha256 && content.sha256 !== row.sha256) throw await refuse(new BlobIntegrityError('Magnus served another artifact'));
+      if (content.total !== undefined && content.total !== row.size) {
+        throw await refuse(new TransferError(`Magnus reports ${content.total} bytes where the agent registered ${row.size}`, 'SIZE_MISMATCH', false));
+      }
+      if (content.status === 200 && have > 0) {
+        // The range was not honoured (If-Range did not match, or the relay sent everything): start over.
+        have = 0;
+        hash = createHash('sha256');
+      } else if (content.status === 206 && content.start !== have) {
+        throw await refuse(new TransferError(`Magnus answered from byte ${content.start}, not ${have}`, 'RANGE_MISMATCH', false));
+      }
+      const handle = await open(path, have === 0 ? 'w' : 'a', 0o600);
+      let recorded = Date.now();
+      const progress = () => this.store.tx(() => {
+        this.store.review.importProgress(row.id, { receivedBytes: have, transfer: 'range' });
+        this.store.emit(row.project_id, 'artifact.import.progress', { import: this.publicImport(row.id) });
+      });
+      try {
+        for await (const chunk of content.body as unknown as AsyncIterable<Uint8Array>) {
+          have += chunk.byteLength;
+          if (have > row.size) throw new BlobIntegrityError('Magnus sent more bytes than the agent registered');
+          hash.update(chunk);
+          await handle.write(chunk);
+          if (Date.now() - recorded >= PROGRESS_MS) { await handle.datasync(); progress(); recorded = Date.now(); }
+        }
+        await handle.sync();
+      } finally {
+        await handle.close();
+        // Whatever stopped the transfer, the bytes on disk are what a resume continues from.
+        try { this.store.review.importProgress(row.id, { receivedBytes: have, transfer: 'range' }); } catch { /* the database closed during shutdown */ }
+      }
+    }
+    if (have !== row.size) throw new TransferError(`the transfer ended after ${have} of ${row.size} bytes`, 'TRANSFER_INCOMPLETE', false);
+    if (hash.digest('hex') !== row.sha256) {
+      await blobs.removePartial(row.id);
+      throw new BlobIntegrityError('Content does not match the expected SHA-256');
+    }
+    return blobs.adoptPartial(row.id, row.mime, row.sha256, row.size);
+  }
+
+  /**
+   * The artifact's renditions (original first), each stored as a verified blob. Best effort: a rendition
+   * that cannot be read or verified is left out, never the original.
+   */
+  private async renditions(row: ArtifactImport, original: BlobRecord): Promise<DeliverableRendition[]> {
+    const own: DeliverableRendition = { role: 'original', sha256: original.sha256, mime: row.mime, size: original.size, purpose: 'download', width: null, height: null, has_alpha: null };
+    let listed;
+    try { listed = await this.options.magnus.artifactRenditions(row.agent_ref, row.sha256, { signal: this.transfer.signal }); } catch (error) {
+      if (this.stopped) throw error;
+      this.options.logger.warn('Artifact renditions could not be read', { artifact_id: row.artifact_id, error: error instanceof Error ? error.message.slice(0, 200) : 'unknown' });
+      return [own];
+    }
+    const out: DeliverableRendition[] = [];
+    for (const item of listed.slice(0, MAX_RENDITIONS)) {
+      const entry: DeliverableRendition = { role: item.role, sha256: item.sha256, mime: item.mime, size: item.size, purpose: item.purpose ?? null,
+        width: item.width ?? null, height: item.height ?? null, has_alpha: item.has_alpha ?? null };
+      if (item.sha256 === row.sha256) { out.push({ ...entry, mime: row.mime, size: original.size }); continue; }
+      if (out.some(existing => existing.sha256 === item.sha256) || item.size > this.options.blobs.maxBytes) continue;
+      try {
+        if (!this.options.blobs.get(item.sha256)) {
+          const content = await this.options.magnus.artifactContent(row.agent_ref, item.sha256, { signal: this.transfer.signal });
+          await this.options.blobs.put(content.body, item.mime, item.sha256);
+        }
+        out.push(entry);
+      } catch (error) {
+        if (this.stopped) throw error;
+        this.options.logger.warn('An artifact rendition was not imported', { artifact_id: row.artifact_id, sha256: item.sha256, error: error instanceof Error ? error.message.slice(0, 200) : 'unknown' });
+      }
+    }
+    if (!out.some(item => item.sha256 === row.sha256)) out.unshift(own);
+    return out;
+  }
+
+  private settle(row: ArtifactImport, state: 'failed', reason: string, code: string, task?: StudioTask): void {
     this.store.tx(() => {
-      this.store.review.settleImport(row.id, { state, error: reason });
+      this.store.review.settleImport(row.id, { state, error: reason, errorCode: code });
       this.store.emit(row.project_id, 'artifact.import.updated', { import: this.publicImport(row.id) });
       const conversationId = task?.conversation_id ?? this.store.room.teamConversation(row.project_id)?.id;
       if (conversationId) {
         this.options.conductor.systemMessage(conversationId, `${row.name} from ${this.roleName(task)} was not added to review: ${reason}.`,
-          { task_id: row.task_id, artifact_id: row.artifact_id, sha256: row.sha256 });
+          { task_id: row.task_id, artifact_id: row.artifact_id, sha256: row.sha256, error_code: code });
       }
     });
   }
 
-  private record(row: ArtifactImport, task: StudioTask, size: number): void {
+  private record(row: ArtifactImport, task: StudioTask, size: number, renditions: readonly DeliverableRendition[]): void {
     this.store.tx(() => {
       if (this.store.review.revisionByArtifact(row.artifact_id)) { this.store.review.settleImport(row.id, { state: 'imported' }); return; }
       const project = this.store.projects.get(row.project_id)!;
@@ -184,8 +329,10 @@ export class ArtifactImporter {
         sourceMessageId: task.trigger_message_id, ardentArtifactId: row.artifact_id,
         ardent: { agent_ref: row.agent_ref, artifact_id: row.artifact_id, task_id: task.ardent.task_id, sha256: row.sha256, manifest: row.manifest },
       });
+      if (renditions.length) this.store.review.addRenditions(revision.id, renditions);
+      this.store.review.importProgress(row.id, { receivedBytes: size, transfer: row.transfer ?? this.store.review.importRecord(row.id)?.transfer ?? 'whole' });
       this.store.review.settleImport(row.id, { state: 'imported', revisionId: revision.id });
-      this.store.emit(project.id, 'deliverable.revision.created', { deliverable_id: deliverable.id, revision });
+      this.store.emit(project.id, 'deliverable.revision.created', { deliverable_id: deliverable.id, revision: this.store.review.revision(revision.id) });
       this.store.emit(project.id, 'artifact.import.updated', { import: this.publicImport(row.id) });
       if (task.mode === 'revision' && this.store.review.markAddressed(task.id, revision.id)) {
         for (const comment of this.store.review.commentsForTask(task.id)) this.store.emit(project.id, 'review.comment.updated', { comment });
@@ -224,5 +371,11 @@ export class ArtifactImporter {
 
 export function toPublicImport(row: ArtifactImport) {
   return { artifact_id: row.artifact_id, task_id: row.task_id, agent_ref: row.agent_ref, name: row.name, mime: row.mime, size: row.size, sha256: row.sha256,
-    state: row.state, attempts: row.attempts, error: row.error, revision_id: row.revision_id, updated_at: row.updated_at };
+    state: row.state, attempts: row.attempts, error: row.error, error_code: row.error_code, revision_id: row.revision_id, received_bytes: row.received_bytes,
+    transfer: row.transfer, resumes: row.resumes, updated_at: row.updated_at };
+}
+
+/** Hash the first `length` bytes of a file into `hash`, streaming. */
+async function hashFile(path: string, length: number, hash: Hash): Promise<void> {
+  for await (const chunk of createReadStream(path, { start: 0, end: length - 1 })) hash.update(chunk as Buffer);
 }

@@ -8,7 +8,9 @@ import { ardentTaskDoneEventSchema, ardentTaskJournalEventSchema, ardentTaskText
 import type { Logger } from '../logger.js';
 
 export type FollowerMagnus = Pick<MagnusClient, 'streamTask' | 'taskEvents' | 'task'>;
-export type DoneRecord = z.infer<typeof ardentTaskDoneEventSchema>;
+/** The final task record. Ardent 3.2.0 adds `recovery` to task records (read again where it matters). */
+const doneRecordSchema = ardentTaskDoneEventSchema.extend({ recovery: z.unknown().optional() });
+export type DoneRecord = z.infer<typeof doneRecordSchema>;
 
 /** Ardent states after which a task's turn is over. Ardent keeps `input_required` out of its stream's done set, so it is listed here. */
 export const ARDENT_FINISHED = ['completed', 'partial', 'failed', 'cancelled', 'unknown', 'input_required'] as const;
@@ -20,6 +22,8 @@ export interface FollowerHooks {
   /** Handle and persist one journal event. Returns true when the event ends the turn. */
   event(event: ArdentTaskEvent): Promise<boolean> | boolean;
   done(record: DoneRecord): Promise<void>;
+  /** The task record of a re-read while the task still runs (its recovery, when Ardent resumed it). */
+  observe?(record: DoneRecord): void;
 }
 
 export interface FollowerOptions {
@@ -90,7 +94,8 @@ export class TaskFollower {
   /** After a clean stream end: hand over the final record when the task has finished. An unreadable task is asked again after the next stream. */
   private async finished(): Promise<boolean> {
     const task = await this.magnus.task(this.agentRef, this.ardentTaskId, { signal: this.abort.signal }).catch(() => undefined);
-    if (this.stopped || !task || !(ARDENT_FINISHED as readonly string[]).includes(task.state)) return false;
+    if (this.stopped || !task) return false;
+    if (!(ARDENT_FINISHED as readonly string[]).includes(task.state)) { this.hooks.observe?.(task); return false; }
     await this.hooks.done(task);
     return true;
   }
@@ -107,7 +112,7 @@ export class TaskFollower {
         if (!parsed.success) continue;
         if (await this.hooks.event(parsed.data)) return true;
       } else if (message.event === 'task.done') {
-        const parsed = ardentTaskDoneEventSchema.safeParse(parseJson(message.data));
+        const parsed = doneRecordSchema.safeParse(parseJson(message.data));
         await this.hooks.done(parsed.success ? parsed.data : { id: this.ardentTaskId, state: 'unknown', error: 'Ardent sent an unreadable final task record' });
         return true;
       }
@@ -136,6 +141,7 @@ export class TaskFollower {
           await this.hooks.done(task);
           return true;
         }
+        this.hooks.observe?.(task);
         if (unreadable !== undefined) throw unreadable;
         interval = events.length ? this.pollMin : Math.min(this.pollMax, interval * 2);
       } catch (error) {

@@ -1095,6 +1095,19 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "disposition",
+            "required": false,
+            "schema": {
+              "default": "attachment",
+              "type": "string",
+              "enum": [
+                "attachment",
+                "inline"
+              ]
+            }
           }
         ],
         "responses": {
@@ -1129,7 +1142,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
-        "description": "Bytes as application/octet-stream with Content-Disposition attachment; the recorded type is in X-Blob-Mime. Only blobs that a project file, a deliverable revision or an export references are served.",
+        "description": "Bytes as application/octet-stream with Content-Disposition attachment; the recorded type is in X-Blob-Mime and the digest in X-Content-SHA256 (ETag \"<sha256>\"). Range (one bytes= range) answers 206 with Content-Range, 416 when unsatisfiable; If-Range with another ETag answers the whole blob. disposition=inline answers Content-Disposition inline and, for raster images (PNG, JPEG, WebP, GIF), their real Content-Type, for previews. Only blobs that a project file, a deliverable revision or rendition, or an export references are served.",
         "security": [
           {
             "oathweave": []
@@ -4352,6 +4365,189 @@
         ]
       }
     },
+    "/api/ardentstudio/v1/tasks/{taskId}/recovery": {
+      "get": {
+        "operationId": "getTasksTaskIdRecovery",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "taskId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecoveryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "The task's Ardent recovery, read now through Magnus when the agent supports it (profile recovery >= 1, Magnus 3.3.0), else as last recorded with unavailable saying why (RECOVERY_UNSUPPORTED, MAGNUS_UNAVAILABLE, NOT_STARTED). A continuation decided elsewhere is followed by this read.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postTasksTaskIdRecovery",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "taskId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecoveryDecisionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Sends a person's decision on a task Ardent holds awaiting_decision through Magnus (task-recovery). mark_applied, mark_not_applied and retry_with_new_deadline continue the work in an Ardent continuation task that the same Studio task follows (state running, ardent.attempts gains the old id); abandon ends the task as unknown. 409 RECOVERY_UNAVAILABLE when the task is not held, 409 RECOVERY_UNSUPPORTED (details capability, required_level, level, installed_version) when the agent cannot take decisions, 409 ARDENT_CONFLICT when Ardent refuses this action now, 422 INVALID_INPUT, 409 AGENT_UPGRADE_REQUIRED, 503 MAGNUS_UNAVAILABLE.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskRecoveryRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/tasks/{taskId}/lineage": {
+      "get": {
+        "operationId": "getTasksTaskIdLineage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "taskId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskLineageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "Studio relationships of the task, the Ardent lineage of each of its Ardent attempts (profile lineage >= 1; otherwise ardent is null and ardent_unavailable says why) and the Emberpath trace filter. Attribution only.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
     "/api/ardentstudio/v1/tasks/{taskId}/reassign": {
       "post": {
         "operationId": "postTasksTaskIdReassign",
@@ -6632,6 +6828,12 @@
               "null"
             ]
           },
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "revision_id": {
             "anyOf": [
               {
@@ -6641,6 +6843,30 @@
                 "type": "null"
               }
             ]
+          },
+          "received_bytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "transfer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "range",
+                  "whole"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resumes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
           },
           "updated_at": {
             "type": "string",
@@ -6659,7 +6885,11 @@
           "state",
           "attempts",
           "error",
+          "error_code",
           "revision_id",
+          "received_bytes",
+          "transfer",
+          "resumes",
           "updated_at"
         ]
       },
@@ -7963,6 +8193,71 @@
         "type": "string",
         "pattern": "^dlv_[0-9A-HJKMNP-TV-Z]{26}$"
       },
+      "DeliverableRendition": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Sha256"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "purpose": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "has_alpha": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "role",
+          "sha256",
+          "mime",
+          "size",
+          "purpose",
+          "width",
+          "height",
+          "has_alpha"
+        ]
+      },
       "DeliverableRevision": {
         "type": "object",
         "properties": {
@@ -8049,6 +8344,12 @@
           },
           "review_status": {
             "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "renditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliverableRendition"
+            }
           }
         },
         "required": [
@@ -8064,7 +8365,8 @@
           "ardent",
           "supersedes_revision_id",
           "received_at",
-          "review_status"
+          "review_status",
+          "renditions"
         ]
       },
       "DesiredOutput": {
@@ -8880,6 +9182,39 @@
         },
         "required": [
           "layout"
+        ]
+      },
+      "LineageTask": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "$ref": "#/components/schemas/TaskId"
+          },
+          "ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/TaskState"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/TaskMode"
+          }
+        },
+        "required": [
+          "task_id",
+          "ref",
+          "role_key",
+          "state",
+          "mode"
         ]
       },
       "LinkId": {
@@ -9978,7 +10313,9 @@
           "team.proposal.updated",
           "workflow.run.created",
           "workflow.run.updated",
-          "workflow.node.updated"
+          "workflow.node.updated",
+          "task.recovery",
+          "artifact.import.progress"
         ]
       },
       "ProjectId": {
@@ -10528,6 +10865,26 @@
             ],
             "additionalProperties": false
           }
+        ]
+      },
+      "RecoveryAction": {
+        "type": "string",
+        "enum": [
+          "mark_applied",
+          "mark_not_applied",
+          "retry_with_new_deadline",
+          "abandon"
+        ]
+      },
+      "RecoveryStatus": {
+        "type": "string",
+        "enum": [
+          "ready",
+          "reconciling",
+          "resumed",
+          "awaiting_decision",
+          "unsupported",
+          "resolved"
         ]
       },
       "Relationship": {
@@ -11493,12 +11850,19 @@
                   "string",
                   "null"
                 ]
+              },
+              "attempts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
               "agent_ref",
               "task_id",
-              "session_id"
+              "session_id",
+              "attempts"
             ]
           },
           "outcome": {},
@@ -11547,6 +11911,26 @@
                 "type": "null"
               }
             ]
+          },
+          "execution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskExecutionRefs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recovery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskRecovery"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -11571,12 +11955,394 @@
           "created_by",
           "created_at",
           "updated_at",
-          "finished_at"
+          "finished_at",
+          "execution",
+          "recovery"
+        ]
+      },
+      "TaskExecutionRefs": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "string"
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "self": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "root",
+          "parent",
+          "self",
+          "attempt",
+          "inputs"
         ]
       },
       "TaskId": {
         "type": "string",
         "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "TaskLineageResponse": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "$ref": "#/components/schemas/TaskId"
+          },
+          "studio": {
+            "type": "object",
+            "properties": {
+              "self": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "root": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "parent": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "execution": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TaskExecutionRefs"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "children": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LineageTask"
+                }
+              },
+              "reassigned_from": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LineageTask"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reassigned_to": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LineageTask"
+                }
+              },
+              "handoffs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": {
+                      "$ref": "#/components/schemas/TaskId"
+                    },
+                    "ref": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "role_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "state": {
+                      "$ref": "#/components/schemas/TaskState"
+                    },
+                    "mode": {
+                      "$ref": "#/components/schemas/TaskMode"
+                    },
+                    "direction": {
+                      "type": "string",
+                      "enum": [
+                        "from",
+                        "to"
+                      ]
+                    },
+                    "relationship": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "task_id",
+                    "ref",
+                    "role_key",
+                    "state",
+                    "mode",
+                    "direction",
+                    "relationship"
+                  ]
+                }
+              },
+              "assignment_revision": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revisions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "revision_id": {
+                      "$ref": "#/components/schemas/RevisionId"
+                    },
+                    "deliverable_id": {
+                      "$ref": "#/components/schemas/DeliverableId"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "blob_sha256": {
+                      "$ref": "#/components/schemas/Sha256"
+                    }
+                  },
+                  "required": [
+                    "revision_id",
+                    "deliverable_id",
+                    "revision",
+                    "blob_sha256"
+                  ]
+                }
+              },
+              "workflow": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "run_id": {
+                        "$ref": "#/components/schemas/WorkflowRunId"
+                      },
+                      "node_key": {
+                        "type": "string"
+                      },
+                      "attempt": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "ref": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "run_id",
+                      "node_key",
+                      "attempt",
+                      "ref"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "self",
+              "root",
+              "parent",
+              "execution",
+              "children",
+              "reassigned_from",
+              "reassigned_to",
+              "handoffs",
+              "assignment_revision",
+              "revisions",
+              "workflow"
+            ]
+          },
+          "ardent": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "agent_ref": {
+                    "$ref": "#/components/schemas/AgentRef"
+                  },
+                  "attempts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "ardent_task_id": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "current": {
+                          "type": "boolean"
+                        },
+                        "lineage": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {}
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "error": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "code": {
+                                  "type": "string"
+                                },
+                                "message": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "code",
+                                "message"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "ardent_task_id",
+                        "ref",
+                        "current",
+                        "lineage",
+                        "error"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "agent_ref",
+                  "attempts"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ardent_unavailable": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "emberpath": {
+            "type": "object",
+            "properties": {
+              "filter": {
+                "type": "object",
+                "properties": {
+                  "executionRoot": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "executionRoot"
+                ]
+              }
+            },
+            "required": [
+              "filter"
+            ]
+          }
+        },
+        "required": [
+          "task_id",
+          "studio",
+          "ardent",
+          "ardent_unavailable",
+          "emberpath"
+        ]
       },
       "TaskMode": {
         "type": "string",
@@ -11587,6 +12353,234 @@
           "revision",
           "review",
           "team_proposal"
+        ]
+      },
+      "TaskRecovery": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/RecoveryStatus"
+          },
+          "reason": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "checkpoint": {
+            "type": "object",
+            "properties": {
+              "step": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "completed_calls": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "pending_calls": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "call_id": {
+                      "type": "string"
+                    },
+                    "tool": {
+                      "type": "string"
+                    },
+                    "effect": {
+                      "type": "string"
+                    },
+                    "dispatched_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reconcilable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "call_id",
+                    "tool",
+                    "effect",
+                    "dispatched_at",
+                    "reconcilable"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "step",
+              "completed_calls",
+              "pending_calls"
+            ]
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecoveryAction"
+            }
+          },
+          "continuation_task_id": {
+            "type": "string"
+          },
+          "decided": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "$ref": "#/components/schemas/RecoveryAction"
+              },
+              "by": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "by",
+              "at"
+            ]
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "attempt",
+          "actions",
+          "supported",
+          "observed_at"
+        ]
+      },
+      "TaskRecoveryDecisionResponse": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "$ref": "#/components/schemas/Task"
+          },
+          "recovery": {
+            "$ref": "#/components/schemas/TaskRecovery"
+          }
+        },
+        "required": [
+          "task",
+          "recovery"
+        ]
+      },
+      "TaskRecoveryRequestInput": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/RecoveryAction"
+          },
+          "call_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "result": {},
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "deadline_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "TaskRecoveryResponse": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "$ref": "#/components/schemas/Task"
+          },
+          "recovery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskRecovery"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "live",
+              "stored"
+            ]
+          },
+          "unavailable": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "task",
+          "recovery",
+          "supported",
+          "source",
+          "unavailable"
         ]
       },
       "TaskState": {

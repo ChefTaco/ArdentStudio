@@ -292,6 +292,45 @@ whose Magnus node agent predates pausing answers `409 AGENT_UPGRADE_REQUIRED`. A
 held instead. `reassign` cancels an active task and creates the same work for another role with
 `reassigned_from` (a workflow node's task answers `409 NOT_REASSIGNABLE`: retry or skip the node).
 
+Every task carries `execution` (`{root, parent, self, attempt, inputs}`, qualified `hx1:` references,
+or null), `ardent.attempts` (earlier Ardent task ids, oldest first) and `recovery` (the last Ardent
+recovery Studio observed, or null).
+
+- **Recovery** ([CONDUCTOR.md](CONDUCTOR.md#recovery)). `recovery` is Ardent's C3 object
+  (`status`, `reason {code, message}`, `attempt`, `checkpoint {step, completed_calls,
+  pending_calls[{call_id, tool, effect, dispatched_at, reconcilable}]}`, `actions`,
+  `continuation_task_id`, `decided {action, by, at, note}`) plus `supported` and `observed_at`.
+  `actions` are only those Studio can send now: empty when `supported` is false. A `running` task
+  with a `ready`, `reconciling` or `resumed` recovery is recovering; an `unknown` task with
+  `awaiting_decision` waits for a decision.
+  - `GET /tasks/:id/recovery` → `{task, recovery, supported, source: live|stored, unavailable:
+    {code, message}|null}`. It reads the recovery through Magnus when the agent supports it, else
+    answers the stored one with `unavailable.code` `RECOVERY_UNSUPPORTED`, `MAGNUS_UNAVAILABLE` or
+    `NOT_STARTED`. A continuation decided elsewhere is followed by this read.
+  - `POST /tasks/:id/recovery` (`x-idempotency-key`) with `{action, call_id?, result?, note?,
+    deadline_seconds?}`; `action` is `mark_applied`, `mark_not_applied`,
+    `retry_with_new_deadline` or `abandon`, `result` (JSON, at most 64 KiB) goes with `mark_applied`
+    and `deadline_seconds` with `retry_with_new_deadline`. It answers `{task, recovery}`: after a
+    continuing action the task is `running` again under `recovery.continuation_task_id` with the old
+    Ardent id in `ardent.attempts`; after `abandon` it stays `unknown` with its final message.
+    `409 RECOVERY_UNAVAILABLE` (not held), `409 RECOVERY_UNSUPPORTED` (`details`: `capability`,
+    `required_level`, `level`, `installed_version`, or the profile's own `capability`,
+    `required_version`, `installed_version`), `409 ARDENT_CONFLICT` (Ardent refuses that action now),
+    `422 INVALID_INPUT`, `409 AGENT_UPGRADE_REQUIRED`, `503 MAGNUS_UNAVAILABLE`.
+  - `task.recovery` events: `{task_id, change, recovery, ardent_task_id, previous_ardent_task_id?}`
+    with `change` `recovering`, `held`, `continued`, `resolved` or `unsupported`, next to the usual
+    `task.updated`.
+- **Lineage** ([CONDUCTOR.md](CONDUCTOR.md#lineage)). `GET /tasks/:id/lineage` →
+  `{task_id, studio: {self, root, parent, execution, children, reassigned_from, reassigned_to,
+  handoffs, assignment_revision, revisions, workflow}, ardent: {agent_ref, attempts[{ardent_task_id,
+  ref, current, lineage, error}]}|null, ardent_unavailable: {code, message}|null, emberpath: {filter:
+  {executionRoot}}}`. Tasks in `children`, `reassigned_*` and `handoffs` are `{task_id, ref,
+  role_key, state, mode}` (hand-offs add `direction: from|to` and `relationship`); `revisions` are
+  the deliverable revisions the task produced. `lineage` is the profile's Ardent lineage relayed
+  as-is (`task_id`, `execution`, `parent`, `children`, `continuations`, `model_attempts`, `tools`,
+  `artifacts`). `ardent_unavailable.code` is `LINEAGE_UNSUPPORTED`, `MAGNUS_UNAVAILABLE` or
+  `NOT_STARTED`.
+
 ## Workflows
 
 A workflow is a small DAG of sub-prompts whose nodes run as ordinary tasks of team roles
@@ -339,11 +378,21 @@ receives as data):
   verified file becomes a **deliverable revision**; a mismatch, an oversized file or a refused
   transfer is retried, then recorded as a failed import (`imports` in `GET
   /projects/:id/deliverables`) with a room note. The task's state, the file's receipt and the
-  review status are separate records.
+  review status are separate records. From agents with artifact transfer v2 the transfer resumes
+  after a restart with `Range`, and the revision's `renditions` (the original first, then previews
+  and model inputs: `{role, sha256, mime, size, purpose, width, height, has_alpha}`) are imported
+  with it; older agents keep the whole download up to 2 MiB and fail larger files with
+  `error_code` `TRANSFER_REQUIRES_V2` ([CONDUCTOR.md](CONDUCTOR.md#artifact-imports)). An import
+  reports `received_bytes`, `transfer` (`range` or `whole`), `resumes` and `error_code`; progress
+  arrives as `artifact.import.progress`, state changes as `artifact.import.updated`.
 - **Deliverables.** A registration that revises an earlier file (`supersedes_sha256`), comes from a
   revision task, has the same name, or matches the role's single requested deliverable joins that
   deliverable as revision n+1, which `supersedes` revision n (an unreviewed n becomes `superseded`).
-  Otherwise it starts a new deliverable. Bytes download through `GET /blobs/:sha256`.
+  Otherwise it starts a new deliverable. Bytes download through `GET /blobs/:sha256`, which takes
+  one `Range: bytes=` range (206 with `Content-Range`, 416 past the end, `If-Range` with another
+  ETag answers the whole blob), sends `X-Content-SHA256` and `ETag: "<sha256>"`, and with
+  `?disposition=inline` answers `Content-Disposition: inline` and, for PNG, JPEG, WebP and GIF, their
+  real `Content-Type` for previews (everything else stays `application/octet-stream`).
 - **Comments.** Anchors: `text` (`start`, `end` as UTF-16 offsets into the file decoded as UTF-8,
   `quote`, `source_sha256`; for Markdown, text, CSV, JSON and SVG source), `docx` (`paragraph_id`,
   `start`, `end`, `quote`, from the stored conversion), `pdf` (`page`, optional `rect` and
