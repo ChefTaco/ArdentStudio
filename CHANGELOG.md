@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## [0.5.0] - 2026-11-24
+
+Upgrading: back up the data volume first. Migrations 7 to 10 run on the first start and are additive; a database
+they have run on no longer starts under 0.4.x. `ARDENT_STUDIO_INSTANCE_ID` is optional (default `local`).
+Workflows and execution references work with the Magnus the suite runs today; task recovery, Ardent lineage,
+artifact transfer v2 and definition deploy need Magnus 3.3.0 and agents that report those capabilities, and fall
+back as described below otherwise. `@hivemagnus/magnus-contracts` stays at 3.1.2: the Magnus 3.3.0 additions are
+validated with local schemas until that release is on npm.
+
 ### Fixed
 
 - A submission whose answer was lost no longer fails with an Ardent idempotency conflict when it is retried, also
