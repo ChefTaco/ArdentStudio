@@ -115,29 +115,31 @@ describe('artifact transfer v2', () => {
 });
 
 describe('artifacts from agents without transfer v2', () => {
-  it('keep the whole download up to 2 MiB and fail larger ones with TRANSFER_REQUIRES_V2', async () => {
+  it('keep the whole download through the Magnus relay up to the blob limit, verified, without renditions', async () => {
     const { project, ardentId } = await followed({ runtime: false });
-    const small = new Uint8Array(randomBytes(MIB));
-    const smallSha = register(ardentId, 'Sketch.png', 'image/png', small);
-    await waitFor(() => importOf(smallSha)?.state === 'imported');
-    expect(importOf(smallSha)).toMatchObject({ transfer: 'whole', received_bytes: MIB, resumes: 0 });
-    expect(contentCalls(smallSha)).toEqual([]);
-    expect(ctx.magnus.calls.some(call => call.path.endsWith(`/artifacts/${smallSha}`))).toBe(true);
+    const bytes = new Uint8Array(randomBytes(20 * MIB));
+    const sha = register(ardentId, 'Poster.png', 'image/png', bytes);
+    await waitFor(() => importOf(sha)?.state === 'imported', 10_000);
+    expect(importOf(sha)).toMatchObject({ transfer: 'whole', received_bytes: 20 * MIB, resumes: 0, error_code: null });
+    expect(contentCalls(sha)).toEqual([]);
+    expect(ctx.magnus.calls.filter(call => call.path.endsWith(`/artifacts/${sha}`))).toHaveLength(1);
+    expect(Buffer.from(await ctx.blobs.readBytes(sha)).equals(Buffer.from(bytes))).toBe(true);
     const [deliverable] = (await json(await ctx.call('GET', `/projects/${project.id}/deliverables`))).deliverables;
-    expect(deliverable.revisions[0].renditions).toEqual([]);
+    expect(deliverable.revisions[0]).toMatchObject({ blob_sha256: sha, size: 20 * MIB, renditions: [] });
+  });
 
-    const large = new Uint8Array(randomBytes(3 * MIB));
-    const largeSha = register(ardentId, 'Poster.png', 'image/png', large);
-    await waitFor(() => importOf(largeSha)?.state === 'failed');
-    expect(importOf(largeSha)).toMatchObject({ error_code: 'TRANSFER_REQUIRES_V2', attempts: 1 });
-    expect(ctx.magnus.calls.some(call => call.path.includes(`/artifacts/${largeSha}`))).toBe(false);
-    const updates = ctx.store.events.after(project.id, 0).filter(event => event.type === 'artifact.import.updated').map(event => event.payload.import as Record<string, unknown>);
-    expect(updates.at(-1)).toMatchObject({ sha256: largeSha, state: 'failed', error_code: 'TRANSFER_REQUIRES_V2', transfer: null });
-    const listed = await json(await ctx.call('GET', `/projects/${project.id}/deliverables`));
-    expect(listed.imports).toMatchObject([{ sha256: largeSha, error_code: 'TRANSFER_REQUIRES_V2' }]);
-    const note = ctx.store.room.messages(ctx.store.room.teamConversation(project.id)!.id).filter(message => message.kind === 'system').at(-1)!;
-    expect(note.body_md).toContain('Poster.png');
-    expect(note.body_md).toContain('artifact transfer v2');
+  it('fall back to the whole download when a profile reported as v2 answers unsupported_capability', async () => {
+    const { ardentId } = await followed();
+    // Studio read the profile as v2; it was downgraded since, so Magnus refuses the content read.
+    expect((await ctx.conductor.runtimeOf('node1~lead')).artifact_transfer).toBe(2);
+    ctx.magnus.runtime.set('node1~lead', { recovery: 0, lineage: 0, artifact_transfer: 1, version: '3.1.4' });
+    const bytes = new Uint8Array(randomBytes(3 * MIB));
+    const sha = register(ardentId, 'Atlas.png', 'image/png', bytes);
+    await waitFor(() => importOf(sha)?.state === 'imported', 5000);
+    expect(importOf(sha)).toMatchObject({ transfer: 'whole', attempts: 1, error_code: null });
+    expect(contentCalls(sha)).toHaveLength(1);
+    expect(Buffer.from(await ctx.blobs.readBytes(sha)).equals(Buffer.from(bytes))).toBe(true);
+    expect(existsSync(ctx.blobs.partialPath(importOf(sha)!.id))).toBe(false);
   });
 });
 

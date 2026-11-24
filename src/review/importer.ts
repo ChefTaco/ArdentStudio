@@ -8,8 +8,9 @@
 // pulled from …/artifacts/{sha256}/content into <blobs>/.partial/<import id>. A transfer that stops (a
 // restart, a dropped connection) resumes: the partial file is hashed again as a stream, and the rest is
 // asked for with Range and If-Range. The whole-file digest is verified before the file is renamed into
-// the blob store. The artifact's renditions (previews, model inputs) are imported with it. An older agent
-// keeps the v1 whole download, which C4 limits to 2 MiB: a larger artifact fails with TRANSFER_REQUIRES_V2.
+// the blob store. The artifact's renditions (previews, model inputs) are imported with it. An older agent,
+// or a profile that answers 409 unsupported_capability, keeps the whole download through Magnus
+// (…/artifacts/{sha256}) up to ARDENT_STUDIO_MAX_BLOB_BYTES.
 import { createHash, type Hash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { open, stat, truncate } from 'node:fs/promises';
@@ -25,8 +26,6 @@ import type { Logger } from '../logger.js';
 
 export type ImporterMagnus = Pick<MagnusClient, 'artifactStream' | 'artifactContent' | 'artifactRenditions'>;
 
-/** The largest artifact a v1 (whole) download takes; above it an agent needs artifact transfer v2 (C4). */
-export const TRANSFER_V1_MAX_BYTES = 2 * 1024 * 1024;
 /** How often a running transfer records its progress and announces artifact.import.progress. */
 const PROGRESS_MS = 2_000;
 /** At most this many renditions are imported per artifact. */
@@ -151,16 +150,20 @@ export class ArtifactImporter {
     try {
       if (row.size > this.options.blobs.maxBytes) throw new BlobTooLargeError(this.options.blobs.maxBytes);
       const runtime = await this.options.conductor.runtimeOf(row.agent_ref);
-      let blob: BlobRecord;
+      let blob: BlobRecord | undefined;
       let renditions: DeliverableRendition[] = [];
       if (runtime.artifact_transfer >= ARDENT_RUNTIME_LEVELS.artifact_transfer) {
-        blob = await this.ranged(row);
-        renditions = await this.renditions(row, blob);
-      } else {
-        if (row.size > TRANSFER_V1_MAX_BYTES) {
-          throw new TransferError(`it is larger than ${TRANSFER_V1_MAX_BYTES} bytes and the agent does not support artifact transfer v2 (upgrade its Ardent to 3.2.0 or later and its Magnus agent)`,
-            'TRANSFER_REQUIRES_V2', true);
+        try {
+          blob = await this.ranged(row);
+          renditions = await this.renditions(row, blob);
+        } catch (error) {
+          // The profile turned out not to serve v2 after all: forget the stale read and download it whole.
+          if (!(error instanceof MagnusError && error.code === ARDENT_UNSUPPORTED_CAPABILITY) || blob) throw error;
+          this.options.conductor.forgetRuntime(row.agent_ref);
+          await this.options.blobs.removePartial(row.id);
         }
+      }
+      if (!blob) {
         this.store.review.importProgress(row.id, { receivedBytes: 0, transfer: 'whole' });
         const { body } = await this.options.magnus.artifactStream(row.agent_ref, row.sha256, { signal: this.transfer.signal });
         blob = await this.options.blobs.put(body as ReadableStream<Uint8Array>, row.mime, row.sha256);

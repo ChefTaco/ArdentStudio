@@ -227,12 +227,15 @@ The importer (`src/review/importer.ts`) chooses the transfer per profile:
   mismatch removes the partial file. Then the artifact's renditions (`…/renditions`, the original
   first, at most 16) are stored as verified blobs and recorded in `deliverable_renditions` with
   their role, purpose, type, size and dimensions; a rendition that cannot be read is left out.
-- **Older agents** keep the v1 whole download (`…/artifacts/:sha256`), which C4 limits to 2 MiB: a
-  larger registration fails at once with `TRANSFER_REQUIRES_V2` (a room note and
-  `artifact.import.updated` with `error_code`), naming the upgrade it needs.
+- **Older agents** (and a profile that answers `409 unsupported_capability` to the content read,
+  whose cached capability is then dropped) keep the whole download through the Magnus relay
+  (`…/artifacts/:sha256`), streamed into the blob store and verified against the registered
+  digest, up to `ARDENT_STUDIO_MAX_BLOB_BYTES` (64 MiB by default). It does not resume and imports
+  no renditions. (The 2 MiB `TRANSFER_REQUIRES_V2` limit of C4 applies to A2A peer team artifacts,
+  not to this relay.)
 
 Partial files are never recorded as blobs, and those of imports that are no longer pending are
-removed on start. Import outcomes carry `error_code`: `TRANSFER_REQUIRES_V2`, `DIGEST_MISMATCH`,
+removed on start. Import outcomes carry `error_code`: `DIGEST_MISMATCH`, `RANGE_MISMATCH`, `TASK_GONE`,
 `TOO_LARGE`, `SIZE_MISMATCH`, `MAGNUS_REFUSED`, `TRANSFER_FAILED` or `TRANSFER_INCOMPLETE`.
 
 ## Team proposals

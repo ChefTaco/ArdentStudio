@@ -1151,7 +1151,7 @@ export const artifactImportSchema = z.object({
   state: z.enum(['pending', 'imported', 'failed']),
   attempts: z.number().int(),
   error: z.string().nullable(),
-  /** TRANSFER_REQUIRES_V2 (larger than 2 MiB from an agent without artifact transfer v2), DIGEST_MISMATCH, TOO_LARGE, MAGNUS_REFUSED or TRANSFER_FAILED. */
+  /** Why the import failed or waits for a retry: DIGEST_MISMATCH, TOO_LARGE, SIZE_MISMATCH, RANGE_MISMATCH, TRANSFER_INCOMPLETE, MAGNUS_REFUSED, TRANSFER_FAILED or TASK_GONE. */
   error_code: z.string().nullable(),
   revision_id: revisionIdSchema.nullable(),
   /** Bytes received so far (a ranged import resumes from here). */

@@ -17,8 +17,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- An agent without artifact transfer v2 keeps the whole download only up to 2 MiB (C4); a larger artifact from it
-  fails at once with `TRANSFER_REQUIRES_V2` and a room note instead of being downloaded whole.
 - The Magnus recovery, lineage, rendition and content answers are validated with local schemas in
   `src/clients/magnus.ts`; a later `@hivemagnus/magnus-contracts` release can replace them.
 - Submission retries use HiveCommon `backoffDelay` (1 s base, 60 s cap, full jitter), wait at least as long as a
@@ -44,7 +42,9 @@ All notable changes to this project are documented here. The format follows
 - Artifact transfer v2 (profiles with `artifact_transfer` >= 2): imports pull `…/artifacts/:sha256/content` into
   `<data>/blobs/.partial/<import id>` and resume after a restart or a dropped connection with `Range` and `If-Range`,
   re-hashing the partial file as a stream; the whole-file digest is verified before the file enters the blob store.
-  The artifact's renditions are imported with it and listed on the revision (`renditions`). Imports report
+  The artifact's renditions are imported with it and listed on the revision (`renditions`). Agents without
+  transfer v2, and a profile that answers `409 unsupported_capability`, keep the whole download up to
+  `ARDENT_STUDIO_MAX_BLOB_BYTES` as before. Imports report
   `received_bytes`, `transfer`, `resumes` and `error_code`; progress arrives as `artifact.import.progress`.
 - `GET /blobs/:sha256` takes one `Range` (206, 416, `If-Range`), sends `X-Content-SHA256`, and with
   `?disposition=inline` serves raster images inline with their type for previews.

@@ -656,7 +656,7 @@ CREATE UNIQUE INDEX tasks_workflow_node ON tasks (workflow_run_id, workflow_node
 -- <blobs>/.partial/<import id> until the whole-file digest is verified; received_bytes is the progress
 -- last recorded, transfer how the bytes are pulled (range: v2 content with Range; whole: the v1
 -- download), resumes how often a transfer continued from a partial file, and error_code a machine
--- readable failure (TRANSFER_REQUIRES_V2, DIGEST_MISMATCH, TOO_LARGE, ...).
+-- readable failure (DIGEST_MISMATCH, TOO_LARGE, SIZE_MISMATCH, ...).
 ALTER TABLE artifact_imports ADD COLUMN received_bytes INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE artifact_imports ADD COLUMN transfer TEXT CHECK (transfer IS NULL OR transfer IN ('range', 'whole'));
 ALTER TABLE artifact_imports ADD COLUMN resumes INTEGER NOT NULL DEFAULT 0;

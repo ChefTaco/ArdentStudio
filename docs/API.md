@@ -381,8 +381,8 @@ receives as data):
   review status are separate records. From agents with artifact transfer v2 the transfer resumes
   after a restart with `Range`, and the revision's `renditions` (the original first, then previews
   and model inputs: `{role, sha256, mime, size, purpose, width, height, has_alpha}`) are imported
-  with it; older agents keep the whole download up to 2 MiB and fail larger files with
-  `error_code` `TRANSFER_REQUIRES_V2` ([CONDUCTOR.md](CONDUCTOR.md#artifact-imports)). An import
+  with it; older agents keep the whole download up to `ARDENT_STUDIO_MAX_BLOB_BYTES`
+  ([CONDUCTOR.md](CONDUCTOR.md#artifact-imports)). An import
   reports `received_bytes`, `transfer` (`range` or `whole`), `resumes` and `error_code`; progress
   arrives as `artifact.import.progress`, state changes as `artifact.import.updated`.
 - **Deliverables.** A registration that revises an earlier file (`supersedes_sha256`), comes from a
