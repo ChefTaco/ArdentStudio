@@ -648,4 +648,36 @@ ALTER TABLE tasks ADD COLUMN workflow_attempt INTEGER;
 CREATE UNIQUE INDEX tasks_workflow_node ON tasks (workflow_run_id, workflow_node_key, workflow_attempt) WHERE workflow_run_id IS NOT NULL;
 `,
   },
+  {
+    id: 9,
+    name: 'artifact_transfer_v2',
+    sql: `
+-- Artifact transfer v2 (docs/CONDUCTOR.md#artifact-imports): a ranged import keeps its bytes in
+-- <blobs>/.partial/<import id> until the whole-file digest is verified; received_bytes is the progress
+-- last recorded, transfer how the bytes are pulled (range: v2 content with Range; whole: the v1
+-- download), resumes how often a transfer continued from a partial file, and error_code a machine
+-- readable failure (DIGEST_MISMATCH, TOO_LARGE, SIZE_MISMATCH, ...).
+ALTER TABLE artifact_imports ADD COLUMN received_bytes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE artifact_imports ADD COLUMN transfer TEXT CHECK (transfer IS NULL OR transfer IN ('range', 'whole'));
+ALTER TABLE artifact_imports ADD COLUMN resumes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE artifact_imports ADD COLUMN error_code TEXT;
+
+-- The renditions Ardent listed for a revision's artifact (the original first), each a verified blob.
+CREATE TABLE deliverable_renditions (
+  deliverable_revision_id TEXT NOT NULL REFERENCES deliverable_revisions (id),
+  position INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  sha256 TEXT NOT NULL REFERENCES blobs (sha256),
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  purpose TEXT,
+  width INTEGER,
+  height INTEGER,
+  has_alpha INTEGER CHECK (has_alpha IS NULL OR has_alpha IN (0, 1)),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (deliverable_revision_id, sha256)
+);
+CREATE INDEX deliverable_renditions_blob ON deliverable_renditions (sha256);
+`,
+  },
 ];

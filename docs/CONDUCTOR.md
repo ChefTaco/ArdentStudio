@@ -39,6 +39,13 @@ installation) and the agent's Ardent version:
 The session key is `studio:<project>:<conversation>:<role>`; Ardent answers the same session for
 the same key, so a conversation keeps its context per role.
 
+A Magnus 3.3.0 node agent (studio level 4) also reports each profile's Ardent version and runtime
+levels in the installation report (`profiles[].capabilities`): `recovery` >= 1 for
+[recovery](#recovery), `lineage` >= 1 for [lineage](#lineage) and `artifact_transfer` >= 2 for
+[ranged artifact imports](#artifact-imports). Studio reads them per profile (cached for a minute);
+an agent that reports none has level 0 and keeps today's behaviour. A profile that answers
+`409 unsupported_capability` anyway is read again on the next attempt.
+
 ### Submitting and retrying
 
 The first attempt plans the turn (session, composed request, mission) and **freezes** the exact
@@ -126,8 +133,10 @@ the stream again.
 Each journal event is handled and the task's cursor advanced in **one transaction**, so a replay
 after a reconnect or a restart never applies an event twice.
 
-On start, the conductor resumes following every accepted, unfinished task from its stored cursor,
-submits queued tasks, and moves on discussions whose round finished while it was down.
+On start, the conductor resumes following every accepted, unfinished task from its stored cursor
+(a task that moved to a recovery continuation from that continuation's cursor), submits queued
+tasks, moves on discussions whose round finished while it was down, and reads the recoveries of
+held tasks again.
 
 ## Live text and final messages
 
@@ -152,7 +161,82 @@ Agents request; Studio rules and people decide.
 | `team_ask_user` | Posts a `clarification` message. The turn ends as `input_required`; `POST /messages/:id/answer` continues the same session. |
 | `team_propose_decision` | Posts a `decision_proposal` card. Only a person pins it (`POST /projects/:id/decisions`). |
 | `pause_requested`, `paused`, `resumed` | Task state `pausing`, `paused`, `running`. |
-| `artifact_registered` | Queues the file for the artifact importer in the same transaction; the importer streams and verifies it and records a deliverable revision (see [API.md](API.md#deliverable-review)). Activity: `Delivered <name> r<n>`. |
+| `artifact_registered` | Queues the file for the artifact importer in the same transaction; the importer streams and verifies it and records a deliverable revision (see [Artifact imports](#artifact-imports) and [API.md](API.md#deliverable-review)). Activity: `Delivered <name> r<n>`. |
+| `recovery_planned`, `recovery_held`, `recovery_decided`, `recovery_continued` | Reads the task's recovery again (see [Recovery](#recovery)). |
+
+## Recovery
+
+Ardent 3.2.0 resumes interrupted execution (C3) and Magnus 3.3.0 relays it. Studio's task states do
+not change: a task Ardent continues stays `running`, one it holds is `unknown`, and the recovery is
+kept next to the state in `tasks.recovery_json` (`recovery` on every task the browser sees). Studio
+reads and decides recoveries only on a profile whose installation report says `recovery` >= 1 (a
+Magnus node agent at studio level 4 and Ardent 3.2.0 or later); elsewhere a task ends `unknown` as
+before and no action is offered.
+
+- **Recovering.** After an Ardent restart a task may come back `ready`, `reconciling` or `resumed`
+  under the **same id**. The follower just keeps following it; the recovery it sees on a re-read of
+  the task, or after a `recovery_planned` journal event, is recorded and announced
+  (`task.recovery` with `change: recovering`), so the room can show the task as recovering.
+- **Held.** When Ardent cannot prove what an interrupted tool call did, it ends the task `unknown`
+  with a recovery `awaiting_decision` (reason, checkpoint with the pending calls, and the valid
+  `actions`). Ardent's `task.done` record does not carry the recovery, so the conductor reads
+  `…/tasks/:id/recovery` through Magnus for every task that ends `unknown`. A held task becomes
+  Studio `unknown` with the recovery and its actions (`task.recovery` with `change: held`). No
+  reply is written yet: a reply that was streaming stays open for the continuation, so the task
+  still ends with exactly one completion message. A held workflow node fails and blocks its run,
+  like any `unknown` task; ordering groups and discussions move on, as for any finished turn.
+- **Deciding.** A person sends one of the actions with `POST /tasks/:id/recovery` (the same
+  permission as pause and cancel; Magnus action `task-recovery` under Studio's service identity).
+  `mark_applied`, `mark_not_applied` and `retry_with_new_deadline` make Ardent continue the work in a
+  linked **continuation task** with a new id; `abandon` only records the decision.
+- **Continuing.** When a decision answer, a later read or a `recovery_continued` journal event names a
+  `continuation_task_id`, Studio follows it as the same Studio task: the old Ardent id is appended to
+  `ardent_attempts_json` (`ardent.attempts`), `ardent_task_id` becomes the continuation, the journal
+  cursor starts again at 0, the state goes back to `running`, a reply still streaming moves to the
+  continuation (the message table keys replies on the final Ardent id), and a held workflow node
+  runs again (`task.recovery` with `change: continued`). The unique
+  `(ardent_agent_ref, ardent_task_id)` index keeps one Studio task per Ardent task; an event or
+  final record of an earlier attempt is ignored.
+- **Ending without a continuation.** An abandoned recovery, or one Ardent marks `unsupported`, ends
+  the task as `unknown` with its one message (`change: resolved` or `unsupported`).
+- **Decisions made elsewhere.** A decision taken in the Magnus console, or while Studio was down,
+  is picked up when the task's recovery is read: `GET /tasks/:id/recovery`, and every presence probe
+  (every 30 seconds, and at start) for up to 50 held tasks of active projects.
+
+## Lineage
+
+`GET /tasks/:id/lineage` puts a task in the suite-wide causal tree (attribution only): Studio's
+side (its own, root and parent references, the tasks it caused, hand-offs either way,
+reassignments, the team revision and the deliverable revisions it produced, its workflow node), the
+lineage each of its Ardent attempts reports (`…/tasks/:id/lineage` through Magnus, oldest attempt
+first, on profiles with `lineage` >= 1; otherwise `ardent` is null and `ardent_unavailable` says
+why) and the Emberpath filter `{executionRoot}` that finds its provider traces.
+
+## Artifact imports
+
+The importer (`src/review/importer.ts`) chooses the transfer per profile:
+
+- **Artifact transfer v2** (`artifact_transfer` >= 2): the bytes come from
+  `…/artifacts/:sha256/content` into `<data>/blobs/.partial/<import id>`. The import row records
+  `received_bytes` as the transfer goes (at most every 2 seconds, with an `artifact.import.progress`
+  event). When a transfer stops (a restart, a dropped connection), the next attempt hashes the
+  partial file again as a stream, so memory stays bounded at any size, and asks for the rest with
+  `Range: bytes=<received>-` and `If-Range: "<sha256>"`. An answer that ignores the range starts the
+  file over. The whole-file SHA-256 (and the size and `X-Content-SHA256` Magnus reports) must match
+  the registration before the file is fsynced, renamed into the blob store and hashed again; a
+  mismatch removes the partial file. Then the artifact's renditions (`…/renditions`, the original
+  first, at most 16) are stored as verified blobs and recorded in `deliverable_renditions` with
+  their role, purpose, type, size and dimensions; a rendition that cannot be read is left out.
+- **Older agents** (and a profile that answers `409 unsupported_capability` to the content read,
+  whose cached capability is then dropped) keep the whole download through the Magnus relay
+  (`…/artifacts/:sha256`), streamed into the blob store and verified against the registered
+  digest, up to `ARDENT_STUDIO_MAX_BLOB_BYTES` (64 MiB by default). It does not resume and imports
+  no renditions. (The 2 MiB `TRANSFER_REQUIRES_V2` limit of C4 applies to A2A peer team artifacts,
+  not to this relay.)
+
+Partial files are never recorded as blobs, and those of imports that are no longer pending are
+removed on start. Import outcomes carry `error_code`: `DIGEST_MISMATCH`, `RANGE_MISMATCH`, `TASK_GONE`,
+`TOO_LARGE`, `SIZE_MISMATCH`, `MAGNUS_REFUSED`, `TRANSFER_FAILED` or `TRANSFER_INCOMPLETE`.
 
 ## Team proposals
 
@@ -221,7 +305,8 @@ database.
   and then re-evaluates every running or blocked run: `done` nodes keep their results and are never
   resubmitted, `running` nodes are followed through their Studio task, and nodes whose needs
   finished meanwhile start. An agent-level interruption inside a node is handled by the task's own
-  recovery, like any task.
+  [recovery](#recovery), like any task: a held node fails and blocks the run, and a continuation
+  decided for its task makes it run again (the node keeps its attempt and task).
 - **Events.** `workflow.run.created`, `workflow.run.updated` (state changes) and
   `workflow.node.updated` (`{run_id, run_state, node}`) on the project stream, next to the node
   tasks' `task.*` events.

@@ -30,11 +30,48 @@ const SHA = /^[a-f0-9]{64}$/;
 export class BlobStore {
   readonly root: string;
   private readonly tmp: string;
+  /** Ranged artifact imports in progress, one file per import id. They survive a restart so a transfer can resume. */
+  readonly partialDir: string;
 
   constructor(private readonly db: Db, dataDir: string, readonly maxBytes: number, private readonly clock: Clock) {
     this.root = join(dataDir, 'blobs');
     this.tmp = join(this.root, 'tmp');
+    this.partialDir = join(this.root, '.partial');
     mkdirSync(this.tmp, { recursive: true, mode: 0o700 });
+    mkdirSync(this.partialDir, { recursive: true, mode: 0o700 });
+  }
+
+  /** The partial file of a ranged import. Never recorded: it becomes a blob only through adopt(). */
+  partialPath(importId: number): string {
+    if (!Number.isSafeInteger(importId) || importId < 1) throw new Error('Invalid import id');
+    return join(this.partialDir, String(importId));
+  }
+
+  /** Import ids that have a partial file. */
+  partialImports(): number[] {
+    return readdirSync(this.partialDir).filter(name => /^[1-9]\d{0,15}$/.test(name)).map(Number);
+  }
+
+  async removePartial(importId: number): Promise<void> {
+    await rm(this.partialPath(importId), { force: true });
+  }
+
+  /**
+   * Record a complete partial file whose digest the caller verified: it is fsynced, renamed into the
+   * store and hashed again before it is recorded. Throws BlobIntegrityError when it is not those bytes.
+   */
+  async adoptPartial(importId: number, mime: string, sha256: string, size: number): Promise<BlobRecord> {
+    if (!SHA.test(sha256)) throw new BlobIntegrityError('Expected digest is not a SHA-256 hex string');
+    if (size > this.maxBytes) throw new BlobTooLargeError(this.maxBytes);
+    const source = this.partialPath(importId);
+    const handle = await open(source, 'r+');
+    try { await handle.sync(); } finally { await handle.close(); }
+    try {
+      return await this.commit(source, sha256, size, mime);
+    } catch (error) {
+      await rm(source, { force: true });
+      throw error;
+    }
   }
 
   /** Remove temp files a crash left behind. Recorded blobs are never touched. */
@@ -94,35 +131,40 @@ export class BlobStore {
       }
       const sha256 = hash.digest('hex');
       if (expectedSha256 !== undefined && sha256 !== expectedSha256) throw new BlobIntegrityError('Content does not match the expected SHA-256');
-      const relative = this.relativePath(sha256);
-      const target = join(this.root, relative);
-      const existing = this.get(sha256);
-      if (existing && await this.fileMatches(target, sha256, size)) {
-        await rm(temp, { force: true });
-        return existing;
-      }
-      await mkdir(join(this.root, sha256.slice(0, 2), sha256.slice(2, 4)), { recursive: true, mode: 0o700 });
-      await rename(temp, target);
-      await this.syncDirectory(join(this.root, sha256.slice(0, 2), sha256.slice(2, 4)));
-      if (!await this.fileMatches(target, sha256, size)) {
-        await rm(target, { force: true });
-        throw new BlobIntegrityError('Stored blob failed verification');
-      }
-      const record: BlobRecord = { sha256, size, mime, path: relative, created_at: this.clock.now().toISOString() };
-      this.db.prepare('INSERT INTO blobs (sha256, size, mime, path, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (sha256) DO NOTHING')
-        .run(record.sha256, record.size, record.mime, record.path, record.created_at);
-      return this.get(sha256) ?? record;
+      return await this.commit(temp, sha256, size, mime);
     } catch (error) {
       await rm(temp, { force: true });
       throw error;
     }
   }
 
-  /** A read stream for a recorded blob, or undefined when it is not recorded. */
-  open(sha256: string): { record: BlobRecord; stream: Readable } | undefined {
+  /** Rename a written, fsynced file into its address, hash it again and record it. */
+  private async commit(temp: string, sha256: string, size: number, mime: string): Promise<BlobRecord> {
+    const relative = this.relativePath(sha256);
+    const target = join(this.root, relative);
+    const existing = this.get(sha256);
+    if (existing && await this.fileMatches(target, sha256, size)) {
+      await rm(temp, { force: true });
+      return existing;
+    }
+    await mkdir(join(this.root, sha256.slice(0, 2), sha256.slice(2, 4)), { recursive: true, mode: 0o700 });
+    await rename(temp, target);
+    await this.syncDirectory(join(this.root, sha256.slice(0, 2), sha256.slice(2, 4)));
+    if (!await this.fileMatches(target, sha256, size)) {
+      await rm(target, { force: true });
+      throw new BlobIntegrityError('Stored blob failed verification');
+    }
+    const record: BlobRecord = { sha256, size, mime, path: relative, created_at: this.clock.now().toISOString() };
+    this.db.prepare('INSERT INTO blobs (sha256, size, mime, path, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (sha256) DO NOTHING')
+      .run(record.sha256, record.size, record.mime, record.path, record.created_at);
+    return this.get(sha256) ?? record;
+  }
+
+  /** A read stream for a recorded blob (or one inclusive byte range of it), or undefined when it is not recorded. */
+  open(sha256: string, range?: { start: number; end: number }): { record: BlobRecord; stream: Readable } | undefined {
     const record = this.get(sha256);
     if (!record) return undefined;
-    return { record, stream: createReadStream(join(this.root, record.path)) };
+    return { record, stream: createReadStream(join(this.root, record.path), range ? { start: range.start, end: range.end } : {}) };
   }
 
   async readBytes(sha256: string): Promise<Uint8Array> {

@@ -15,6 +15,11 @@ export interface DeliverableRevision {
   id: string; deliverable_id: string; revision: number; blob_sha256: string; mime: string; size: number; producer_binding_id: string | null;
   source_task_id: string | null; source_message_id: string | null; ardent: Record<string, unknown> | null; supersedes_revision_id: string | null;
   received_at: string; review_status: ReviewStatus; ardent_artifact_id: string | null;
+  /** Renditions Ardent listed for the artifact, the original first (artifact transfer v2). */
+  renditions: DeliverableRendition[];
+}
+export interface DeliverableRendition {
+  role: string; sha256: string; mime: string; size: number; purpose: string | null; width: number | null; height: number | null; has_alpha: boolean | null;
 }
 /** Text {start,end,quote,source_sha256}, DOCX {paragraph_id,start,end,quote}, PDF {page,rect?,quote?}, image {x,y,w,h}, or whole file. */
 export type CommentAnchor = { kind: string } & Record<string, unknown>;
@@ -29,17 +34,40 @@ export interface ArtifactImport {
   id: number; project_id: string; task_id: string; agent_ref: string; artifact_id: string; sha256: string; name: string; mime: string; size: number;
   manifest: Record<string, unknown>; ardent_event_seq: number; state: ImportState; attempts: number; next_attempt_at: string | null; error: string | null;
   revision_id: string | null; created_at: string; updated_at: string;
+  /** Transfer progress (migration 9): bytes recorded as received, how they are pulled, resumes and a failure code. */
+  received_bytes: number; transfer: 'range' | 'whole' | null; resumes: number; error_code: string | null;
 }
+type ImportInput = Omit<ArtifactImport, 'id' | 'state' | 'attempts' | 'next_attempt_at' | 'error' | 'revision_id' | 'created_at' | 'updated_at' | 'received_bytes' | 'transfer' | 'resumes' | 'error_code'>;
 export interface DocxDocument {
   source_kind: 'file' | 'revision'; source_id: string; blob_sha256: string; codec: string; codec_version: string; document_sha256: string;
   paragraphs: Array<{ id: string; text: string }>; created_at: string;
 }
 
-type RevisionRow = Omit<DeliverableRevision, 'ardent'> & { ardent_json: string | null };
-const toRevision = ({ ardent_json, ...row }: RevisionRow): DeliverableRevision => ({ ...row, ardent: readJson<Record<string, unknown> | null>(ardent_json, null) });
+type RevisionRow = Omit<DeliverableRevision, 'ardent' | 'renditions'> & { ardent_json: string | null };
+interface RenditionRow { role: string; sha256: string; mime: string; size: number; purpose: string | null; width: number | null; height: number | null; has_alpha: number | null }
 
 export class ReviewRepository {
   constructor(private readonly db: Db, private readonly clock: Clock) {}
+
+  private toRevision({ ardent_json, ...row }: RevisionRow): DeliverableRevision {
+    const renditions = (this.db.prepare('SELECT role, sha256, mime, size, purpose, width, height, has_alpha FROM deliverable_renditions WHERE deliverable_revision_id = ? ORDER BY position')
+      .all(row.id) as unknown as RenditionRow[]).map(item => ({ ...item, has_alpha: item.has_alpha === null ? null : item.has_alpha === 1 }));
+    return { ...row, ardent: readJson<Record<string, unknown> | null>(ardent_json, null), renditions };
+  }
+
+  /** Record the renditions of a revision's artifact, in the order Ardent listed them. Their blobs are stored first. */
+  addRenditions(revisionId: string, renditions: readonly DeliverableRendition[]): void {
+    const insert = this.db.prepare(`INSERT INTO deliverable_renditions (deliverable_revision_id, position, role, sha256, mime, size, purpose, width, height, has_alpha, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (deliverable_revision_id, sha256) DO NOTHING`);
+    const now = this.clock.now().toISOString();
+    renditions.forEach((item, position) => insert.run(revisionId, position, item.role, item.sha256, item.mime, item.size, item.purpose, item.width, item.height,
+      item.has_alpha === null ? null : item.has_alpha ? 1 : 0, now));
+  }
+
+  /** The deliverable revisions a task produced, oldest first. */
+  revisionsOfTask(taskId: string): DeliverableRevision[] {
+    return (this.db.prepare('SELECT * FROM deliverable_revisions WHERE source_task_id = ? ORDER BY received_at, revision').all(taskId) as RevisionRow[]).map(row => this.toRevision(row));
+  }
 
   createDeliverable(input: { projectId: string; requestedDeliverableId?: string | null; name: string; kind: string; producerRole?: string | null }): Deliverable {
     const id = newId('deliverable');
@@ -78,11 +106,11 @@ export class ReviewRepository {
 
   revision(id: string): DeliverableRevision | undefined {
     const row = this.db.prepare('SELECT * FROM deliverable_revisions WHERE id = ?').get(id) as RevisionRow | undefined;
-    return row ? toRevision(row) : undefined;
+    return row ? this.toRevision(row) : undefined;
   }
 
   revisions(deliverableId: string): DeliverableRevision[] {
-    return (this.db.prepare('SELECT * FROM deliverable_revisions WHERE deliverable_id = ? ORDER BY revision').all(deliverableId) as RevisionRow[]).map(toRevision);
+    return (this.db.prepare('SELECT * FROM deliverable_revisions WHERE deliverable_id = ? ORDER BY revision').all(deliverableId) as RevisionRow[]).map(row => this.toRevision(row));
   }
 
   setFinal(deliverableId: string, revisionId: string): Deliverable {
@@ -133,24 +161,24 @@ export class ReviewRepository {
       WHERE d.project_id = ? AND r.producer_binding_id = ? ORDER BY r.received_at DESC, r.revision DESC LIMIT 1`).get(projectId, bindingId) as (RevisionRow & { deliverable_name: string }) | undefined;
     if (!row) return undefined;
     const { deliverable_name, ...revision } = row;
-    return { ...toRevision(revision), deliverable_name };
+    return { ...this.toRevision(revision), deliverable_name };
   }
 
   latestRevision(deliverableId: string): DeliverableRevision | undefined {
     const row = this.db.prepare('SELECT * FROM deliverable_revisions WHERE deliverable_id = ? ORDER BY revision DESC LIMIT 1').get(deliverableId) as RevisionRow | undefined;
-    return row ? toRevision(row) : undefined;
+    return row ? this.toRevision(row) : undefined;
   }
 
   revisionByArtifact(artifactId: string): DeliverableRevision | undefined {
     const row = this.db.prepare('SELECT * FROM deliverable_revisions WHERE ardent_artifact_id = ?').get(artifactId) as RevisionRow | undefined;
-    return row ? toRevision(row) : undefined;
+    return row ? this.toRevision(row) : undefined;
   }
 
   /** The newest revision in a project whose bytes have this digest. */
   revisionByBlob(projectId: string, sha256: string): DeliverableRevision | undefined {
     const row = this.db.prepare(`SELECT r.* FROM deliverable_revisions r JOIN deliverables d ON d.id = r.deliverable_id
       WHERE d.project_id = ? AND r.blob_sha256 = ? ORDER BY r.received_at DESC LIMIT 1`).get(projectId, sha256) as RevisionRow | undefined;
-    return row ? toRevision(row) : undefined;
+    return row ? this.toRevision(row) : undefined;
   }
 
   deliverableByName(projectId: string, name: string): Deliverable | undefined {
@@ -159,7 +187,8 @@ export class ReviewRepository {
 
   /** Whether a revision or an export references these bytes, so they may be served. */
   blobReferenced(sha256: string): boolean {
-    return Boolean(this.db.prepare('SELECT 1 FROM deliverable_revisions WHERE blob_sha256 = ? UNION ALL SELECT 1 FROM exports WHERE blob_sha256 = ? LIMIT 1').get(sha256, sha256));
+    return Boolean(this.db.prepare(`SELECT 1 FROM deliverable_revisions WHERE blob_sha256 = ? UNION ALL SELECT 1 FROM exports WHERE blob_sha256 = ?
+      UNION ALL SELECT 1 FROM deliverable_renditions WHERE sha256 = ? LIMIT 1`).get(sha256, sha256, sha256));
   }
 
   exportRecord(id: string): StudioExport | undefined {
@@ -169,7 +198,7 @@ export class ReviewRepository {
   // ── Artifact imports ──
 
   /** Queue an artifact for import. A registration already queued is left as it is. */
-  queueImport(input: Omit<ArtifactImport, 'id' | 'state' | 'attempts' | 'next_attempt_at' | 'error' | 'revision_id' | 'created_at' | 'updated_at'>): void {
+  queueImport(input: ImportInput): void {
     const now = this.clock.now().toISOString();
     this.db.prepare(`INSERT INTO artifact_imports (project_id, task_id, agent_ref, artifact_id, sha256, name, mime, size, manifest_json, ardent_event_seq, state, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT (agent_ref, artifact_id) DO NOTHING`).run(
@@ -199,9 +228,21 @@ export class ReviewRepository {
     return { imported: rows.filter(row => row.state === 'imported'), pending: rows.filter(row => row.state === 'pending').length };
   }
 
-  settleImport(id: number, update: { state: ImportState; error?: string | null; revisionId?: string | null; retryAt?: Date | null }): void {
-    this.db.prepare(`UPDATE artifact_imports SET state = ?, error = ?, revision_id = COALESCE(?, revision_id), next_attempt_at = ?, attempts = attempts + 1, updated_at = ? WHERE id = ?`)
-      .run(update.state, update.error ?? null, update.revisionId ?? null, update.retryAt ? update.retryAt.toISOString() : null, this.clock.now().toISOString(), id);
+  settleImport(id: number, update: { state: ImportState; error?: string | null; errorCode?: string | null; revisionId?: string | null; retryAt?: Date | null }): void {
+    this.db.prepare(`UPDATE artifact_imports SET state = ?, error = ?, error_code = ?, revision_id = COALESCE(?, revision_id), next_attempt_at = ?, attempts = attempts + 1,
+      updated_at = ? WHERE id = ?`).run(update.state, update.error ?? null, update.errorCode ?? null, update.revisionId ?? null,
+      update.retryAt ? update.retryAt.toISOString() : null, this.clock.now().toISOString(), id);
+  }
+
+  /** Record a transfer's progress: bytes received so far and how they are pulled. */
+  importProgress(id: number, progress: { receivedBytes: number; transfer: 'range' | 'whole' }): void {
+    this.db.prepare('UPDATE artifact_imports SET received_bytes = ?, transfer = ?, updated_at = ? WHERE id = ?')
+      .run(progress.receivedBytes, progress.transfer, this.clock.now().toISOString(), id);
+  }
+
+  /** Count a transfer that continued from a partial file. */
+  countResume(id: number): void {
+    this.db.prepare('UPDATE artifact_imports SET resumes = resumes + 1, updated_at = ? WHERE id = ?').run(this.clock.now().toISOString(), id);
   }
 
   // ── DOCX conversions ──

@@ -10,7 +10,7 @@ const RECORD_TABLES = [
   'projects', 'requested_deliverables', 'files', 'blobs', 'agent_templates', 'agent_template_versions', 'team_templates', 'team_template_versions',
   'agent_bindings', 'agent_presentation', 'team_assignments', 'team_assignment_revisions', 'room_layouts', 'conversations', 'messages', 'decisions',
   'tasks', 'activity', 'deliverables', 'deliverable_revisions', 'review_comments', 'review_decisions', 'exports', 'agent_drafts', 'development_comments',
-  'events', 'project_event_cursors', 'audit', 'idempotency_keys', 'workflow_runs', 'workflow_nodes',
+  'events', 'project_event_cursors', 'audit', 'idempotency_keys', 'workflow_runs', 'workflow_nodes', 'deliverable_renditions',
 ];
 
 let dir: string;
@@ -62,7 +62,7 @@ describe('migrations', () => {
       INSERT INTO tasks (id, project_id, title, mode, source_json, state, created_by, created_at, updated_at)
       VALUES ('tsk_old', 'prj_old', 'Old task', 'turn', '{}', 'completed', 'operator', '2026-01-01', '2026-01-01');`);
     const before = db.prepare("SELECT * FROM tasks WHERE id = 'tsk_old'").get() as Record<string, unknown>;
-    expect(migrate(db).at(-1)).toBe(8);
+    expect(migrate(db, MIGRATIONS.filter(item => item.id <= 8)).at(-1)).toBe(8);
     expect(db.prepare("SELECT * FROM tasks WHERE id = 'tsk_old'").get()).toEqual({ ...before, workflow_run_id: null, workflow_node_key: null, workflow_attempt: null });
     const insert = db.prepare(`INSERT INTO tasks (id, project_id, title, mode, source_json, state, created_by, created_at, updated_at, workflow_run_id, workflow_node_key, workflow_attempt)
       VALUES (?, 'prj_old', 'Node', 'assignment', '{}', 'queued', 'operator', '2026-01-01', '2026-01-01', 'wfr_1', 'research', ?)`);
@@ -71,6 +71,21 @@ describe('migrations', () => {
     expect(() => insert.run('tsk_dup', 1)).toThrow(/UNIQUE/);
     expect(() => db.prepare(`INSERT INTO workflow_runs (id, project_id, spec_json, spec_sha256, state, created_by, created_at, updated_at)
       VALUES ('wfr_x', 'prj_old', '{}', 'x', 'paused', 'operator', 'a', 'a')`).run()).toThrow(/CHECK/);
+    db.close();
+  });
+
+  it('add the transfer columns and rendition table without touching existing imports', () => {
+    const db = new Database(':memory:');
+    migrate(db, MIGRATIONS.filter(item => item.id <= 8));
+    db.exec(`PRAGMA foreign_keys = OFF;
+      INSERT INTO artifact_imports (project_id, task_id, agent_ref, artifact_id, sha256, name, mime, size, manifest_json, ardent_event_seq, state, created_at, updated_at)
+      VALUES ('prj_old', 'tsk_old', 'node1~lead', 'art_1', '${'a'.repeat(64)}', 'map.png', 'image/png', 10, '{}', 3, 'imported', '2026-01-01', '2026-01-01');`);
+    const before = db.prepare("SELECT * FROM artifact_imports WHERE artifact_id = 'art_1'").get() as Record<string, unknown>;
+    expect(migrate(db).at(-1)).toBe(9);
+    expect(db.prepare("SELECT * FROM artifact_imports WHERE artifact_id = 'art_1'").get()).toEqual({ ...before, received_bytes: 0, transfer: null, resumes: 0, error_code: null });
+    expect(() => db.prepare("UPDATE artifact_imports SET transfer = 'carrier pigeon'").run()).toThrow(/CHECK/);
+    const columns = (db.prepare('PRAGMA table_info(deliverable_renditions)').all() as Array<{ name: string }>).map(row => row.name);
+    expect(columns).toEqual(['deliverable_revision_id', 'position', 'role', 'sha256', 'mime', 'size', 'purpose', 'width', 'height', 'has_alpha', 'created_at']);
     db.close();
   });
 

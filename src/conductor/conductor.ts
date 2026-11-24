@@ -9,7 +9,10 @@ import type { ExecutionContext } from '@hivemagnus/hive-common/execution';
 import { backoffDelay, retryAfterFromHeaders, type RetryPolicy } from '@hivemagnus/hive-common/retry';
 import { z } from 'zod';
 import { isAvailable, type AgentDirectory } from '../agents/directory.js';
-import { ARDENT_LINEAGE_CAPABILITY, ARDENT_STUDIO_CAPABILITY, MagnusError, parseAgentRef, type ArdentContextItem, type ArdentTaskEvent, type ArdentTeamMission, type MagnusClient } from '../clients/magnus.js';
+import {
+  ARDENT_LINEAGE_CAPABILITY, ARDENT_RUNTIME_LEVELS, ARDENT_STUDIO_CAPABILITY, ARDENT_UNSUPPORTED_CAPABILITY, ardentTaskRecoverySchema, MagnusError, parseAgentRef,
+  type ArdentContextItem, type ArdentProfileRuntime, type ArdentTaskEvent, type ArdentTaskRecovery, type ArdentTaskRecoveryDecision, type ArdentTeamMission, type MagnusClient,
+} from '../clients/magnus.js';
 import { ServiceTokenError } from '../clients/service-token.js';
 import type { BlobStore } from '../blobs/store.js';
 import { hivememProjectId, type Project } from '../db/repos/projects.js';
@@ -27,7 +30,7 @@ import { buildMission, composeTurn, HANDOFF_EDGES, type AttachmentText, type Tea
 import { WorkflowEngine } from './workflows.js';
 
 export type ConductorMagnus = Pick<MagnusClient, 'getInstallation' | 'openSession' | 'prepareSubmission' | 'submitPrepared' | 'streamTask' | 'taskEvents' | 'task'
-  | 'cancelTask' | 'pauseTask' | 'resumeTask'>;
+  | 'cancelTask' | 'pauseTask' | 'resumeTask' | 'runtime' | 'taskRecovery' | 'decideRecovery'>;
 
 export interface ConductorOptions {
   store: Store;
@@ -90,8 +93,21 @@ interface SubmitPlan {
 
 export class ConductorError extends Error {
   override name = 'ConductorError';
-  constructor(message: string, readonly status: 404 | 409 | 502 | 503, readonly code: string) { super(message); }
+  constructor(message: string, readonly status: 404 | 409 | 422 | 502 | 503, readonly code: string, readonly details?: unknown) { super(message); }
 }
+
+/**
+ * A task's recovery as Studio records and shows it: Ardent's C3 object, with `actions` limited to
+ * what Studio can send (none when the profile lacks recovery >= 1), `supported` saying whether it can,
+ * and when Studio observed it.
+ */
+export type StudioRecovery = ArdentTaskRecovery & { supported: boolean; observed_at: string };
+/** Ardent journal kinds after which Studio reads the task's recovery again. */
+const RECOVERY_EVENTS = new Set(['recovery_planned', 'recovery_held', 'recovery_decided', 'recovery_continued']);
+/** Held tasks whose recovery is read again per presence probe (oldest first). */
+const MAX_HELD_RECHECKS = 50;
+/** Recovery statuses under which the task still runs (Studio shows it as recovering). */
+const RECOVERING = new Set(['ready', 'reconciling', 'resumed']);
 
 const ROOM_HISTORY = 50;
 const ATTACHMENT_TEXT_LIMIT = 256 * 1024;
@@ -146,6 +162,8 @@ export class Conductor {
   private readonly followers = new Map<string, TaskFollower>();
   private readonly submitting = new Set<string>();
   private readonly capabilities = new Map<string, { level: number; lineage: number; version: string | null; at: number }>();
+  /** Per-profile runtime levels (recovery, lineage, artifact transfer), cached briefly. */
+  private readonly runtimes = new Map<string, { value: ArdentProfileRuntime; at: number }>();
   /** Last presence probe per agent. Absent until probed. */
   private readonly presence = new Map<string, ProbeResult>();
   /** Re-derive an agent's activity when its Delivering window ends, per project and binding. */
@@ -154,6 +172,7 @@ export class Conductor {
   private readonly contextProviders: ContextProvider[] = [];
   private readonly modes = new Map<TaskMode, TaskModeHandler>();
   private pumping: Promise<void> | undefined;
+  private rechecking = false;
   private pumpAgain = false;
   private retryTimer: NodeJS.Timeout | undefined;
   private retryDue: number | undefined;
@@ -195,6 +214,7 @@ export class Conductor {
     for (const conversation of this.runningDiscussions()) this.advanceDiscussion(conversation.id);
     this.workflows.recover();
     this.kick();
+    // The probe also reads held tasks' recoveries again (a decision made while Studio was down).
     void this.probe();
     this.presenceTimer = setInterval(() => { void this.probe(); }, this.options.presenceMs ?? 30_000);
     this.presenceTimer.unref();
@@ -212,6 +232,9 @@ export class Conductor {
     this.followers.clear();
     await this.pumping;
   }
+
+  /** This Studio in qualified execution references. */
+  get instanceId(): string { return this.instance; }
 
   /** Tasks the conductor currently follows (for tests and diagnostics). */
   followerOf(taskId: string): TaskFollower | undefined {
@@ -520,6 +543,7 @@ export class Conductor {
       text: (step, text, mode) => this.relay(task.id, step, text, mode),
       event: event => this.journal(task.id, event),
       done: record => this.finish(task.id, record),
+      observe: record => this.observe(task.id, record),
     }, this.options.logger, this.options.follower);
     this.followers.set(task.id, follower);
     void follower.start().finally(() => { if (this.followers.get(task.id) === follower) this.followers.delete(task.id); });
@@ -550,7 +574,8 @@ export class Conductor {
   /** Handle one journal event and advance the cursor in the same transaction. True when it ends the turn. */
   private async journal(taskId: string, event: ArdentTaskEvent): Promise<boolean> {
     const task = this.store.tasks.get(taskId);
-    if (!task || event.sequence <= task.ardent.event_cursor) return false;
+    // An event of an earlier Ardent attempt (the task moved on to a continuation) is not this task's any more.
+    if (!task || event.task_id !== task.ardent.task_id || event.sequence <= task.ardent.event_cursor) return false;
     let ended = false;
     let dispatch = false;
     this.store.tx(() => {
@@ -590,6 +615,7 @@ export class Conductor {
       this.refreshActivity(task.project_id, task.binding_id);
     });
     if (dispatch) this.kick();
+    if (RECOVERY_EVENTS.has(event.kind)) await this.refreshRecovery(task.id);
     if (ended && task.ardent.agent_ref && task.ardent.task_id) {
       const record = await this.magnus.task(task.ardent.agent_ref, task.ardent.task_id).catch(() => undefined);
       if (record && (ARDENT_FINISHED as readonly string[]).includes(record.state)) { await this.finish(task.id, record); return true; }
@@ -662,18 +688,30 @@ export class Conductor {
   private async finish(taskId: string, record: DoneRecord): Promise<void> {
     const task = this.store.tasks.get(taskId);
     if (!task || !task.ardent.task_id || FINISHED.includes(task.state)) return;
+    // The record of an earlier attempt: the task already follows its continuation.
+    if (record.id !== task.ardent.task_id) return;
     // The stream may end before every journal event was sent: read the rest first.
     if (task.ardent.agent_ref) {
       const rest = await this.magnus.taskEvents(task.ardent.agent_ref, task.ardent.task_id, task.ardent.event_cursor).catch(() => []);
       for (const event of rest) await this.journal(taskId, event);
     }
-    this.complete(taskId, record);
+    const current = this.store.tasks.get(taskId);
+    if (!current || current.ardent.task_id !== record.id || FINISHED.includes(current.state)) return;
+    const recovery = await this.recoveryOf(current, record);
+    if (recovery) {
+      if (recovery.continuation_task_id && recovery.continuation_task_id !== record.id && this.continueWith(current, recovery)) return;
+      // Held only where a person can decide through Studio; elsewhere the task ends unknown with its message, as before.
+      if (recovery.status === 'awaiting_decision' && record.state === 'unknown' && recovery.supported) { this.hold(current, recovery, record); return; }
+    }
+    this.complete(taskId, record, recovery ? { recovery } : {});
   }
 
   /** Exposed for routes that receive a final task record directly (cancel). */
-  complete(taskId: string, record: DoneRecord): void {
+  complete(taskId: string, record: DoneRecord, options: { recovery?: StudioRecovery; held?: boolean } = {}): void {
     const task = this.store.tasks.get(taskId);
-    if (!task || !task.ardent.task_id || FINISHED.includes(task.state)) return;
+    // A task Ardent held (Studio unknown) is completed once its recovery ends without a continuation.
+    const reopen = (state: TaskState) => options.held === true && state === 'unknown';
+    if (!task || !task.ardent.task_id || (FINISHED.includes(task.state) && !reopen(task.state))) return;
     const result = typeof record.result === 'string' ? record.result : null;
     let teamResult: z.infer<typeof teamResultSchema> | undefined;
     if (task.dispatch === 'mission' && result) {
@@ -692,11 +730,12 @@ export class Conductor {
     const reply = asked && question !== undefined && answer === question ? '' : answer;
     const error = typeof record.error === 'string' && record.error ? record.error.slice(0, 2000) : null;
     const handler = this.modes.get(task.mode);
-    if (handler) { this.completeHandled(task, handler, { ardentState, reply, error, outcome }); return; }
+    if (handler) { this.completeHandled(task, handler, { ardentState, reply, error, outcome, ...options }); return; }
     let finishedMessage: Message | undefined;
     this.store.tx(() => {
       const current = this.store.tasks.get(taskId)!;
-      if (FINISHED.includes(current.state)) return;
+      if (FINISHED.includes(current.state) && !reopen(current.state)) return;
+      if (options.recovery) this.settleRecovery(current, options.recovery);
       const conversationId = task.conversation_id ?? this.store.room.teamConversation(task.project_id)?.id;
       const existing = this.store.room.messageForArdentTask(task.ardent.task_id!);
       const failed = state === 'failed' || state === 'unknown' || state === 'cancelled';
@@ -726,13 +765,16 @@ export class Conductor {
   }
 
   /** A handled mode has no clarifications: Ardent input_required ends it as partial, and the handler reads the reply. */
-  private completeHandled(task: StudioTask, handler: TaskModeHandler, input: { ardentState: string; reply: string; error: string | null; outcome: Record<string, unknown> }): void {
+  private completeHandled(task: StudioTask, handler: TaskModeHandler,
+    input: { ardentState: string; reply: string; error: string | null; outcome: Record<string, unknown>; recovery?: StudioRecovery; held?: boolean }): void {
     const { ardentState } = input;
     const state: TaskState = ardentState === 'completed' || ardentState === 'partial' ? ardentState
       : ardentState === 'input_required' ? 'partial'
         : ardentState === 'failed' || ardentState === 'cancelled' ? ardentState : 'unknown';
     this.store.tx(() => {
-      if (FINISHED.includes(this.store.tasks.get(task.id)!.state)) return;
+      const current = this.store.tasks.get(task.id)!;
+      if (FINISHED.includes(current.state) && !(input.held === true && current.state === 'unknown')) return;
+      if (input.recovery) this.settleRecovery(current, input.recovery);
       const finished = this.store.tasks.setState(task.id, state, { ...input.outcome, ardent_state: ardentState, error: input.error });
       this.store.emit(task.project_id, 'task.updated', this.taskEvent(finished));
       handler.finished(finished, { state, reply: input.reply || null, error: input.error });
@@ -745,6 +787,245 @@ export class Conductor {
   private afterFinish(task: StudioTask): void {
     if (task.mode === 'discussion_turn' && task.conversation_id) this.advanceDiscussion(task.conversation_id);
     this.kick();
+  }
+
+  // ── Recovery (Ardent 3.2.0 through Magnus 3.3.0; docs/CONDUCTOR.md#recovery) ──
+
+  /** A profile's runtime levels, cached briefly. A failed read is not cached. */
+  async runtimeOf(agentRef: string): Promise<ArdentProfileRuntime> {
+    const cached = this.runtimes.get(agentRef);
+    if (cached && Date.now() - cached.at < (this.options.capabilityCacheMs ?? 60_000)) return cached.value;
+    const value = await this.magnus.runtime(agentRef);
+    this.runtimes.set(agentRef, { value, at: Date.now() });
+    return value;
+  }
+
+  /** Drop a cached runtime read (an answer showed it is stale). */
+  forgetRuntime(agentRef: string): void {
+    this.runtimes.delete(agentRef);
+  }
+
+  /** Whether Studio can read and decide recoveries on this agent. An unreadable installation counts as no. */
+  private async recoverySupported(agentRef: string): Promise<boolean> {
+    try { return (await this.runtimeOf(agentRef)).recovery >= ARDENT_RUNTIME_LEVELS.recovery; } catch { return false; }
+  }
+
+  /** Ardent's recovery as Studio records it: actions only when Studio can send them. */
+  private studioRecovery(recovery: ArdentTaskRecovery, supported: boolean): StudioRecovery {
+    return { ...recovery, actions: supported ? recovery.actions : [], supported, observed_at: this.store.clock.now().toISOString() };
+  }
+
+  /**
+   * The recovery of a finished record: the record's own (Ardent 3.2.0 task records carry it), else, for a
+   * task Ardent ended unknown on a profile with recovery >= 1, read through Magnus (404: never interrupted).
+   */
+  private async recoveryOf(task: StudioTask, record: DoneRecord): Promise<StudioRecovery | undefined> {
+    const agentRef = task.ardent.agent_ref;
+    if (!agentRef) return undefined;
+    const own = ardentTaskRecoverySchema.safeParse(record.recovery);
+    const supported = await this.recoverySupported(agentRef);
+    if (own.success) return this.studioRecovery(own.data, supported);
+    if (record.state !== 'unknown' || !supported) return undefined;
+    try { return this.studioRecovery(await this.magnus.taskRecovery(agentRef, record.id), true); } catch (error) {
+      if (!(error instanceof MagnusError && error.status === 404)) this.options.logger.warn('Task recovery could not be read', { task_id: task.id, error: errorText(error) });
+      return undefined;
+    }
+  }
+
+  /** Record a recovery and announce it with task.recovery. Call inside a transaction. */
+  private recordRecovery(task: StudioTask, recovery: StudioRecovery, change: 'recovering' | 'held' | 'continued' | 'resolved' | 'unsupported',
+    extra: Record<string, unknown> = {}): StudioTask {
+    const updated = this.store.tasks.setRecovery(task.id, recovery);
+    this.store.emit(task.project_id, 'task.recovery', { task_id: task.id, change, recovery, ardent_task_id: updated.ardent.task_id, ...extra });
+    return updated;
+  }
+
+  /** Record the recovery a finished task ended with; announced only when it changed. Call inside a transaction. */
+  private settleRecovery(task: StudioTask, recovery: StudioRecovery): void {
+    const previous = task.recovery as StudioRecovery | null;
+    if (previous && previous.status === recovery.status && previous.attempt === recovery.attempt && previous.decided?.at === recovery.decided?.at) {
+      this.store.tasks.setRecovery(task.id, recovery);
+      return;
+    }
+    const unsupported = recovery.status === 'unsupported' || (recovery.status === 'awaiting_decision' && !recovery.supported);
+    this.recordRecovery(task, recovery, unsupported ? 'unsupported' : 'resolved');
+  }
+
+  /** A re-read of a running task: keep its recovery (ready, reconciling, resumed) so the room shows it recovering. */
+  private observe(taskId: string, record: DoneRecord): void {
+    const task = this.store.tasks.get(taskId);
+    if (!task || task.ardent.task_id !== record.id || FINISHED.includes(task.state)) return;
+    const parsed = ardentTaskRecoverySchema.safeParse(record.recovery);
+    if (!parsed.success || !RECOVERING.has(parsed.data.status)) return;
+    const previous = task.recovery as StudioRecovery | null;
+    if (previous && previous.status === parsed.data.status && previous.attempt === parsed.data.attempt) return;
+    void this.recoverySupported(task.ardent.agent_ref!).then(supported => this.store.tx(() => {
+      const current = this.store.tasks.get(taskId);
+      if (!current || current.ardent.task_id !== record.id || FINISHED.includes(current.state)) return;
+      const updated = this.recordRecovery(current, this.studioRecovery(parsed.data, supported), 'recovering');
+      this.store.emit(current.project_id, 'task.updated', this.taskEvent(updated));
+    }));
+  }
+
+  /** After a recovery journal event: read the recovery again, keep a running one, and follow a continuation. */
+  private async refreshRecovery(taskId: string): Promise<void> {
+    const task = this.store.tasks.get(taskId);
+    if (!task?.ardent.agent_ref || !task.ardent.task_id || !await this.recoverySupported(task.ardent.agent_ref)) return;
+    let recovery: StudioRecovery;
+    try { recovery = this.studioRecovery(await this.magnus.taskRecovery(task.ardent.agent_ref, task.ardent.task_id), true); } catch { return; }
+    if (recovery.continuation_task_id && recovery.continuation_task_id !== task.ardent.task_id) { this.continueWith(task, recovery); return; }
+    if (!RECOVERING.has(recovery.status) || FINISHED.includes(task.state)) return;
+    this.store.tx(() => {
+      const current = this.store.tasks.get(taskId);
+      if (!current || current.ardent.task_id !== task.ardent.task_id || FINISHED.includes(current.state)) return;
+      const previous = current.recovery as StudioRecovery | null;
+      if (previous && previous.status === recovery.status && previous.attempt === recovery.attempt) return;
+      this.store.emit(current.project_id, 'task.updated', this.taskEvent(this.recordRecovery(current, recovery, 'recovering')));
+    });
+  }
+
+  /**
+   * Ardent holds the task for a decision: Studio shows it unknown with the recovery and its actions.
+   * No reply is written: the task's one completion message comes when the work ends (in a continuation,
+   * or when the recovery is resolved without one).
+   */
+  private hold(task: StudioTask, recovery: StudioRecovery, record: DoneRecord): void {
+    const error = typeof record.error === 'string' && record.error ? record.error.slice(0, 2000) : recovery.reason.message;
+    let held: StudioTask | undefined;
+    this.store.tx(() => {
+      const current = this.store.tasks.get(task.id);
+      if (!current || FINISHED.includes(current.state)) return;
+      const outcome = (current.outcome && typeof current.outcome === 'object' ? current.outcome : {}) as Record<string, unknown>;
+      this.recordRecovery(current, recovery, 'held');
+      held = this.store.tasks.setState(task.id, 'unknown', { ...outcome, ardent_state: 'unknown', error });
+      this.store.emit(task.project_id, 'task.updated', this.taskEvent(held));
+      this.workflows.taskFinished(held, { state: 'unknown', reply: null, error });
+      this.refreshActivity(task.project_id, task.binding_id);
+    });
+    if (!held) return;
+    const streaming = this.store.room.messageForArdentTask(record.id);
+    if (streaming) this.options.live.clear(streaming.id);
+    this.afterFinish(task);
+  }
+
+  /**
+   * Follow a continuation of the same Studio task: the old Ardent id joins ardent_attempts, the
+   * continuation's journal is read from sequence 0, the task runs again and a reply still streaming
+   * moves to the continuation, so the task ends with one completion message. False when the
+   * continuation already belongs to another Studio task.
+   */
+  private continueWith(task: StudioTask, recovery: StudioRecovery): boolean {
+    const continuation = recovery.continuation_task_id;
+    const agentRef = task.ardent.agent_ref;
+    if (!continuation || !agentRef || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(continuation)) return false;
+    const owner = this.store.tasks.byArdentTask(agentRef, continuation);
+    if (owner && owner.id !== task.id) {
+      this.options.logger.warn('A recovery continuation belongs to another task', { task_id: task.id, continuation_task_id: continuation });
+      return false;
+    }
+    let switched: StudioTask | undefined;
+    this.store.tx(() => {
+      const current = this.store.tasks.get(task.id);
+      if (!current?.ardent.task_id || current.ardent.task_id === continuation || current.ardent_attempts.includes(continuation)) return;
+      if (['completed', 'partial', 'failed', 'cancelled'].includes(current.state)) return;
+      const previous = current.ardent.task_id;
+      switched = this.store.tasks.switchArdent(task.id, continuation, recovery);
+      const { error: _error, ardent_state: _state, ...outcome } = (switched.outcome && typeof switched.outcome === 'object' ? switched.outcome : {}) as Record<string, unknown>;
+      switched = this.store.tasks.setState(task.id, 'running', outcome);
+      this.store.room.rekeyStreaming(previous, continuation);
+      this.store.emit(task.project_id, 'task.recovery', { task_id: task.id, change: 'continued', recovery, ardent_task_id: continuation, previous_ardent_task_id: previous });
+      this.store.emit(task.project_id, 'task.updated', this.taskEvent(switched));
+      this.workflows.taskResumed(switched);
+      this.refreshActivity(task.project_id, task.binding_id);
+    });
+    if (!switched) return this.store.tasks.get(task.id)?.ardent.task_id === continuation;
+    const old = this.followers.get(task.id);
+    this.followers.delete(task.id);
+    if (old) void old.stop();
+    this.follow(switched);
+    return true;
+  }
+
+  /** A recovery that ended without a continuation (abandoned, or resolved elsewhere): the held task ends as unknown with its one message. */
+  private resolveHeld(task: StudioTask, recovery: StudioRecovery): void {
+    const outcome = (task.outcome && typeof task.outcome === 'object' ? task.outcome : {}) as Record<string, unknown>;
+    const note = recovery.decided ? `Recovery ${recovery.decided.action === 'abandon' ? 'abandoned' : 'resolved'}${recovery.decided.note ? `: ${recovery.decided.note}` : ''}` : recovery.reason.message;
+    this.complete(task.id, { id: task.ardent.task_id!, state: 'unknown', error: typeof outcome.error === 'string' ? `${outcome.error} (${note})` : note }, { recovery, held: true });
+  }
+
+  /** Apply a recovery read or decided later to a held task. */
+  private applyHeld(task: StudioTask, recovery: StudioRecovery): StudioTask {
+    if (recovery.continuation_task_id && recovery.continuation_task_id !== task.ardent.task_id) this.continueWith(task, recovery);
+    // Only a task still held ends here, so reading a resolved recovery again never writes a second message.
+    else if (recovery.status === 'resolved' && task.state === 'unknown' && (task.recovery as StudioRecovery | null)?.status === 'awaiting_decision') this.resolveHeld(task, recovery);
+    else this.store.tx(() => {
+      const current = this.store.tasks.get(task.id)!;
+      const previous = current.recovery as StudioRecovery | null;
+      if (previous && JSON.stringify({ ...previous, observed_at: null }) === JSON.stringify({ ...recovery, observed_at: null })) return;
+      this.store.emit(task.project_id, 'task.updated', this.taskEvent(this.recordRecovery(current, recovery, recovery.status === 'awaiting_decision' ? 'held' : 'recovering')));
+    });
+    return this.store.tasks.get(task.id)!;
+  }
+
+  /** Read the recoveries of held tasks again (a decision made in Magnus, or while Studio was down). */
+  async recheckHeld(): Promise<void> {
+    if (this.rechecking) return;
+    this.rechecking = true;
+    try { await this.recheckHeldNow(); } finally { this.rechecking = false; }
+  }
+
+  private async recheckHeldNow(): Promise<void> {
+    const held = this.store.tasks.held().filter(task => this.store.projects.get(task.project_id)?.status === 'active').slice(0, MAX_HELD_RECHECKS);
+    for (const task of held) {
+      if (this.stopped) return;
+      try { await this.recovery(task); } catch (error) {
+        this.options.logger.warn('Held task recovery could not be read', { task_id: task.id, error: errorText(error) });
+      }
+    }
+  }
+
+  /**
+   * GET /tasks/{id}/recovery: the task's recovery, read again through Magnus when the profile supports
+   * it (and acted on: a continuation decided elsewhere is followed), else as last recorded.
+   */
+  async recovery(task: StudioTask): Promise<{ task: StudioTask; recovery: StudioRecovery | null; supported: boolean; source: 'live' | 'stored'; unavailable: { code: string; message: string } | null }> {
+    const stored = (task.recovery as StudioRecovery | null) ?? null;
+    if (!task.ardent.agent_ref || !task.ardent.task_id) return { task, recovery: stored, supported: false, source: 'stored', unavailable: { code: 'NOT_STARTED', message: 'The task has not started in Ardent' } };
+    let runtime: ArdentProfileRuntime;
+    try { runtime = await this.runtimeOf(task.ardent.agent_ref); } catch (error) {
+      return { task, recovery: stored, supported: false, source: 'stored', unavailable: { code: 'MAGNUS_UNAVAILABLE', message: `Magnus could not be reached: ${errorText(error)}` } };
+    }
+    if (runtime.recovery < ARDENT_RUNTIME_LEVELS.recovery) {
+      return { task, recovery: stored ? { ...stored, actions: [], supported: false } : null, supported: false, source: 'stored', unavailable: unsupportedRecovery(runtime) };
+    }
+    let live: StudioRecovery;
+    try { live = this.studioRecovery(await this.magnus.taskRecovery(task.ardent.agent_ref, task.ardent.task_id), true); } catch (error) {
+      if (error instanceof MagnusError && error.status === 404) return { task, recovery: stored, supported: true, source: 'live', unavailable: null };
+      if (error instanceof MagnusError && (error.code === ARDENT_UNSUPPORTED_CAPABILITY || error.code === 'AGENT_UPGRADE_REQUIRED')) {
+        this.runtimes.delete(task.ardent.agent_ref);
+        return { task, recovery: stored ? { ...stored, actions: [], supported: false } : null, supported: false, source: 'stored', unavailable: { code: 'RECOVERY_UNSUPPORTED', message: error.message } };
+      }
+      return { task, recovery: stored, supported: true, source: 'stored', unavailable: { code: 'MAGNUS_UNAVAILABLE', message: `Magnus could not read the recovery: ${errorText(error)}` } };
+    }
+    const updated = task.state === 'unknown' || live.continuation_task_id ? this.applyHeld(task, live) : task;
+    return { task: updated, recovery: (updated.recovery as StudioRecovery | null) ?? live, supported: true, source: 'live', unavailable: null };
+  }
+
+  /**
+   * POST /tasks/{id}/recovery: send a person's decision on a held task through Magnus (task-recovery),
+   * then follow the continuation it names, or end the task when the recovery is resolved without one.
+   */
+  async decideRecovery(task: StudioTask, decision: ArdentTaskRecoveryDecision): Promise<{ task: StudioTask; recovery: StudioRecovery }> {
+    if (!task.ardent.agent_ref || !task.ardent.task_id) throw new ConductorError('The task has not started in Ardent, so it has no recovery', 409, 'RECOVERY_UNAVAILABLE');
+    if (task.state !== 'unknown') throw new ConductorError(`The task is ${task.state}; only a task Ardent holds for a decision takes one`, 409, 'RECOVERY_UNAVAILABLE');
+    const agentRef = task.ardent.agent_ref;
+    const runtime = await this.magnusCall(() => this.runtimeOf(agentRef));
+    const unsupported = unsupportedRecovery(runtime);
+    if (runtime.recovery < ARDENT_RUNTIME_LEVELS.recovery) throw new ConductorError(unsupported.message, 409, 'RECOVERY_UNSUPPORTED', unsupported.details);
+    const decided = await this.magnusCall(() => this.magnus.decideRecovery(agentRef, task.ardent.task_id!, decision));
+    const recovery = this.studioRecovery(decided, true);
+    const updated = this.applyHeld(this.store.tasks.get(task.id)!, recovery);
+    return { task: updated, recovery: (updated.recovery as StudioRecovery | null) ?? recovery };
   }
 
   // ── Requests from people (routes call these inside or after their transaction) ──
@@ -910,8 +1191,11 @@ export class Conductor {
 
   private async magnusCall<T>(call: () => Promise<T>): Promise<T> {
     try { return await call(); } catch (error) {
+      if (error instanceof ConductorError) throw error;
       if (error instanceof MagnusError) {
         if (error.code === 'AGENT_UPGRADE_REQUIRED') throw new ConductorError(error.message, 409, 'AGENT_UPGRADE_REQUIRED');
+        if (error.code === ARDENT_UNSUPPORTED_CAPABILITY) throw new ConductorError(`The agent's Ardent does not support this: ${error.message}`, 409, 'RECOVERY_UNSUPPORTED', error.details);
+        if (error.status === 400 || error.status === 422) throw new ConductorError(`Ardent refused the request: ${error.message}`, 422, 'INVALID_INPUT');
         if (error.status === 409) throw new ConductorError(`Ardent refused: ${error.message}`, 409, 'ARDENT_CONFLICT');
         if (error.status === 404) throw new ConductorError('Ardent has no record of this task', 404, 'ARDENT_TASK_NOT_FOUND');
       }
@@ -924,6 +1208,7 @@ export class Conductor {
   /** Probe agent status every 30 s. The probe only records reachability; activity is then derived as for any change. */
   async probe(): Promise<void> {
     if (this.stopped) return;
+    void this.recheckHeld();
     let profiles: Awaited<ReturnType<ConductorOptions['agents']['profiles']>> | undefined;
     try { profiles = await this.options.agents.profiles(); } catch { profiles = undefined; }
     const byRef = new Map((profiles ?? []).map(profile => [`${profile.nodeId}~${profile.id}`, profile]));
@@ -1010,14 +1295,24 @@ export class Conductor {
   }
 }
 
+/** Why Studio offers no recovery actions on a profile below recovery 1. */
+function unsupportedRecovery(runtime: ArdentProfileRuntime): { code: string; message: string; details: Record<string, unknown> } {
+  return { code: 'RECOVERY_UNSUPPORTED',
+    message: runtime.studio < 4 ? 'The agent\'s Magnus node agent cannot relay task recovery; upgrade the Magnus agent' : 'The agent runs an Ardent without task recovery; upgrade Ardent to 3.2.0 or later',
+    details: { capability: 'ardent.recovery.v1', required_level: ARDENT_RUNTIME_LEVELS.recovery, level: runtime.recovery, studio: runtime.studio, installed_version: runtime.version } };
+}
+
 /** A task as the browser sees it (no mission JSON). */
 export function publicTask(task: StudioTask) {
   return {
     id: task.id, project_id: task.project_id, title: task.title, mode: task.mode, role_key: task.role_key, binding_id: task.binding_id,
     assignment_revision: task.assignment_revision, conversation_id: task.conversation_id, trigger_message_id: task.trigger_message_id,
     instructions_md: task.instructions_md, source: task.source, state: task.state, dispatch: task.dispatch,
-    ardent: { agent_ref: task.ardent.agent_ref, task_id: task.ardent.task_id, session_id: task.ardent.session_id },
+    ardent: { agent_ref: task.ardent.agent_ref, task_id: task.ardent.task_id, session_id: task.ardent.session_id, attempts: task.ardent_attempts },
     outcome: task.outcome ?? null, reassigned_from: task.reassigned_from, group_id: task.group_id, group_position: task.group_position,
     created_by: task.created_by, created_at: task.created_at, updated_at: task.updated_at, finished_at: task.finished_at,
+    execution: task.execution ? { root: task.execution.root, parent: task.execution.parent ?? null, self: task.execution.self ?? null,
+      attempt: task.execution.attempt ?? null, inputs: task.execution.inputs ?? [] } : null,
+    recovery: (task.recovery as StudioRecovery | null) ?? null,
   };
 }

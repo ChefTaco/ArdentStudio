@@ -1,11 +1,13 @@
 // Decisions and the Studio task mirror. Agents only propose decisions; pinning is a person's act.
 import type { z } from 'zod';
 import { ConductorError, publicTask } from '../../conductor/conductor.js';
+import { taskLineage } from '../../conductor/lineage.js';
 import { TERMINAL_TASK_STATES, type StudioTask } from '../../db/repos/tasks.js';
 import type { Store } from '../../db/store.js';
 import {
   decisionIdSchema, taskIdSchema,
   type createDecisionRequestSchema, type createTaskRequestSchema, type listTasksQuerySchema, type reassignTaskRequestSchema, type supersedeDecisionRequestSchema,
+  type taskRecoveryRequestSchema,
 } from '../../shared/browser.js';
 import { actorOf, requireActive, requireProject, type AppDeps } from '../deps.js';
 import { ApiError, notFound } from '../errors.js';
@@ -21,7 +23,7 @@ function requireTask(store: Store, id: string | undefined): StudioTask {
 
 /** Conductor refusals keep their status and code. */
 function conductorError(error: unknown): never {
-  if (error instanceof ConductorError) throw new ApiError(error.status, error.code, error.message);
+  if (error instanceof ConductorError) throw new ApiError(error.status, error.code, error.message, error.details);
   throw error;
 }
 
@@ -115,6 +117,34 @@ export function workRoutes(register: ReturnType<typeof createRouter>, deps: AppD
   register('POST', '/tasks/{taskId}/pause', control('pause'));
   register('POST', '/tasks/{taskId}/resume', control('resume'));
   register('POST', '/tasks/{taskId}/cancel', control('cancel'));
+
+  // ── Recovery and lineage (Ardent 3.2.0 through Magnus 3.3.0) ──
+
+  register('GET', '/tasks/{taskId}/recovery', async (_c, { params }) => {
+    const answer = await conductor.recovery(requireTask(store, params.taskId));
+    return { body: { ...answer, task: publicTask(answer.task) } };
+  });
+
+  register('POST', '/tasks/{taskId}/recovery', async (_c, { params, body, principal, idempotencyKey }) => {
+    const task = requireTask(store, params.taskId);
+    requireActive(requireProject(store, task.project_id));
+    const input = body as z.infer<typeof taskRecoveryRequestSchema>;
+    const actor = actorOf(principal);
+    const previous = task.ardent.task_id;
+    const decided = await conductor.decideRecovery(task, {
+      action: input.action, ...(input.call_id ? { call_id: input.call_id } : {}), ...(input.result !== undefined ? { result: input.result } : {}),
+      ...(input.note ? { note: input.note } : {}), ...(input.deadline_seconds ? { deadline_seconds: input.deadline_seconds } : {}),
+    }).catch(conductorError);
+    store.tx(() => store.record(actor, 'task.recovery', { type: 'task', id: task.id }, {
+      action: input.action, call_id: input.call_id ?? null, ardent_task_id: previous, continuation_task_id: decided.recovery.continuation_task_id ?? null, state: decided.task.state,
+    }, idempotencyKey));
+    return { body: { task: publicTask(decided.task), recovery: decided.recovery } };
+  });
+
+  register('GET', '/tasks/{taskId}/lineage', async (_c, { params }) => {
+    const task = requireTask(store, params.taskId);
+    return { body: await taskLineage(task, { store, magnus: deps.magnus, runtime: ref => conductor.runtimeOf(ref), instance: conductor.instanceId }) };
+  });
 
   register('POST', '/tasks/{taskId}/reassign', async (_c, { params, body, principal, idempotencyKey }) => {
     const task = requireTask(store, params.taskId);

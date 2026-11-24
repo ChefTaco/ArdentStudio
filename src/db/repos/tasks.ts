@@ -225,6 +225,43 @@ export class TaskRepository {
     return this.active(projectId).filter(task => typeof task.source.from_task === 'string' && taskIds.has(task.source.from_task));
   }
 
+  /** Record the task's last observed Ardent recovery (C3), or null to clear it. */
+  setRecovery(id: string, recovery: unknown): StudioTask {
+    this.db.prepare('UPDATE tasks SET recovery_json = ?, updated_at = ? WHERE id = ?').run(recovery === null ? null : writeJson(recovery), this.clock.now().toISOString(), id);
+    return this.get(id)!;
+  }
+
+  /**
+   * Follow a continuation: the previous Ardent task id joins ardent_attempts (oldest first), the
+   * continuation becomes the task's Ardent task, its journal is read from the start and the task runs
+   * again. The unique (ardent_agent_ref, ardent_task_id) index keeps one Studio task per Ardent task.
+   */
+  switchArdent(id: string, continuationTaskId: string, recovery: unknown): StudioTask {
+    const current = this.get(id);
+    if (!current?.ardent.task_id) throw new Error(`Task ${id} has no Ardent task`);
+    const attempts = [...current.ardent_attempts, current.ardent.task_id];
+    const now = this.clock.now().toISOString();
+    this.db.prepare(`UPDATE tasks SET ardent_attempts_json = ?, ardent_task_id = ?, ardent_event_cursor = 0, recovery_json = ?, state = 'running',
+      finished_at = NULL, updated_at = ? WHERE id = ?`).run(writeJson(attempts), continuationTaskId, recovery === null ? null : writeJson(recovery), now, id);
+    return this.get(id)!;
+  }
+
+  /** Tasks Ardent holds for a decision: Studio state unknown with a recovery awaiting one. */
+  held(): StudioTask[] {
+    return (this.db.prepare(`SELECT * FROM tasks WHERE state = 'unknown' AND ardent_task_id IS NOT NULL AND recovery_json IS NOT NULL
+      AND json_extract(recovery_json, '$.status') = 'awaiting_decision' ORDER BY created_at, id`).all() as TaskRow[]).map(toTask);
+  }
+
+  /** Tasks whose execution parent is this reference (hand-offs, reassignments, the next discussion turn). */
+  withParent(projectId: string, parentRef: string): StudioTask[] {
+    return (this.db.prepare('SELECT * FROM tasks WHERE project_id = ? AND parent_ref = ? ORDER BY created_at, id').all(projectId, parentRef) as TaskRow[]).map(toTask);
+  }
+
+  /** Tasks created by reassigning this one. */
+  reassignedFrom(id: string): StudioTask[] {
+    return (this.db.prepare('SELECT * FROM tasks WHERE reassigned_from = ? ORDER BY created_at, id').all(id) as TaskRow[]).map(toTask);
+  }
+
   /** Cursors only move forward, so a replayed journal page cannot rewind the follower. */
   advanceCursor(id: string, cursor: number): void {
     this.db.prepare('UPDATE tasks SET ardent_event_cursor = MAX(ardent_event_cursor, ?), updated_at = ? WHERE id = ?').run(cursor, this.clock.now().toISOString(), id);

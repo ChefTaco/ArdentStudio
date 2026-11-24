@@ -118,6 +118,16 @@ export class RoomRepository {
     return row ? toMessage(row) : undefined;
   }
 
+  /**
+   * Move a reply that is still streaming from one Ardent task to its continuation, so the
+   * continuation's text and final record complete the same message. Answers the message, if any.
+   */
+  rekeyStreaming(fromTaskId: string, toTaskId: string): Message | undefined {
+    const now = this.clock.now().toISOString();
+    this.db.prepare("UPDATE messages SET ardent_task_id = ?, updated_at = ? WHERE ardent_task_id = ? AND state = 'streaming'").run(toTaskId, now, fromTaskId);
+    return this.messageForArdentTask(toTaskId);
+  }
+
   messageForArdentTask(taskId: string): Message | undefined {
     const row = this.db.prepare('SELECT * FROM messages WHERE ardent_task_id = ?').get(taskId) as MessageRow | undefined;
     return row ? toMessage(row) : undefined;

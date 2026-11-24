@@ -1,10 +1,32 @@
 import { Readable } from 'node:stream';
 import type { z } from 'zod';
 import { BlobTooLargeError } from '../../blobs/store.js';
-import { fileIdSchema, sha256Schema, uploadMimeSchema, type listFilesQuerySchema, type uploadFileQuerySchema } from '../../shared/browser.js';
+import { fileIdSchema, sha256Schema, uploadMimeSchema, type blobQuerySchema, type listFilesQuerySchema, type uploadFileQuerySchema } from '../../shared/browser.js';
 import { actorOf, requireActive, requireProject, type AppDeps } from '../deps.js';
 import { ApiError, notFound } from '../errors.js';
 import type { createRouter } from '../routing.js';
+
+/** Types a preview (disposition=inline) is served as: raster images, which the CSP sandbox and nosniff keep inert. */
+const PREVIEW_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+/**
+ * One `bytes=` range of a blob of `size` bytes: the inclusive byte offsets, 'unsatisfiable', or
+ * undefined to answer the whole blob (a malformed header or several ranges, which may be ignored).
+ */
+export function parseRange(header: string, size: number): { start: number; end: number } | 'unsatisfiable' | undefined {
+  const match = /^bytes=(\d{0,15})-(\d{0,15})$/.exec(header.trim());
+  if (!match || (!match[1] && !match[2])) return undefined;
+  if (!match[1]) {
+    const suffix = Number(match[2]);
+    if (suffix === 0 || size === 0) return 'unsatisfiable';
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+  const start = Number(match[1]);
+  const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+  if (match[2] && Number(match[2]) < start) return undefined;
+  if (start >= size) return 'unsatisfiable';
+  return { start, end };
+}
 
 export function fileRoutes(register: ReturnType<typeof createRouter>, deps: AppDeps): void {
   const { store, blobs } = deps;
@@ -46,24 +68,38 @@ export function fileRoutes(register: ReturnType<typeof createRouter>, deps: AppD
     return { body: { files: store.files.list(project.id, (query as z.infer<typeof listFilesQuerySchema>).purpose) } };
   });
 
-  register('GET', '/blobs/{sha256}', c => {
+  register('GET', '/blobs/{sha256}', (c, { query }) => {
     const sha = sha256Schema.safeParse(c.req.param('sha256'));
-    // Only blobs a project file, a revision or an export references are served; other stored bytes (DOCX conversions) stay private.
-    const opened = sha.success && (store.files.blobReferenced(sha.data) || store.review.blobReferenced(sha.data)) ? blobs.open(sha.data) : undefined;
+    // Only blobs a project file, a revision, a rendition or an export references are served; other stored bytes (DOCX conversions) stay private.
+    const record = sha.success && (store.files.blobReferenced(sha.data) || store.review.blobReferenced(sha.data)) ? blobs.get(sha.data) : undefined;
+    if (!record) throw notFound('Blob');
+    const { disposition } = query as z.infer<typeof blobQuerySchema>;
+    const etag = `"${record.sha256}"`;
+    const inline = disposition === 'inline';
+    const headers: Record<string, string> = {
+      // Previews get the real type of raster images only; everything else stays an opaque download.
+      'content-type': inline && PREVIEW_MIME.has(record.mime) ? record.mime : 'application/octet-stream',
+      'content-disposition': `${inline ? 'inline' : 'attachment'}; filename="${record.sha256}"`,
+      'accept-ranges': 'bytes',
+      'x-blob-mime': record.mime,
+      'x-content-sha256': record.sha256,
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': "sandbox; default-src 'none'",
+      'cache-control': 'private, max-age=31536000, immutable',
+      etag,
+    };
+    const ifRange = c.req.header('if-range');
+    const range = c.req.header('range') !== undefined && (ifRange === undefined || ifRange === etag) ? parseRange(c.req.header('range')!, record.size) : undefined;
+    if (range === 'unsatisfiable') {
+      return new Response(null, { status: 416, headers: { ...headers, 'content-range': `bytes */${record.size}`, 'content-length': '0' } });
+    }
+    const opened = blobs.open(record.sha256, range ?? undefined);
     if (!opened) throw notFound('Blob');
-    return new Response(Readable.toWeb(opened.stream) as ReadableStream, {
-      status: 200,
-      headers: {
-        'content-type': 'application/octet-stream',
-        'content-length': String(opened.record.size),
-        'content-disposition': `attachment; filename="${opened.record.sha256}"`,
-        'x-blob-mime': opened.record.mime,
-        'x-content-type-options': 'nosniff',
-        'content-security-policy': "sandbox; default-src 'none'",
-        'cache-control': 'private, max-age=31536000, immutable',
-        etag: `"${opened.record.sha256}"`,
-      },
-    });
+    if (range) {
+      return new Response(Readable.toWeb(opened.stream) as ReadableStream, { status: 206,
+        headers: { ...headers, 'content-range': `bytes ${range.start}-${range.end}/${record.size}`, 'content-length': String(range.end - range.start + 1) } });
+    }
+    return new Response(Readable.toWeb(opened.stream) as ReadableStream, { status: 200, headers: { ...headers, 'content-length': String(record.size) } });
   });
 
   register('POST', '/files/{fileId}/reindex', (_c, { params, principal, idempotencyKey }) => {

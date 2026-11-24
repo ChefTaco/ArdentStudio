@@ -208,6 +208,8 @@ export const uploadFileQuerySchema = z.object({
   purpose: filePurposeSchema.default('reference'),
 });
 export const listFilesQuerySchema = z.object({ purpose: filePurposeSchema.optional() });
+/** GET /blobs/{sha256}: inline for previews (raster images get their real type), attachment otherwise. */
+export const blobQuerySchema = z.object({ disposition: z.enum(['attachment', 'inline']).default('attachment') });
 export const listFilesResponseSchema = z.object({ files: z.array(fileSchema) });
 export const fileResponseSchema = fileSchema;
 
@@ -826,6 +828,37 @@ export const TASK_MODES = ['turn', 'assignment', 'discussion_turn', 'revision', 
 export const taskModeSchema = z.enum(TASK_MODES);
 /** The Ardent state mirrored, plus pausing (requested, not yet at a step boundary). input_required waits for a person's answer. */
 export const taskStateSchema = z.enum(['queued', 'running', 'input_required', 'pausing', 'paused', 'completed', 'partial', 'failed', 'cancelled', 'unknown']);
+/** Decisions on a task Ardent holds for one (Ardent 3.2.0 task recovery, C3). */
+export const RECOVERY_ACTIONS = ['mark_applied', 'mark_not_applied', 'retry_with_new_deadline', 'abandon'] as const;
+export const recoveryActionSchema = z.enum(RECOVERY_ACTIONS);
+/**
+ * ready, reconciling, resumed: Ardent is continuing the interrupted run under the same task (the Studio
+ * task stays running and shows as recovering). awaiting_decision: Ardent holds it (Studio unknown) until a
+ * person decides with one of `actions`. unsupported: Ardent cannot continue it. resolved: decided; a
+ * continuation_task_id names the Ardent task that continues the work for the same Studio task.
+ */
+export const recoveryStatusSchema = z.enum(['ready', 'reconciling', 'resumed', 'awaiting_decision', 'unsupported', 'resolved']);
+export const taskRecoverySchema = z.object({
+  status: recoveryStatusSchema,
+  /** Actionable, e.g. UNSETTLED_EXTERNAL_WRITE, CODEX_THREAD_NOT_DURABLE, DEADLINE_ELAPSED_DURING_OUTAGE. */
+  reason: z.object({ code: z.string(), message: z.string() }),
+  attempt: z.number().int(),
+  checkpoint: z.object({
+    step: z.number().int(), completed_calls: z.number().int(),
+    pending_calls: z.array(z.object({ call_id: z.string(), tool: z.string(), effect: z.string(), dispatched_at: z.string().nullable(), reconcilable: z.boolean() })),
+  }).optional(),
+  /** The decisions Studio can send now: empty when the agent's Ardent or Magnus agent cannot take them (supported false). */
+  actions: z.array(recoveryActionSchema),
+  continuation_task_id: z.string().optional(),
+  decided: z.object({ action: recoveryActionSchema, by: z.string(), at: z.string(), note: z.string().optional() }).optional(),
+  /** Whether the agent supports recovery decisions through Magnus (profile recovery >= 1). */
+  supported: z.boolean(),
+  observed_at: isoDate,
+});
+/** The task's execution context references (attribution only): the causal root, parent and the task itself, qualified `hx1:` references. */
+export const taskExecutionRefsSchema = z.object({
+  root: z.string(), parent: z.string().nullable(), self: z.string().nullable(), attempt: z.number().int().nullable(), inputs: z.array(z.string()),
+});
 export const taskSchema = z.object({
   id: taskIdSchema,
   project_id: projectIdSchema,
@@ -842,7 +875,8 @@ export const taskSchema = z.object({
   state: taskStateSchema,
   /** mission: an Ardent 2.2.0 team mission; turn: a task-submit with a composed prompt (older agents). Null until Ardent accepts it. */
   dispatch: z.enum(['mission', 'turn']).nullable(),
-  ardent: z.object({ agent_ref: z.string().nullable(), task_id: z.string().nullable(), session_id: z.string().nullable() }),
+  /** task_id is the current Ardent task; attempts the earlier ones (recovery continuations), oldest first. */
+  ardent: z.object({ agent_ref: z.string().nullable(), task_id: z.string().nullable(), session_id: z.string().nullable(), attempts: z.array(z.string()) }),
   outcome: z.unknown(),
   reassigned_from: taskIdSchema.nullable(),
   /** Tasks in one ordering group start one after another. */
@@ -852,6 +886,9 @@ export const taskSchema = z.object({
   created_at: isoDate,
   updated_at: isoDate,
   finished_at: isoDate.nullable(),
+  execution: taskExecutionRefsSchema.nullable(),
+  /** The last Ardent recovery Studio observed, or null when the run was never interrupted. A running task with one is recovering. */
+  recovery: taskRecoverySchema.nullable(),
 });
 export const listTasksQuerySchema = z.object({
   state: z.enum(['active', 'finished', 'all']).default('all'),
@@ -869,6 +906,68 @@ export const createTaskRequestSchema = z.object({
 }).strict();
 export const reassignTaskRequestSchema = z.object({ role_key: roleKeySchema }).strict();
 export const taskResponseSchema = taskSchema;
+/**
+ * GET /tasks/{taskId}/recovery. source live: read now through Magnus; stored: as last recorded (the agent
+ * cannot be asked, see unavailable). supported false: no actions can be sent (unavailable says why).
+ */
+export const taskRecoveryResponseSchema = z.object({
+  task: taskSchema,
+  recovery: taskRecoverySchema.nullable(),
+  supported: z.boolean(),
+  source: z.enum(['live', 'stored']),
+  unavailable: z.object({ code: z.string(), message: z.string() }).nullable(),
+});
+/** POST /tasks/{taskId}/recovery: a person's decision on a task Ardent holds awaiting_decision. */
+export const taskRecoveryRequestSchema = z.object({
+  action: recoveryActionSchema,
+  /** The pending call the decision is about; needed when several are pending. */
+  call_id: z.string().min(1).max(256).optional(),
+  /** mark_applied: the call's result when known (JSON, at most 64 KiB), checked against the tool's output schema. */
+  result: z.unknown().optional().refine(value => value === undefined || new TextEncoder().encode(JSON.stringify(value) ?? '').length <= 64 * 1024, 'Exceeds 65536 bytes'),
+  note: z.string().trim().min(1).max(2000).optional(),
+  /** retry_with_new_deadline: the new deadline in seconds (Ardent caps it). */
+  deadline_seconds: z.number().int().min(1).max(86_400).optional(),
+}).strict();
+export const taskRecoveryDecisionResponseSchema = z.object({ task: taskSchema, recovery: taskRecoverySchema });
+/** A Studio task in a lineage listing. */
+export const lineageTaskSchema = z.object({ task_id: taskIdSchema, ref: z.string().nullable(), role_key: z.string().nullable(), state: taskStateSchema, mode: taskModeSchema });
+/**
+ * GET /tasks/{taskId}/lineage: how the task sits in the suite-wide causal tree. studio: Studio's own
+ * relationships. ardent: each Ardent attempt's lineage as the profile records it (current last), or null
+ * with ardent_unavailable when the agent cannot answer. emberpath: the filter for provider traces.
+ */
+export const taskLineageResponseSchema = z.object({
+  task_id: taskIdSchema,
+  studio: z.object({
+    self: z.string().nullable(),
+    root: z.string().nullable(),
+    parent: z.string().nullable(),
+    execution: taskExecutionRefsSchema.nullable(),
+    /** Tasks whose execution parent is this task (hand-offs, reassignments, the next discussion turn). */
+    children: z.array(lineageTaskSchema),
+    reassigned_from: lineageTaskSchema.nullable(),
+    reassigned_to: z.array(lineageTaskSchema),
+    /** Hand-offs: the task that handed this one over (direction from) and those it handed over (direction to). */
+    handoffs: z.array(lineageTaskSchema.extend({ direction: z.enum(['from', 'to']), relationship: z.string().nullable() })),
+    /** The team revision the task runs under, and the deliverable revisions it produced. */
+    assignment_revision: z.number().int().nullable(),
+    revisions: z.array(z.object({ revision_id: revisionIdSchema, deliverable_id: deliverableIdSchema, revision: z.number().int(), blob_sha256: sha256Schema })),
+    workflow: z.object({ run_id: workflowRunIdSchema, node_key: z.string(), attempt: z.number().int(), ref: z.string().nullable() }).nullable(),
+  }),
+  ardent: z.object({
+    agent_ref: agentRefSchema,
+    attempts: z.array(z.object({
+      ardent_task_id: z.string(),
+      ref: z.string().nullable(),
+      current: z.boolean(),
+      /** The profile's GET /api/v1/tasks/{id}/lineage answer, relayed as-is; null with error when it could not be read. */
+      lineage: z.record(z.string(), z.unknown()).nullable(),
+      error: z.object({ code: z.string(), message: z.string() }).nullable(),
+    })),
+  }).nullable(),
+  ardent_unavailable: z.object({ code: z.string(), message: z.string() }).nullable(),
+  emberpath: z.object({ filter: z.object({ executionRoot: z.string().nullable() }) }),
+});
 
 // ── Workflow runs ──
 export const workflowRunStateSchema = z.enum(['running', 'blocked', 'completed', 'failed', 'cancelled']);
@@ -1003,6 +1102,11 @@ export const activitySchema = z.object({
 // ── Deliverable review ──
 /** A received revision's review status. Distinct from the task that produced it and from the file's receipt. */
 export const reviewStatusSchema = z.enum(['unreviewed', 'changes_requested', 'accepted', 'rejected', 'superseded']);
+/** A rendition of a revision's artifact (artifact transfer v2), the original first. Download through GET /blobs/{sha256}. */
+export const deliverableRenditionSchema = z.object({
+  role: z.string(), sha256: sha256Schema, mime: z.string(), size: z.number().int(), purpose: z.string().nullable(),
+  width: z.number().int().nullable(), height: z.number().int().nullable(), has_alpha: z.boolean().nullable(),
+});
 export const deliverableRevisionSchema = z.object({
   id: revisionIdSchema,
   deliverable_id: deliverableIdSchema,
@@ -1019,6 +1123,8 @@ export const deliverableRevisionSchema = z.object({
   supersedes_revision_id: revisionIdSchema.nullable(),
   received_at: isoDate,
   review_status: reviewStatusSchema,
+  /** Renditions Ardent listed for the artifact (original first, then previews and model inputs); empty from agents without artifact transfer v2. */
+  renditions: z.array(deliverableRenditionSchema),
 });
 export const deliverableSchema = z.object({
   id: deliverableIdSchema,
@@ -1045,7 +1151,15 @@ export const artifactImportSchema = z.object({
   state: z.enum(['pending', 'imported', 'failed']),
   attempts: z.number().int(),
   error: z.string().nullable(),
+  /** Why the import failed or waits for a retry: DIGEST_MISMATCH, TOO_LARGE, SIZE_MISMATCH, RANGE_MISMATCH, TRANSFER_INCOMPLETE, MAGNUS_REFUSED, TRANSFER_FAILED or TASK_GONE. */
+  error_code: z.string().nullable(),
   revision_id: revisionIdSchema.nullable(),
+  /** Bytes received so far (a ranged import resumes from here). */
+  received_bytes: z.number().int(),
+  /** range: artifact transfer v2 with Range and resume; whole: the v1 download. Null until the transfer starts. */
+  transfer: z.enum(['range', 'whole']).nullable(),
+  /** How often the transfer continued from a partial file. */
+  resumes: z.number().int(),
   updated_at: isoDate,
 });
 export const listDeliverablesResponseSchema = z.object({ deliverables: z.array(deliverableSchema), imports: z.array(artifactImportSchema) });
@@ -1367,6 +1481,20 @@ export const snapshotResponseSchema = z.object({
   team_proposals: z.array(teamProposalRecordSchema),
 });
 export const streamQuerySchema = z.object({ after: z.string().regex(/^\d{1,15}$/).optional() });
+/**
+ * task.recovery payload. change: recovering (Ardent continues the same task), held (unknown until a
+ * decision), continued (the task follows the continuation ardent_task_id; previous_ardent_task_id is the
+ * attempt it continues), resolved (ended without a continuation), unsupported (Ardent cannot continue it).
+ */
+export const taskRecoveryEventSchema = z.object({
+  task_id: taskIdSchema,
+  change: z.enum(['recovering', 'held', 'continued', 'resolved', 'unsupported']),
+  recovery: taskRecoverySchema,
+  ardent_task_id: z.string().nullable(),
+  previous_ardent_task_id: z.string().optional(),
+});
+/** artifact.import.progress payload: a transfer moved on (at most every 2 s). State changes and outcomes arrive as artifact.import.updated. */
+export const artifactImportProgressEventSchema = z.object({ import: artifactImportSchema });
 export const PROJECT_EVENT_TYPES = [
   'project.created', 'project.updated', 'project.archived', 'project.reopened',
   'file.created', 'file.updated',
@@ -1377,6 +1505,7 @@ export const PROJECT_EVENT_TYPES = [
   'export.created', 'agent.operation.updated', 'deliverable.updated', 'artifact.import.updated',
   'link.created', 'link.updated', 'link.deleted', 'team.proposal.updated',
   'workflow.run.created', 'workflow.run.updated', 'workflow.node.updated',
+  'task.recovery', 'artifact.import.progress',
 ] as const;
 export const projectEventTypeSchema = z.enum(PROJECT_EVENT_TYPES);
 /** A persisted event. The SSE `id` is its seq. */
@@ -1502,7 +1631,7 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   // Files
   { method: 'POST', path: '/projects/{projectId}/files', query: uploadFileQuerySchema, requestBody: 'raw', response: fileResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Raw body up to ARDENT_STUDIO_MAX_BLOB_BYTES (default 64 MiB) with an allowed Content-Type (UPLOAD_MIME_TYPES). References are indexed into the project HiveMem workspace.' },
   { method: 'GET', path: '/projects/{projectId}/files', query: listFilesQuerySchema, response: listFilesResponseSchema, permissions: READ, idempotent: false },
-  { method: 'GET', path: '/blobs/{sha256}', response: null, permissions: READ, idempotent: false, note: 'Bytes as application/octet-stream with Content-Disposition attachment; the recorded type is in X-Blob-Mime. Only blobs that a project file, a deliverable revision or an export references are served.' },
+  { method: 'GET', path: '/blobs/{sha256}', query: blobQuerySchema, response: null, permissions: READ, idempotent: false, note: 'Bytes as application/octet-stream with Content-Disposition attachment; the recorded type is in X-Blob-Mime and the digest in X-Content-SHA256 (ETag "<sha256>"). Range (one bytes= range) answers 206 with Content-Range, 416 when unsatisfiable; If-Range with another ETag answers the whole blob. disposition=inline answers Content-Disposition inline and, for raster images (PNG, JPEG, WebP, GIF), their real Content-Type, for previews. Only blobs that a project file, a deliverable revision or rendition, or an export references are served.' },
   { method: 'POST', path: '/files/{fileId}/reindex', response: fileResponseSchema, permissions: WRITE, idempotent: true, note: 'Queues the file for HiveMem sync again.' },
 
   // Templates
@@ -1563,6 +1692,9 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'POST', path: '/tasks/{taskId}/pause', response: taskResponseSchema, permissions: WRITE, idempotent: true, note: 'A started task pauses at its next step boundary (state pausing, then paused); an unstarted one is held. 409 AGENT_UPGRADE_REQUIRED when the agent cannot pause.' },
   { method: 'POST', path: '/tasks/{taskId}/resume', response: taskResponseSchema, permissions: WRITE, idempotent: true },
   { method: 'POST', path: '/tasks/{taskId}/cancel', response: taskResponseSchema, permissions: WRITE, idempotent: true },
+  { method: 'GET', path: '/tasks/{taskId}/recovery', response: taskRecoveryResponseSchema, permissions: READ, idempotent: false, note: 'The task\'s Ardent recovery, read now through Magnus when the agent supports it (profile recovery >= 1, Magnus 3.3.0), else as last recorded with unavailable saying why (RECOVERY_UNSUPPORTED, MAGNUS_UNAVAILABLE, NOT_STARTED). A continuation decided elsewhere is followed by this read.' },
+  { method: 'POST', path: '/tasks/{taskId}/recovery', requestBody: 'json', request: taskRecoveryRequestSchema, response: taskRecoveryDecisionResponseSchema, permissions: WRITE, idempotent: true, note: 'Sends a person\'s decision on a task Ardent holds awaiting_decision through Magnus (task-recovery). mark_applied, mark_not_applied and retry_with_new_deadline continue the work in an Ardent continuation task that the same Studio task follows (state running, ardent.attempts gains the old id); abandon ends the task as unknown. 409 RECOVERY_UNAVAILABLE when the task is not held, 409 RECOVERY_UNSUPPORTED (details capability, required_level, level, installed_version) when the agent cannot take decisions, 409 ARDENT_CONFLICT when Ardent refuses this action now, 422 INVALID_INPUT, 409 AGENT_UPGRADE_REQUIRED, 503 MAGNUS_UNAVAILABLE.' },
+  { method: 'GET', path: '/tasks/{taskId}/lineage', response: taskLineageResponseSchema, permissions: READ, idempotent: false, note: 'Studio relationships of the task, the Ardent lineage of each of its Ardent attempts (profile lineage >= 1; otherwise ardent is null and ardent_unavailable says why) and the Emberpath trace filter. Attribution only.' },
   { method: 'POST', path: '/tasks/{taskId}/reassign', requestBody: 'json', request: reassignTaskRequestSchema, response: taskResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'Cancels the task when it is still active and creates the same work for another role, with reassigned_from.' },
 
   // Workflow runs

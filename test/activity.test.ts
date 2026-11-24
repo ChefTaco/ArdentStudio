@@ -83,7 +83,7 @@ describe('agent activity', () => {
   it('shows Delivering for a short while after a verified revision', () => {
     const delivered = { id: 'rev_1', deliverable_id: 'dlv_1', revision: 2, blob_sha256: 'a'.repeat(64), mime: 'image/svg+xml', size: 10, producer_binding_id: 'bnd_1',
       source_task_id: 'task_x', source_message_id: null, ardent: null, supersedes_revision_id: null, received_at: new Date(NOW.getTime() - 5_000).toISOString(),
-      review_status: 'unreviewed' as const, ardent_artifact_id: null, deliverable_name: 'Region Map' };
+      review_status: 'unreviewed' as const, ardent_artifact_id: null, renditions: [], deliverable_name: 'Region Map' };
     expect(deriveActivity(input({ delivered }))).toMatchObject({ state: 'delivering', label: 'Delivered Region Map r2', source: { revision_id: 'rev_1' } });
     expect(deriveActivity(input({ delivered, deliveringMs: 4_000 })).state).toBe('available');
     expect(deriveActivity(input({ delivered, tasks: [task()] })).state).toBe('queued');

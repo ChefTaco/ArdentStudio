@@ -117,6 +117,14 @@ Workflow runs (see [docs/API.md](docs/API.md#workflows)):
 | `GET /projects/:id/workflow-runs/:runId` | projects:read |
 | `POST /projects/:id/workflow-runs/:runId/nodes/:key/actions` (`{action: retry\|skip\|cancel_run}`) | projects:write |
 
+Task recovery and lineage (Ardent 3.2.0 through Magnus 3.3.0, see [docs/API.md](docs/API.md#decisions-and-tasks)):
+
+| Route | Permission |
+|---|---|
+| `GET /tasks/:id/recovery` | projects:read |
+| `POST /tasks/:id/recovery` (`{action: mark_applied\|mark_not_applied\|retry_with_new_deadline\|abandon, call_id?, result?, note?, deadline_seconds?}`) | projects:write |
+| `GET /tasks/:id/lineage` | projects:read |
+
 `GET /api/ardentstudio/v1/audit/export` serves the audit log as suite `HiveAuditRecord` v1
 records for a collector such as Cindertrace. It needs the permission `ardentstudio:audit:read`,
 which an Oathweave service (client_credentials) token for the audience `ardentstudio` may carry,
