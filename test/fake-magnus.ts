@@ -82,6 +82,10 @@ export class FakeMagnusServer {
   streamLimitMs = 60_000;
   /** Make the next n submissions fail with 503. */
   failSubmissions = 0;
+  /** Refuse the next n submissions with 409 RESOURCE_LEASE_CONFLICT, as Magnus does while another command runs on the node. */
+  leaseConflicts = 0;
+  /** Refuse the next `count` submissions with this status and error code. */
+  failSubmissionsWith: { status: number; code: string; count: number } = { status: 0, code: '', count: 0 };
   streamsOpened = 0;
   artifacts = new Map<string, { bytes: Uint8Array; mime: string }>();
   /** Serve these bytes instead of the stored ones (a corrupted relay). */
@@ -562,6 +566,8 @@ export class FakeMagnusServer {
         if (action !== 'task-submit' && needs(2)) return;
         if (action === 'preview-submit' && !actingSubject) return fail(response, 403, 'ACTING_SUBJECT_REQUIRED', 'needs a person');
         if (this.failSubmissions > 0) { this.failSubmissions--; return fail(response, 503, 'DEPENDENCY_UNAVAILABLE', 'Ardent node unavailable'); }
+        if (this.failSubmissionsWith.count > 0) { this.failSubmissionsWith.count--; return fail(response, this.failSubmissionsWith.status, this.failSubmissionsWith.code, 'Refused'); }
+        if (this.leaseConflicts > 0) { this.leaseConflicts--; return fail(response, 409, 'RESOURCE_LEASE_CONFLICT', 'session-open on sage (command native-0000) is still running on this node; try again when it finishes'); }
         if (this.retryAfterSubmissions.count > 0) {
           this.retryAfterSubmissions.count--;
           response.writeHead(503, { 'content-type': 'application/json', 'retry-after': String(this.retryAfterSubmissions.seconds) });

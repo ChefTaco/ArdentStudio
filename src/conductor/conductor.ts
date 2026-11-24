@@ -129,7 +129,12 @@ export function ardentIdempotencyKey(taskId: string): string {
 
 function transient(error: unknown): boolean {
   if (error instanceof ServiceTokenError) return true;
-  if (error instanceof MagnusError) return error.status >= 500 || error.status === 429 || error.status === 408;
+  if (error instanceof MagnusError) {
+    // Magnus runs one managed command per node at a time and refuses another with this conflict
+    // before anything is admitted, so the same frozen body is safe to send again.
+    if (error.status === 409 && error.code === 'RESOURCE_LEASE_CONFLICT') return true;
+    return error.status >= 500 || error.status === 429 || error.status === 408;
+  }
   return !(error instanceof z.ZodError);
 }
 
