@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## [0.5.1] - 2026-11-24
+
+Upgrading: replace the image; no migration and no settings change.
+
+### Fixed
+
+- A submission that Magnus refuses because another managed command is running on the same node
+  (`409 RESOURCE_LEASE_CONFLICT`, "still running on this node; try again when it finishes") is now retried
+  with backoff and the same frozen body, instead of failing the task. Parallel workflow branches whose agents
+  share a node, and any two turns that start at once on one node, no longer fail or block a workflow on it.
+  Every other conflict still fails the task at once.
+
 ## [0.5.0] - 2026-11-24
 
 Upgrading: back up the data volume first. Migrations 7 to 10 run on the first start and are additive; a database

@@ -103,6 +103,26 @@ describe('frozen submissions', () => {
     expect(submits()[1]!.at - failedAt).toBeGreaterThanOrEqual(900);
   });
 
+  it('retries a submission Magnus refused because another command holds the node, with the same body', async () => {
+    const { team } = await room({ conductor: { submitRetryMs: 10 } });
+    ctx.magnus.leaseConflicts = 2;
+    const posted = await post(team.id, { body_md: 'Outline the adventure.' });
+    const id = posted.tasks[0].id as string;
+    await waitFor(() => studioTask(id).ardent.task_id, 5_000);
+    expect(studioTask(id).state).not.toBe('failed');
+    expect(submits()).toHaveLength(3);
+    expect(new Set(submits().map(call => call.raw)).size).toBe(1);
+  });
+
+  it('still fails at once on other conflicts', async () => {
+    const { team } = await room({ conductor: { submitRetryMs: 10 } });
+    ctx.magnus.leaseConflicts = 0;
+    ctx.magnus.failSubmissionsWith = { status: 409, code: 'IDEMPOTENCY_CONFLICT', count: 1 };
+    const posted = await post(team.id, { body_md: 'Outline the adventure.' });
+    await waitFor(() => studioTask(posted.tasks[0].id).state === 'failed');
+    expect(submits()).toHaveLength(1);
+  });
+
   it('fails the task once the attempts are used up', async () => {
     const { team } = await room({ conductor: { maxSubmitAttempts: 2, submitRetryMs: 10 } });
     ctx.magnus.failSubmissions = 5;
