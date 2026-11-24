@@ -30,7 +30,7 @@ import {
   ARDENT_ACTING_SUBJECT_HEADER,
   ARDENT_SERVICE_CONFIG_PATHS,
   ardentAgentDeployRequestSchema,
-  ardentAgentOperationSchema,
+  ardentAgentOperationSchema as contractAgentOperationSchema,
   ardentConfigEditSchema,
   ardentConfigFileSchema,
   ardentConfigSavedSchema,
@@ -65,7 +65,7 @@ import { trimTrailingSlashes } from '../url.js';
 
 export {
   ARDENT_SERVICE_ADMIN_ACTIONS, ARDENT_SERVICE_CONFIG_PATHS, ARDENT_STUDIO_CAPABILITY, ARDENT_STUDIO_EVENT_KINDS,
-  ardentAgentOperationSchema, ardentTaskDoneEventSchema, ardentTaskJournalEventSchema, ardentTaskTextEventSchema, ardentTeamMissionSchema,
+  ardentTaskDoneEventSchema, ardentTaskJournalEventSchema, ardentTaskTextEventSchema, ardentTeamMissionSchema,
 } from '@hivemagnus/magnus-contracts/ardent-service';
 export { ARDENT_CONTEXT_ITEMS_MAX_BYTES } from '@hivemagnus/magnus-contracts/browser';
 
@@ -270,7 +270,28 @@ export type ArdentContextItem = z.infer<typeof ardentContextItemSchema>;
 export type ArdentDevelopmentRecord = z.infer<typeof ardentDevelopmentRecordSchema>;
 export type ArdentTaskEvent = z.infer<typeof ardentTaskJournalEventSchema>;
 export type NewAgentRequest = z.input<typeof ardentAgentDeployRequestSchema>;
+/**
+ * A New Agent or Enable HiveMem operation. Magnus 3.3.0 also runs `definition` operations, the install of a
+ * hive-agent-definition/1, which name the definition in request.definition; validated locally until a
+ * magnus-contracts release carries them.
+ */
+export const ardentAgentOperationSchema = contractAgentOperationSchema.extend({
+  kind: z.enum(['deploy', 'hivemem', 'definition']),
+  request: contractAgentOperationSchema.shape.request.extend({ definition: z.object({ name: z.string(), sha256: z.string() }).nullable().optional() }),
+});
 export type MagnusAgentOperation = z.infer<typeof ardentAgentOperationSchema>;
+
+/**
+ * Magnus 3.3.0 agent definitions (POST /ardent/agent-definitions/validate and …/install), validated with
+ * local schemas until a magnus-contracts release carries them. Both need an acting Magnus ADMIN.
+ */
+export interface DefinitionValidateRequest { definition: unknown; nodeId: string; bindings?: Record<string, string> | undefined }
+export interface DefinitionInstallRequest { definition: unknown; nodeId: string; name: string; bindings: Record<string, string>; apiPort?: number | undefined }
+export const definitionPreflightSchema = z.object({
+  ok: z.boolean(),
+  problems: z.array(z.object({ code: z.string().max(64), detail: z.string().max(500) })).max(200),
+});
+export type DefinitionPreflight = z.infer<typeof definitionPreflightSchema>;
 
 /** action task-submit: the prompt is at most 16000 characters and the idempotency key a UUID. */
 const ardentTaskSubmitSchema = ardentServiceTaskSubmitRequestSchema.shape.body;
@@ -564,6 +585,23 @@ export class MagnusClient {
   async createAgent(body: NewAgentRequest, context: CallContext): Promise<{ operationId: string }> {
     if (!context.actingSubject) throw new MagnusError('New Agent needs the acting person', 400, 'ACTING_SUBJECT_REQUIRED');
     return operationAcceptedSchema.parse(await this.json('POST', '/api/v1/ardent/agents', context, ardentAgentDeployRequestSchema.parse(body)));
+  }
+
+  /** Magnus's preflight of an agent definition for a node and bindings (Magnus 3.3.0). Needs an acting ADMIN. */
+  async validateDefinition(body: DefinitionValidateRequest, context: CallContext): Promise<DefinitionPreflight> {
+    if (!context.actingSubject) throw new MagnusError('Validating a definition needs the acting person', 400, 'ACTING_SUBJECT_REQUIRED');
+    return definitionPreflightSchema.parse(await this.json('POST', '/api/v1/ardent/agent-definitions/validate', context,
+      { definition: body.definition, nodeId: body.nodeId, ...(body.bindings !== undefined ? { bindings: body.bindings } : {}) }));
+  }
+
+  /**
+   * Install an agent definition as a new profile (Magnus 3.3.0): a New Agent operation of kind definition, started
+   * only when the preflight passes (else 409 PREFLIGHT_FAILED with details.problems). Needs an acting ADMIN.
+   */
+  async installDefinition(body: DefinitionInstallRequest, context: CallContext): Promise<{ operationId: string }> {
+    if (!context.actingSubject) throw new MagnusError('Installing a definition needs the acting person', 400, 'ACTING_SUBJECT_REQUIRED');
+    return operationAcceptedSchema.parse(await this.json('POST', '/api/v1/ardent/agent-definitions/install', context,
+      { definition: body.definition, nodeId: body.nodeId, name: body.name, bindings: body.bindings, ...(body.apiPort !== undefined ? { apiPort: body.apiPort } : {}) }));
   }
 
   /** Step receipts of a New Agent or Enable HiveMem operation. */

@@ -680,4 +680,13 @@ CREATE TABLE deliverable_renditions (
 CREATE INDEX deliverable_renditions_blob ON deliverable_renditions (sha256);
 `,
   },
+  {
+    id: 10,
+    name: 'template_source_definition',
+    sql: `
+-- The agent definition (hive-agent-definition/1) an agent template version was imported from:
+-- {"name", "sha256"} as JSON, or NULL. Set when the version is inserted; versions stay immutable.
+ALTER TABLE agent_template_versions ADD COLUMN source_definition_json TEXT;
+`,
+  },
 ];

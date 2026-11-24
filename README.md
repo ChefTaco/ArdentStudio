@@ -125,6 +125,15 @@ Task recovery and lineage (Ardent 3.2.0 through Magnus 3.3.0, see [docs/API.md](
 | `POST /tasks/:id/recovery` (`{action: mark_applied\|mark_not_applied\|retry_with_new_deadline\|abandon, call_id?, result?, note?, deadline_seconds?}`) | projects:write |
 | `GET /tasks/:id/lineage` | projects:read |
 
+Portable agent definitions (`hive-agent-definition/1`, Magnus 3.3.0, see [docs/API.md](docs/API.md#agent-definitions)):
+
+| Route | Permission |
+|---|---|
+| `POST /templates/:id/versions/:v/definition` | templates:read |
+| `POST /templates/import-definition` (`{definition, template_id?, base_version?, changelog?}`) | templates:write |
+| `POST /templates/:id/versions/:v/deploy-check` (`{node_id, bindings?}`) | agents:admin |
+| `POST /templates/:id/versions/:v/deploy` (`{node_id, profile, bindings, api_port?, project_id?, role_key?}`) | agents:admin |
+
 `GET /api/ardentstudio/v1/audit/export` serves the audit log as suite `HiveAuditRecord` v1
 records for a collector such as Cindertrace. It needs the permission `ardentstudio:audit:read`,
 which an Oathweave service (client_credentials) token for the audience `ardentstudio` may carry,

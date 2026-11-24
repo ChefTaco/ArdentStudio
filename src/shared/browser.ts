@@ -258,7 +258,11 @@ export const skillRefSchema = z.object({
   kind: z.enum(['local', 'hiveskills']),
   ref: z.string().regex(/^[A-Za-z0-9_.:/-]{1,128}$/),
   channel: z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/).optional(),
-}).strict();
+  /** A pinned HiveSkills release: its version and the release archive's SHA-256 (both, on hiveskills skills only). */
+  version: z.string().max(64).regex(/^v?\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/i).optional(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+}).strict().refine(value => (value.version === undefined) === (value.sha256 === undefined) && (value.version === undefined || value.kind === 'hiveskills'),
+  { message: 'A pinned skill is a hiveskills skill with both version and sha256', path: ['version'] });
 export const avatarPresetSchema = z.object({
   preset: z.string().regex(/^[a-z0-9-]{1,40}$/),
   accent: z.string().regex(/^[a-z0-9-]{1,40}$/),
@@ -445,7 +449,9 @@ const versionFields = {
   created_by: z.string(),
   created_at: isoDate,
 };
-export const agentTemplateVersionSchema = z.object({ ...versionFields, kind: z.literal('agent'), body: agentTemplateBodySchema });
+/** The agent definition a template version was imported from (POST /templates/import-definition). */
+export const sourceDefinitionSchema = z.object({ name: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/) });
+export const agentTemplateVersionSchema = z.object({ ...versionFields, kind: z.literal('agent'), body: agentTemplateBodySchema, source_definition: sourceDefinitionSchema.nullable() });
 export const teamTemplateVersionSchema = z.object({ ...versionFields, kind: z.literal('team'), body: teamTemplateBodySchema });
 export const templateVersionSchema = z.discriminatedUnion('kind', [agentTemplateVersionSchema, teamTemplateVersionSchema]);
 export const templateDetailSchema = templateSummarySchema.extend({
@@ -1448,7 +1454,8 @@ export const agentOperationSchema = z.object({
   agent_ref: agentRefSchema,
   project_id: projectIdSchema.nullable(),
   role_key: z.string().nullable(),
-  kind: z.enum(['deploy', 'hivemem']),
+  /** definition: an install of an agent definition (POST /templates/{templateId}/versions/{version}/deploy). */
+  kind: z.enum(['deploy', 'hivemem', 'definition']),
   status: z.enum(['running', 'succeeded', 'failed']),
   steps: z.array(agentOperationStepSchema),
   error: z.string().nullable(),
@@ -1459,6 +1466,141 @@ export const agentOperationSchema = z.object({
   completed_at: z.string().nullable(),
 });
 export const agentOperationResponseSchema = agentOperationSchema;
+
+// ── Agent definitions (hive-agent-definition/1) ──
+// One portable, complete agent definition, as Magnus 3.3.0 validates and installs it. This is the shape of
+// @hivemagnus/magnus-contracts `agent-definition` (Magnus 3.3.0), ported here until Studio depends on that
+// release. `sha256` is the SHA-256 of the canonical JSON (sorted keys, no whitespace) of the definition
+// without `sha256`; `persona.sha256` that of `{ soul_md, identity_md }`. A definition never carries a
+// credential: secrets are named environment variables, installation resources are named bindings, and
+// history, memory, sessions and artifacts are always excluded.
+export const AGENT_DEFINITION_SCHEMA = 'hive-agent-definition/1' as const;
+export const AGENT_DEFINITION_EXCLUDES = ['history', 'memory', 'sessions', 'artifacts'] as const;
+export const AGENT_DEFINITION_BINDING_KINDS = ['hivemem', 'emberpath_alias', 'hiveskills', 'channel', 'peer'] as const;
+/** The preflight problem codes Magnus reports today (a later Magnus may add codes). */
+export const AGENT_DEFINITION_PROBLEM_CODES = [
+  'MISSING_BINDING', 'SKILL_VERSION_UNAVAILABLE', 'EXTENSION_NOT_REVIEWED', 'RUNTIME_INCOMPATIBLE', 'CAPABILITY_MISSING', 'SECRET_UNBOUND',
+] as const;
+
+const definitionUtf8Length = (value: string) => new TextEncoder().encode(value).length;
+const definitionDigest = z.string().regex(/^[a-f0-9]{64}$/u);
+const definitionPersonaText = z.string().max(131_072)
+  .refine(value => value.trim().length > 0 && definitionUtf8Length(value) <= 131_072, 'Identity text must be 1 to 128 KiB');
+const definitionPackageName = z.string().max(214).regex(/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u);
+const definitionDistinct = (values: string[]) => new Set(values).size === values.length;
+/** An Emberpath alias: the only portable model reference. */
+export const emberpathAliasSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/u);
+
+/** A requirement's key: `hivemem`, `model`, `hiveskills`, `channel:<name>`, `peers`. */
+export const agentDefinitionBindingKeySchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}(?::[a-z0-9][a-z0-9_-]{0,63})?$/u);
+/**
+ * What an install binds each requirement to: a HiveMem workspace or `default`, an Emberpath alias, `default`
+ * for HiveSkills; `secret:<ENV_NAME>` to `provided` or `none`, never a value.
+ */
+export const agentDefinitionBindingsSchema = z.record(
+  z.union([agentDefinitionBindingKeySchema, z.string().regex(/^secret:[A-Z][A-Z0-9_]{0,127}$/u)]),
+  z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/u),
+).refine(value => Object.keys(value).length <= 128, 'At most 128 bindings');
+
+const agentDefinitionFields = {
+  schema: z.literal(AGENT_DEFINITION_SCHEMA),
+  name: z.string().trim().min(1).max(128),
+  description: z.string().max(2000).optional(),
+  created_at: z.iso.datetime({ offset: true }),
+  source_template: z.object({ template_id: z.string().min(1).max(128), version: z.number().int().min(1) }).strict().optional(),
+  persona: z.object({ soul_md: definitionPersonaText, identity_md: definitionPersonaText, sha256: definitionDigest }).strict(),
+  runtime: z.object({
+    package: definitionPackageName,
+    version: z.string().max(64).regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u),
+    required_capabilities: z.array(z.string().regex(/^[a-z0-9.-]{1,64}$/u)).max(32).refine(items => definitionDistinct(items), 'Duplicate capability'),
+  }).strict(),
+  /** Reviewed extension packages, by reference: the npm SRI of the archive and the reviewed package tree digest. */
+  extensions: z.array(z.object({
+    name: definitionPackageName,
+    version: z.string().regex(/^\d+\.\d+\.\d+$/u),
+    integrity: z.string().regex(/^sha512-[A-Za-z0-9+/]{86}==$/u),
+    package_tree_sha256: definitionDigest,
+    plugins: z.array(z.string().min(1).max(500)).min(1).max(32).optional(),
+  }).strict()).max(32).refine(items => definitionDistinct(items.map(item => item.name)), 'Duplicate extension'),
+  /** HiveSkills releases: the catalog slug, the release version and the archive's SHA-256. */
+  skills: z.array(z.object({
+    slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/u),
+    version: z.string().max(64).regex(/^v?\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/iu),
+    sha256: definitionDigest,
+  }).strict()).max(100).refine(items => definitionDistinct(items.map(item => item.slug)), 'Duplicate skill'),
+  config: z.object({
+    execution: z.object({
+      backend: z.enum(['llamacpp', 'codex']),
+      deadline_seconds: z.number().int().min(1).max(86_400).optional(),
+      max_parallel_tasks: z.number().int().min(1).max(16).optional(),
+      max_parallel_tool_calls: z.number().int().min(1).max(16).optional(),
+    }).strict(),
+    /** Absent alias: the target binds `model`. */
+    model: z.object({ emberpath_alias: emberpathAliasSchema.optional() }).strict(),
+    artifacts: z.object({ max_bytes: z.number().int().min(1024).max(67_108_864).optional() }).strict(),
+    channels: z.literal('excluded'),
+  }).strict(),
+  requirements: z.object({
+    bindings: z.array(z.object({ key: agentDefinitionBindingKeySchema, kind: z.enum(AGENT_DEFINITION_BINDING_KINDS), required: z.boolean() }).strict())
+      .max(64).refine(items => definitionDistinct(items.map(item => item.key)), 'Duplicate binding key'),
+    secrets: z.array(z.object({ env_name: z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/u), purpose: z.string().trim().min(1).max(200) }).strict())
+      .max(64).refine(items => definitionDistinct(items.map(item => item.env_name)), 'Duplicate secret'),
+  }).strict(),
+  excludes: z.tuple([z.literal('history'), z.literal('memory'), z.literal('sessions'), z.literal('artifacts')]),
+};
+/** The definition without its digest, as it is hashed. */
+export const agentDefinitionBodySchema = z.object(agentDefinitionFields).strict();
+/** The shape only; Studio also checks both digests and the credential guard before it trusts one. */
+export const agentDefinitionSchema = z.object({ ...agentDefinitionFields, sha256: definitionDigest }).strict()
+  .refine(value => definitionUtf8Length(JSON.stringify(value)) <= 512 * 1024, 'A definition is at most 512 KiB');
+export const agentDefinitionProblemSchema = z.object({ code: z.string().max(64), detail: z.string().max(500) });
+/** Magnus's preflight report: ok exactly when there are no problems. */
+export const agentDefinitionPreflightSchema = z.object({ ok: z.boolean(), problems: z.array(agentDefinitionProblemSchema) });
+
+/** What a template has that a definition cannot carry. */
+export const definitionOmissionSchema = z.object({ kind: z.enum(['skill', 'model']), name: z.string(), reason: z.string() });
+// POST /templates/{templateId}/versions/{version}/definition
+export const buildDefinitionRequestSchema = z.object({}).strict();
+export const buildDefinitionResponseSchema = z.object({ definition: agentDefinitionSchema, omitted: z.array(definitionOmissionSchema) });
+// POST /templates/import-definition
+export const importDefinitionRequestSchema = z.object({
+  /** Checked by the route: schema, both digests and the credential guard (422). */
+  definition: z.unknown(),
+  /** Add the version to this agent template. Omitted: the definition's source_template when it is here, else a new template. */
+  template_id: templateIdSchema.optional(),
+  /** The latest version this import is based on (a newer one answers 409). Omitted: the definition's source_template version. */
+  base_version: z.number().int().min(1).optional(),
+  changelog: z.string().trim().min(1).max(2_000).optional(),
+}).strict();
+export const importDefinitionResponseSchema = z.object({
+  template: templateDetailSchema,
+  version: z.number().int(),
+  /** A new template was created (no template matched). */
+  created: z.boolean(),
+  source_definition: sourceDefinitionSchema,
+  /** Definition fields a template cannot represent, by JSON path. */
+  ignored: z.array(z.object({ path: z.string(), reason: z.string() })),
+});
+// POST /templates/{templateId}/versions/{version}/deploy-check
+export const definitionDeployCheckRequestSchema = z.object({
+  node_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  bindings: agentDefinitionBindingsSchema.optional(),
+}).strict();
+export const definitionDeployCheckResponseSchema = z.object({
+  definition: sourceDefinitionSchema,
+  omitted: z.array(definitionOmissionSchema),
+  preflight: agentDefinitionPreflightSchema,
+});
+// POST /templates/{templateId}/versions/{version}/deploy
+export const definitionDeployRequestSchema = z.object({
+  node_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  profile: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  bindings: agentDefinitionBindingsSchema,
+  api_port: z.number().int().min(1024).max(65535).optional(),
+  /** Relay the operation's progress to this project's stream. */
+  project_id: projectIdSchema.optional(),
+  role_key: roleKeySchema.optional(),
+}).strict();
 
 // ── Project snapshot and stream ──
 export const snapshotResponseSchema = z.object({
@@ -1641,6 +1783,10 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'POST', path: '/templates', requestBody: 'json', request: createTemplateRequestSchema, response: templateDetailSchema, permissions: TEMPLATES_WRITE, idempotent: true, successStatus: 201, note: 'Templates never carry secrets; values that look like credentials are rejected.' },
   { method: 'POST', path: '/templates/{templateId}/versions', requestBody: 'json', request: createTemplateVersionRequestSchema, response: templateDetailSchema, permissions: TEMPLATES_WRITE, idempotent: true, successStatus: 201, note: 'Versions are immutable. 409 when base_version is not the latest.' },
   { method: 'POST', path: '/templates/{templateId}/archive', requestBody: 'json', request: archiveTemplateRequestSchema, response: templateDetailSchema, permissions: TEMPLATES_WRITE, idempotent: true },
+  { method: 'POST', path: '/templates/{templateId}/versions/{version}/definition', requestBody: 'json', request: buildDefinitionRequestSchema, response: buildDefinitionResponseSchema, permissions: TEMPLATES_READ, idempotent: false, note: 'Builds a sealed hive-agent-definition/1 from an agent template version: persona, pinned HiveSkills releases, Emberpath model alias, runtime and bindings. Nothing is stored and the same version always gives the same definition (created_at is the version\'s). Skills without a pinned version and digest, and a model that is not an alias, are listed in omitted. 422 NOT_AGENT_TEMPLATE, 422 DEFINITION_INCOMPLETE (empty soul or identity), 422 DEFINITION_CONTAINS_CREDENTIAL.' },
+  { method: 'POST', path: '/templates/{templateId}/versions/{version}/deploy-check', requestBody: 'json', request: definitionDeployCheckRequestSchema, response: definitionDeployCheckResponseSchema, permissions: AGENTS_ADMIN, idempotent: false, note: 'Builds the version\'s definition and asks Magnus to validate it for the node and bindings as the acting person, whom Magnus requires to be a linked Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). Answers Magnus\'s preflight (MISSING_BINDING, SKILL_VERSION_UNAVAILABLE, EXTENSION_NOT_REVIEWED, RUNTIME_INCOMPATIBLE, CAPABILITY_MISSING, SECRET_UNBOUND). A Magnus without agent definitions (before 3.3.0) answers 409 MAGNUS_UPGRADE_REQUIRED; 404 NOT_FOUND for an unknown node.' },
+  { method: 'POST', path: '/templates/{templateId}/versions/{version}/deploy', requestBody: 'json', request: definitionDeployRequestSchema, response: agentOperationResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, successStatus: 201, note: 'Create agent from definition: Magnus installs the version\'s definition as a new profile (a New Agent operation of kind definition) once its preflight passes, as the acting Magnus ADMIN. 409 PREFLIGHT_FAILED with error.details.problems creates nothing; 409 MAGNUS_UPGRADE_REQUIRED before Magnus 3.3.0. Progress is relayed as agent.operation.updated on project_id\'s stream.' },
+  { method: 'POST', path: '/templates/import-definition', requestBody: 'json', request: importDefinitionRequestSchema, response: importDefinitionResponseSchema, permissions: TEMPLATES_WRITE, idempotent: true, successStatus: 201, note: 'Verifies a hive-agent-definition/1 (schema, both digests, credential guard: 422 DEFINITION_INVALID or DEFINITION_CONTAINS_CREDENTIAL) and stores it as a new immutable agent template version with source_definition {name, sha256}: of template_id, else of the definition\'s source_template when it exists here, else of a new template. The base is base_version, else the source_template version; a newer latest version answers 409 VERSION_CONFLICT. Fields a template cannot hold are listed in ignored.' },
 
   // Team assignment
   { method: 'GET', path: '/projects/{projectId}/team', response: teamStateSchema, permissions: READ, idempotent: false },

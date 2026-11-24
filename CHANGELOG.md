@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The definition schema, canonical JSON, digests and credential guard are ported from
+  `@hivemagnus/magnus-contracts` `agent-definition` (Magnus 3.3.0, unpublished) into `src/shared/browser.ts`
+  and `src/templates/definition.ts`, with a parity test against fixtures from that implementation; they can
+  switch to magnus-contracts once Studio depends on that release. The template credential guard now also
+  checks object keys, as Magnus's does.
 - The Magnus recovery, lineage, rendition and content answers are validated with local schemas in
   `src/clients/magnus.ts`; a later `@hivemagnus/magnus-contracts` release can replace them.
 - Submission retries use HiveCommon `backoffDelay` (1 s base, 60 s cap, full jitter), wait at least as long as a
@@ -26,6 +31,22 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Portable agent definitions (`hive-agent-definition/1`, Magnus 3.3.0) from agent templates, see
+  [docs/API.md](docs/API.md#agent-definitions):
+  - `POST /templates/:id/versions/:v/definition` builds a sealed definition from an agent template version
+    (persona, pinned HiveSkills releases, Emberpath model alias, runtime `@hivemagnus/ardent` 3.0.0 or the
+    template's later version, bindings) and lists what it cannot carry in `omitted`. The credential guard
+    runs over the whole answer.
+  - `POST /templates/import-definition` verifies a definition (schema, both digests, credential guard) and
+    stores it as a new immutable agent template version, or a new template, with
+    `source_definition: {name, sha256}`; the `base_version` rule applies, and what a template cannot hold
+    is listed in `ignored`.
+  - `POST /templates/:id/versions/:v/deploy-check` answers Magnus's preflight for a node and bindings, and
+    `POST /templates/:id/versions/:v/deploy` creates the agent through Magnus's definition install, relayed
+    like New Agent. A Magnus before 3.3.0 answers `409 MAGNUS_UPGRADE_REQUIRED`.
+  - Agent template skills can pin a HiveSkills release (`version` and `sha256`), and agent template
+    versions carry `source_definition`. Agent operations can be of kind `definition`. Migration 10 adds
+    the column.
 - Task recovery (Ardent 3.2.0 through Magnus 3.3.0, profiles reporting `recovery` >= 1): a task Ardent resumes under
   the same id stays `running` and shows its recovery; a task Ardent holds for a decision becomes `unknown` with the
   recovery and the actions Studio can send. `GET /tasks/:id/recovery` reads it, `POST /tasks/:id/recovery`

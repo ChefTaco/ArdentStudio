@@ -15,7 +15,7 @@ and Oathweave. This repository is public and Apache-2.0; preserve LICENSE and NO
 | `src/server/` | Hono app, router, errors and one file per route area in `routes/` |
 | `src/clients/` | Magnus, HiveMem, Oathweave service-token and ChatterMost clients |
 | `src/conductor/` | Starts and follows agent turns; derives agent activity ([docs/CONDUCTOR.md](docs/CONDUCTOR.md)) |
-| `src/agents/`, `src/team/`, `src/templates/`, `src/review/`, `src/knowledge/` | Agent Studio and New Agent relay, team revisions and proposals, seed templates, Deliverable Review, HiveMem knowledge sync |
+| `src/agents/`, `src/team/`, `src/templates/`, `src/review/`, `src/knowledge/` | Agent Studio and New Agent relay, team revisions and proposals, seed templates and agent definitions, Deliverable Review, HiveMem knowledge sync |
 | `src/db/`, `src/blobs/`, `src/events/`, `src/audit/` | SQLite store and migrations, content-addressed blobs, event bus, audit export |
 | `docs/` | API, conductor, Oathweave and operations guides, and the generated `openapi-browser.json` |
 | `test/` | Vitest suites with a fake Magnus (`test/fake-magnus.ts`) |
