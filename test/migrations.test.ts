@@ -81,11 +81,23 @@ describe('migrations', () => {
       INSERT INTO artifact_imports (project_id, task_id, agent_ref, artifact_id, sha256, name, mime, size, manifest_json, ardent_event_seq, state, created_at, updated_at)
       VALUES ('prj_old', 'tsk_old', 'node1~lead', 'art_1', '${'a'.repeat(64)}', 'map.png', 'image/png', 10, '{}', 3, 'imported', '2026-01-01', '2026-01-01');`);
     const before = db.prepare("SELECT * FROM artifact_imports WHERE artifact_id = 'art_1'").get() as Record<string, unknown>;
-    expect(migrate(db).at(-1)).toBe(9);
+    expect(migrate(db, MIGRATIONS.filter(item => item.id <= 9)).at(-1)).toBe(9);
     expect(db.prepare("SELECT * FROM artifact_imports WHERE artifact_id = 'art_1'").get()).toEqual({ ...before, received_bytes: 0, transfer: null, resumes: 0, error_code: null });
     expect(() => db.prepare("UPDATE artifact_imports SET transfer = 'carrier pigeon'").run()).toThrow(/CHECK/);
     const columns = (db.prepare('PRAGMA table_info(deliverable_renditions)').all() as Array<{ name: string }>).map(row => row.name);
     expect(columns).toEqual(['deliverable_revision_id', 'position', 'role', 'sha256', 'mime', 'size', 'purpose', 'width', 'height', 'has_alpha', 'created_at']);
+    db.close();
+  });
+
+  it('add the source definition column to agent template versions, which stay immutable', () => {
+    const db = new Database(':memory:');
+    migrate(db, MIGRATIONS.filter(item => item.id <= 9));
+    db.exec(`PRAGMA foreign_keys = OFF;
+      INSERT INTO agent_template_versions (template_id, version, body_json, changelog, created_by, created_at) VALUES ('tpl_old', 1, '{}', 'Initial', 'operator', '2026-01-01');`);
+    const before = db.prepare("SELECT * FROM agent_template_versions WHERE template_id = 'tpl_old'").get() as Record<string, unknown>;
+    expect(migrate(db).at(-1)).toBe(10);
+    expect(db.prepare("SELECT * FROM agent_template_versions WHERE template_id = 'tpl_old'").get()).toEqual({ ...before, source_definition_json: null });
+    expect(() => db.prepare("UPDATE agent_template_versions SET source_definition_json = '{}'").run()).toThrow();
     db.close();
   });
 

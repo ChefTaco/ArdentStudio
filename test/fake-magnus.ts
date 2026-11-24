@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { parseDocument } from 'yaml';
 import { changedConfigPaths, configuredSkills } from '../src/agents/config-edit.js';
 import { ARDENT_SERVICE_CONFIG_PATHS, type MagnusArdentProfile } from '../src/clients/magnus.js';
+import { verifyAgentDefinition } from '../src/templates/definition.js';
 
 export interface FakeTask {
   id: string; ref: string; context: 'direct' | 'mission' | 'preview'; session_id: string | null; prompt: string; body: Record<string, unknown>;
@@ -103,6 +104,15 @@ export class FakeMagnusServer {
   /** Oathweave subjects that are Magnus ADMINs. */
   admins = new Set(['subject-operator']);
   operations = new Map<string, Record<string, unknown>>();
+  /**
+   * Agent definitions (Magnus 3.3.0): `supported`, `missing` (a Magnus that does not know the routes: 404) or
+   * `scoped` (a Magnus before 3.3.0, whose service scope refuses them: 403 FORBIDDEN).
+   */
+  definitions: 'supported' | 'missing' | 'scoped' = 'supported';
+  /** Preflight problems reported for every definition, besides the missing required bindings. */
+  definitionProblems: Array<{ code: string; detail: string }> = [];
+  /** Nodes Magnus does not manage (404 "Managed node not found"). */
+  unknownNodes = new Set<string>();
   private readonly operationSubscribers = new Map<string, Set<Subscriber>>();
   private readonly subscribers = new Map<string, Set<Subscriber>>();
   private readonly waiters: Array<() => void> = [];
@@ -333,6 +343,31 @@ export class FakeMagnusServer {
     return undefined;
   }
 
+  /** POST /ardent/agent-definitions/validate and …/install, as Magnus 3.3.0 answers them. */
+  private definition(response: ServerResponse, route: 'validate' | 'install', input: Record<string, unknown>, actingSubject: string | undefined): void {
+    if (this.definitions === 'scoped') return fail(response, 403, 'FORBIDDEN', 'ardent-service credential is endpoint-scoped');
+    if (this.definitions === 'missing') return fail(response, 404, 'NOT_FOUND', 'No such route');
+    if (!actingSubject || !this.admins.has(actingSubject)) return fail(response, 403, 'ACTING_ADMIN_REQUIRED', 'The acting person is not a Magnus ADMIN');
+    const checked = verifyAgentDefinition(input.definition);
+    if (!checked.ok) return fail(response, 422, checked.code, checked.detail);
+    const nodeId = String(input.nodeId);
+    if (this.unknownNodes.has(nodeId)) return fail(response, 404, 'NOT_FOUND', 'Managed node not found');
+    const bindings = (input.bindings ?? {}) as Record<string, string>;
+    const problems = [...this.definitionProblems, ...checked.definition.requirements.bindings
+      .filter(item => item.required && bindings[item.key] === undefined).map(item => ({ code: 'MISSING_BINDING', detail: `Bind ${item.key} (${item.kind})` }))];
+    if (route === 'validate') return ok(response, { ok: problems.length === 0, problems });
+    if (problems.length) return fail(response, 409, 'PREFLIGHT_FAILED', `The definition cannot be installed on this node: ${problems.map(item => item.code).join(', ')}`, { problems });
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const alias = bindings.model ?? checked.definition.config.model.emberpath_alias;
+    this.operations.set(id, { id, kind: 'definition', nodeId, profile: input.name, status: 'running', error: null, createdBy: 'operator', attempts: 1,
+      request: { apiPort: null, model: { emberpath_alias: alias }, skills: [], hivemem: true, artifacts_max_bytes: null,
+        definition: { name: checked.definition.name, sha256: checked.definition.sha256 } },
+      createdAt: now, updatedAt: now, completedAt: null,
+      steps: [{ name: 'profile-create', status: 'running', startedAt: now, finishedAt: null, receipt: null, error: null }] });
+    return ok(response, { operationId: id }, 202);
+  }
+
   // ── HTTP ──
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -359,6 +394,8 @@ export class FakeMagnusServer {
         steps: [{ name: 'profile-create', status: 'running', startedAt: now, finishedAt: null, receipt: null, error: null }] });
       return ok(response, { operationId: id }, 202);
     }
+    const definitionRoute = /^\/api\/v1\/ardent\/agent-definitions\/(validate|install)$/.exec(path);
+    if (request.method === 'POST' && definitionRoute) return this.definition(response, definitionRoute[1] as 'validate' | 'install', body ?? {}, actingSubject);
     const operation = /^\/api\/v1\/ardent\/agents\/operations\/([^/]+)(\/stream)?$/.exec(path);
     if (request.method === 'GET' && operation) {
       const current = this.operations.get(operation[1]!);

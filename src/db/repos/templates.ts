@@ -22,7 +22,9 @@ interface TemplateRow {
   id: string; slug: string; source: TemplateSource; archived: number; latest_version: number; name: string; category: string;
   purpose: string; created_by: string; created_at: string; updated_at: string;
 }
-interface VersionRow { template_id: string; version: number; body_json: string; changelog: string; created_by: string; created_at: string }
+interface VersionRow { template_id: string; version: number; body_json: string; changelog: string; created_by: string; created_at: string; source_definition_json?: string | null }
+/** The agent definition a version was imported from. */
+export interface SourceDefinition { name: string; sha256: string }
 
 const TABLES = {
   agent: { templates: 'agent_templates', versions: 'agent_template_versions' },
@@ -55,30 +57,40 @@ export class TemplateRepository {
     }
   }
 
-  create<K extends TemplateKind>(kind: K, input: { slug: string; source: TemplateSource; body: Body<K>; changelog: string; createdBy: string }): string {
+  create<K extends TemplateKind>(kind: K, input: { slug: string; source: TemplateSource; body: Body<K>; changelog: string; createdBy: string; sourceDefinition?: SourceDefinition | undefined }): string {
     if (this.idForSlug(kind, input.slug)) throw new TemplateConflictError(`A ${kind} template with slug ${input.slug} already exists`);
     const id = newId('template');
     const now = this.clock.now().toISOString();
     this.db.prepare(`INSERT INTO ${TABLES[kind].templates} (id, slug, source, archived, latest_version, name, category, purpose, created_by, created_at, updated_at)
       VALUES (?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?)`).run(id, input.slug, input.source, input.body.name, input.body.category, input.body.purpose,
       input.createdBy, now, now);
-    this.db.prepare(`INSERT INTO ${TABLES[kind].versions} (template_id, version, body_json, changelog, created_by, created_at) VALUES (?, 1, ?, ?, ?, ?)`)
-      .run(id, writeJson(input.body), input.changelog, input.createdBy, now);
+    this.insertVersion(kind, id, 1, input, now);
     return id;
   }
 
   /** Add an immutable version on top of baseVersion. A stale base is a conflict, never a silent overwrite. */
-  addVersion<K extends TemplateKind>(kind: K, id: string, input: { baseVersion: number; body: Body<K>; changelog: string; createdBy: string }): number {
+  addVersion<K extends TemplateKind>(kind: K, id: string, input: { baseVersion: number; body: Body<K>; changelog: string; createdBy: string; sourceDefinition?: SourceDefinition | undefined }): number {
     const row = this.row(kind, id);
     if (!row) throw new Error('Template not found');
     if (row.latest_version !== input.baseVersion) throw new TemplateConflictError(`Version ${row.latest_version} is newer than base_version ${input.baseVersion}`);
     const version = row.latest_version + 1;
     const now = this.clock.now().toISOString();
-    this.db.prepare(`INSERT INTO ${TABLES[kind].versions} (template_id, version, body_json, changelog, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run(id, version, writeJson(input.body), input.changelog, input.createdBy, now);
+    this.insertVersion(kind, id, version, input, now);
     this.db.prepare(`UPDATE ${TABLES[kind].templates} SET latest_version = ?, name = ?, category = ?, purpose = ?, updated_at = ? WHERE id = ?`)
       .run(version, input.body.name, input.body.category, input.body.purpose, now, id);
     return version;
+  }
+
+  private insertVersion(kind: TemplateKind, id: string, version: number, input: { body: unknown; changelog: string; createdBy: string; sourceDefinition?: SourceDefinition | undefined }, now: string): void {
+    if (input.sourceDefinition && kind !== 'agent') throw new Error('Only agent template versions come from a definition');
+    if (kind === 'agent') {
+      this.db.prepare('INSERT INTO agent_template_versions (template_id, version, body_json, changelog, created_by, created_at, source_definition_json) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(id, version, writeJson(input.body), input.changelog, input.createdBy, now,
+          input.sourceDefinition ? writeJson({ name: input.sourceDefinition.name, sha256: input.sourceDefinition.sha256 }) : null);
+      return;
+    }
+    this.db.prepare(`INSERT INTO ${TABLES[kind].versions} (template_id, version, body_json, changelog, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(id, version, writeJson(input.body), input.changelog, input.createdBy, now);
   }
 
   setArchived(kind: TemplateKind, id: string, archived: boolean): void {
@@ -106,7 +118,8 @@ export class TemplateRepository {
     if (!row) return undefined;
     const base = { template_id: row.template_id, version: row.version, changelog: row.changelog, created_by: row.created_by, created_at: row.created_at };
     return kind === 'agent'
-      ? { ...base, kind: 'agent', body: readJson<AgentTemplateBody>(row.body_json, {} as AgentTemplateBody) }
+      ? { ...base, kind: 'agent', body: readJson<AgentTemplateBody>(row.body_json, {} as AgentTemplateBody),
+        source_definition: row.source_definition_json ? readJson<SourceDefinition | null>(row.source_definition_json, null) : null }
       : { ...base, kind: 'team', body: readJson<TeamTemplateBody>(row.body_json, {} as TeamTemplateBody) };
   }
 

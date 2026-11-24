@@ -1644,6 +1644,326 @@
         }
       }
     },
+    "/api/ardentstudio/v1/templates/{templateId}/versions/{version}/definition": {
+      "post": {
+        "operationId": "postTemplatesTemplateIdVersionsVersionDefinition",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildDefinitionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:templates:read"
+        ],
+        "x-idempotent": false,
+        "description": "Builds a sealed hive-agent-definition/1 from an agent template version: persona, pinned HiveSkills releases, Emberpath model alias, runtime and bindings. Nothing is stored and the same version always gives the same definition (created_at is the version's). Skills without a pinned version and digest, and a model that is not an alias, are listed in omitted. 422 NOT_AGENT_TEMPLATE, 422 DEFINITION_INCOMPLETE (empty soul or identity), 422 DEFINITION_CONTAINS_CREDENTIAL.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildDefinitionRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/templates/{templateId}/versions/{version}/deploy-check": {
+      "post": {
+        "operationId": "postTemplatesTemplateIdVersionsVersionDeployCheck",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefinitionDeployCheckResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:agents:admin"
+        ],
+        "x-idempotent": false,
+        "description": "Builds the version's definition and asks Magnus to validate it for the node and bindings as the acting person, whom Magnus requires to be a linked Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). Answers Magnus's preflight (MISSING_BINDING, SKILL_VERSION_UNAVAILABLE, EXTENSION_NOT_REVIEWED, RUNTIME_INCOMPATIBLE, CAPABILITY_MISSING, SECRET_UNBOUND). A Magnus without agent definitions (before 3.3.0) answers 409 MAGNUS_UPGRADE_REQUIRED; 404 NOT_FOUND for an unknown node.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefinitionDeployCheckRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/templates/{templateId}/versions/{version}/deploy": {
+      "post": {
+        "operationId": "postTemplatesTemplateIdVersionsVersionDeploy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:agents:admin"
+        ],
+        "x-idempotent": true,
+        "description": "Create agent from definition: Magnus installs the version's definition as a new profile (a New Agent operation of kind definition) once its preflight passes, as the acting Magnus ADMIN. 409 PREFLIGHT_FAILED with error.details.problems creates nothing; 409 MAGNUS_UPGRADE_REQUIRED before Magnus 3.3.0. Progress is relayed as agent.operation.updated on project_id's stream.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefinitionDeployRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/templates/import-definition": {
+      "post": {
+        "operationId": "postTemplatesImportDefinition",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDefinitionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:templates:write"
+        ],
+        "x-idempotent": true,
+        "description": "Verifies a hive-agent-definition/1 (schema, both digests, credential guard: 422 DEFINITION_INVALID or DEFINITION_CONTAINS_CREDENTIAL) and stores it as a new immutable agent template version with source_definition {name, sha256}: of template_id, else of the definition's source_template when it exists here, else of a new template. The base is base_version, else the source_template version; a newer latest version answers 409 VERSION_CONFLICT. Fields a template cannot hold are listed in ignored.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportDefinitionRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/ardentstudio/v1/projects/{projectId}/team": {
       "get": {
         "operationId": "getProjectsProjectIdTeam",
@@ -6085,6 +6405,389 @@
           "roles"
         ]
       },
+      "AgentDefinition": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "const": "hive-agent-definition/1"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "source_template": {
+            "type": "object",
+            "properties": {
+              "template_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "template_id",
+              "version"
+            ]
+          },
+          "persona": {
+            "type": "object",
+            "properties": {
+              "soul_md": {
+                "type": "string",
+                "maxLength": 131072
+              },
+              "identity_md": {
+                "type": "string",
+                "maxLength": 131072
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "soul_md",
+              "identity_md",
+              "sha256"
+            ]
+          },
+          "runtime": {
+            "type": "object",
+            "properties": {
+              "package": {
+                "type": "string",
+                "maxLength": 214,
+                "pattern": "^(?:@[a-z0-9][a-z0-9._-]*\\/)?[a-z0-9][a-z0-9._-]*$"
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"
+              },
+              "required_capabilities": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9.-]{1,64}$"
+                }
+              }
+            },
+            "required": [
+              "package",
+              "version",
+              "required_capabilities"
+            ]
+          },
+          "extensions": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "maxLength": 214,
+                  "pattern": "^(?:@[a-z0-9][a-z0-9._-]*\\/)?[a-z0-9][a-z0-9._-]*$"
+                },
+                "version": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$"
+                },
+                "integrity": {
+                  "type": "string",
+                  "pattern": "^sha512-[A-Za-z0-9+/]{86}==$"
+                },
+                "package_tree_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "plugins": {
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "version",
+                "integrity",
+                "package_tree_sha256"
+              ]
+            }
+          },
+          "skills": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slug": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+                },
+                "version": {
+                  "type": "string",
+                  "maxLength": 64,
+                  "pattern": "^v?\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.-]+)?$"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "slug",
+                "version",
+                "sha256"
+              ]
+            }
+          },
+          "config": {
+            "type": "object",
+            "properties": {
+              "execution": {
+                "type": "object",
+                "properties": {
+                  "backend": {
+                    "type": "string",
+                    "enum": [
+                      "llamacpp",
+                      "codex"
+                    ]
+                  },
+                  "deadline_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 86400
+                  },
+                  "max_parallel_tasks": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16
+                  },
+                  "max_parallel_tool_calls": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16
+                  }
+                },
+                "required": [
+                  "backend"
+                ]
+              },
+              "model": {
+                "type": "object",
+                "properties": {
+                  "emberpath_alias": {
+                    "$ref": "#/components/schemas/EmberpathAlias"
+                  }
+                }
+              },
+              "artifacts": {
+                "type": "object",
+                "properties": {
+                  "max_bytes": {
+                    "type": "integer",
+                    "minimum": 1024,
+                    "maximum": 67108864
+                  }
+                }
+              },
+              "channels": {
+                "type": "string",
+                "const": "excluded"
+              }
+            },
+            "required": [
+              "execution",
+              "model",
+              "artifacts",
+              "channels"
+            ]
+          },
+          "requirements": {
+            "type": "object",
+            "properties": {
+              "bindings": {
+                "maxItems": 64,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "$ref": "#/components/schemas/AgentDefinitionBindingKey"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "hivemem",
+                        "emberpath_alias",
+                        "hiveskills",
+                        "channel",
+                        "peer"
+                      ]
+                    },
+                    "required": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "kind",
+                    "required"
+                  ]
+                }
+              },
+              "secrets": {
+                "maxItems": 64,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "env_name": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+                    },
+                    "purpose": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "env_name",
+                    "purpose"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "bindings",
+              "secrets"
+            ]
+          },
+          "excludes": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string",
+                "const": "history"
+              },
+              {
+                "type": "string",
+                "const": "memory"
+              },
+              {
+                "type": "string",
+                "const": "sessions"
+              },
+              {
+                "type": "string",
+                "const": "artifacts"
+              }
+            ],
+            "items": false,
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "schema",
+          "name",
+          "created_at",
+          "persona",
+          "runtime",
+          "extensions",
+          "skills",
+          "config",
+          "requirements",
+          "excludes",
+          "sha256"
+        ]
+      },
+      "AgentDefinitionBindingKey": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,63}(?::[a-z0-9][a-z0-9_-]{0,63})?$"
+      },
+      "AgentDefinitionBindings": {
+        "type": "object",
+        "propertyNames": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/AgentDefinitionBindingKey"
+            },
+            {
+              "type": "string",
+              "pattern": "^secret:[A-Z][A-Z0-9_]{0,127}$"
+            }
+          ]
+        },
+        "additionalProperties": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$"
+        }
+      },
+      "AgentDefinitionPreflight": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentDefinitionProblem"
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "problems"
+        ]
+      },
+      "AgentDefinitionProblem": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ]
+      },
       "AgentDraft": {
         "type": "object",
         "properties": {
@@ -6253,7 +6956,8 @@
             "type": "string",
             "enum": [
               "deploy",
-              "hivemem"
+              "hivemem",
+              "definition"
             ]
           },
           "status": {
@@ -6584,6 +7288,16 @@
           },
           "body": {
             "$ref": "#/components/schemas/AgentTemplateBody"
+          },
+          "source_definition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceDefinition"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -6593,7 +7307,8 @@
           "created_by",
           "created_at",
           "kind",
-          "body"
+          "body",
+          "source_definition"
         ]
       },
       "AnswerRequestInput": {
@@ -7072,6 +7787,29 @@
       "BindingId": {
         "type": "string",
         "pattern": "^bnd_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "BuildDefinitionRequestInput": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "BuildDefinitionResponse": {
+        "type": "object",
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/AgentDefinition"
+          },
+          "omitted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DefinitionOmission"
+            }
+          }
+        },
+        "required": [
+          "definition",
+          "omitted"
+        ]
       },
       "CommentAnchor": {
         "oneOf": [
@@ -8083,6 +8821,100 @@
         "type": "string",
         "pattern": "^dec_[0-9A-HJKMNP-TV-Z]{26}$"
       },
+      "DefinitionDeployCheckRequestInput": {
+        "type": "object",
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{1,128}$"
+          },
+          "bindings": {
+            "$ref": "#/components/schemas/AgentDefinitionBindings"
+          }
+        },
+        "required": [
+          "node_id"
+        ],
+        "additionalProperties": false
+      },
+      "DefinitionDeployCheckResponse": {
+        "type": "object",
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/SourceDefinition"
+          },
+          "omitted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DefinitionOmission"
+            }
+          },
+          "preflight": {
+            "$ref": "#/components/schemas/AgentDefinitionPreflight"
+          }
+        },
+        "required": [
+          "definition",
+          "omitted",
+          "preflight"
+        ]
+      },
+      "DefinitionDeployRequestInput": {
+        "type": "object",
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{1,128}$"
+          },
+          "profile": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "bindings": {
+            "$ref": "#/components/schemas/AgentDefinitionBindings"
+          },
+          "api_port": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 65535
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "role_key": {
+            "$ref": "#/components/schemas/RoleKey"
+          }
+        },
+        "required": [
+          "node_id",
+          "profile",
+          "bindings"
+        ],
+        "additionalProperties": false
+      },
+      "DefinitionOmission": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "skill",
+              "model"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "reason"
+        ]
+      },
       "Deliverable": {
         "type": "object",
         "properties": {
@@ -8650,6 +9482,10 @@
           "document"
         ]
       },
+      "EmberpathAlias": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$"
+      },
       "ErrorResponse": {
         "type": "object",
         "properties": {
@@ -8940,6 +9776,73 @@
           "pending",
           "ready",
           "failed"
+        ]
+      },
+      "ImportDefinitionRequestInput": {
+        "type": "object",
+        "properties": {
+          "definition": {},
+          "template_id": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "base_version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "changelog": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "definition"
+        ],
+        "additionalProperties": false
+      },
+      "ImportDefinitionResponse": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "$ref": "#/components/schemas/TemplateDetail"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "source_definition": {
+            "$ref": "#/components/schemas/SourceDefinition"
+          },
+          "ignored": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "reason"
+              ]
+            }
+          }
+        },
+        "required": [
+          "template",
+          "version",
+          "created",
+          "source_definition",
+          "ignored"
         ]
       },
       "InstallSkillRequestInput": {
@@ -11583,6 +12486,15 @@
           "channel": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^v?\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.-]+)?$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
           }
         },
         "required": [
@@ -11607,6 +12519,15 @@
           "channel": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^v?\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.-]+)?$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
           }
         },
         "required": [
@@ -11702,6 +12623,22 @@
           "activity",
           "layout",
           "team_proposals"
+        ]
+      },
+      "SourceDefinition": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "name",
+          "sha256"
         ]
       },
       "Stage": {

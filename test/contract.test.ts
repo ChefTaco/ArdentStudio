@@ -20,7 +20,8 @@ describe('browser contract', () => {
 
   it('marks every mutation idempotent except side-effect-free validation and previews', () => {
     const exempt = ardentStudioBrowserRoutes.filter(route => route.method !== 'GET' && !route.idempotent).map(route => `${route.method} ${route.path}`);
-    expect(exempt).toEqual(['POST /projects/{projectId}/team/validate', 'POST /agents/{agentRef}/preview']);
+    expect(exempt).toEqual(['POST /templates/{templateId}/versions/{version}/definition', 'POST /templates/{templateId}/versions/{version}/deploy-check',
+      'POST /projects/{projectId}/team/validate', 'POST /agents/{agentRef}/preview']);
     expect(ardentStudioBrowserRoutes.filter(route => route.method === 'GET' && route.idempotent)).toEqual([]);
   });
 

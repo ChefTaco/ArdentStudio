@@ -1,0 +1,224 @@
+{
+  "source": "Generated with sealAgentDefinition from @hivemagnus/magnus-contracts src/agent-definition.ts (Magnus main 45956d7); bodies from its test/agent-definition.test.mjs.",
+  "body": {
+    "schema": "hive-agent-definition/1",
+    "name": "Researcher",
+    "created_at": "2026-11-24T00:00:00.000Z",
+    "source_template": {
+      "template_id": "tpl-research",
+      "version": 3
+    },
+    "persona": {
+      "soul_md": "# Soul\n",
+      "identity_md": "# Identity\n",
+      "sha256": ""
+    },
+    "runtime": {
+      "package": "@hivemagnus/ardent",
+      "version": "3.2.0",
+      "required_capabilities": [
+        "ardent.recovery.v1"
+      ]
+    },
+    "extensions": [
+      {
+        "name": "@example/ardent-media",
+        "version": "0.2.0",
+        "integrity": "sha512-sRU36Ok1DOcSWqYvA3z8E7szGJ0jPd3ewR+Oo3NRdlDSb053ZXua6gAZX/g3UdaiFCZ0yyF+PzssiRO+IXhDRA==",
+        "package_tree_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "skills": [
+      {
+        "slug": "web-research",
+        "version": "1.2.0",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "config": {
+      "execution": {
+        "backend": "llamacpp",
+        "deadline_seconds": 900
+      },
+      "model": {
+        "emberpath_alias": "research-large"
+      },
+      "artifacts": {},
+      "channels": "excluded"
+    },
+    "requirements": {
+      "bindings": [
+        {
+          "key": "hivemem",
+          "kind": "hivemem",
+          "required": true
+        }
+      ],
+      "secrets": [
+        {
+          "env_name": "LLAMACPP_API_KEY",
+          "purpose": "model key"
+        }
+      ]
+    },
+    "excludes": [
+      "history",
+      "memory",
+      "sessions",
+      "artifacts"
+    ]
+  },
+  "sealed": {
+    "schema": "hive-agent-definition/1",
+    "name": "Researcher",
+    "created_at": "2026-11-24T00:00:00.000Z",
+    "source_template": {
+      "template_id": "tpl-research",
+      "version": 3
+    },
+    "persona": {
+      "soul_md": "# Soul\n",
+      "identity_md": "# Identity\n",
+      "sha256": "ef753a034b16abd8d71164005cc5cd0994e1f50e0a70aee70999639580a76739"
+    },
+    "runtime": {
+      "package": "@hivemagnus/ardent",
+      "version": "3.2.0",
+      "required_capabilities": [
+        "ardent.recovery.v1"
+      ]
+    },
+    "extensions": [
+      {
+        "name": "@example/ardent-media",
+        "version": "0.2.0",
+        "integrity": "sha512-sRU36Ok1DOcSWqYvA3z8E7szGJ0jPd3ewR+Oo3NRdlDSb053ZXua6gAZX/g3UdaiFCZ0yyF+PzssiRO+IXhDRA==",
+        "package_tree_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "skills": [
+      {
+        "slug": "web-research",
+        "version": "1.2.0",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "config": {
+      "execution": {
+        "backend": "llamacpp",
+        "deadline_seconds": 900
+      },
+      "model": {
+        "emberpath_alias": "research-large"
+      },
+      "artifacts": {},
+      "channels": "excluded"
+    },
+    "requirements": {
+      "bindings": [
+        {
+          "key": "hivemem",
+          "kind": "hivemem",
+          "required": true
+        }
+      ],
+      "secrets": [
+        {
+          "env_name": "LLAMACPP_API_KEY",
+          "purpose": "model key"
+        }
+      ]
+    },
+    "excludes": [
+      "history",
+      "memory",
+      "sessions",
+      "artifacts"
+    ],
+    "sha256": "b604212a576c38159cbd6760a7d1106c50b3c39d8afab4a0b791a99a26ef0c70"
+  },
+  "canonical_body": "{\"config\":{\"artifacts\":{},\"channels\":\"excluded\",\"execution\":{\"backend\":\"llamacpp\",\"deadline_seconds\":900},\"model\":{\"emberpath_alias\":\"research-large\"}},\"created_at\":\"2026-11-24T00:00:00.000Z\",\"excludes\":[\"history\",\"memory\",\"sessions\",\"artifacts\"],\"extensions\":[{\"integrity\":\"sha512-sRU36Ok1DOcSWqYvA3z8E7szGJ0jPd3ewR+Oo3NRdlDSb053ZXua6gAZX/g3UdaiFCZ0yyF+PzssiRO+IXhDRA==\",\"name\":\"@example/ardent-media\",\"package_tree_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":\"0.2.0\"}],\"name\":\"Researcher\",\"persona\":{\"identity_md\":\"# Identity\\n\",\"sha256\":\"ef753a034b16abd8d71164005cc5cd0994e1f50e0a70aee70999639580a76739\",\"soul_md\":\"# Soul\\n\"},\"requirements\":{\"bindings\":[{\"key\":\"hivemem\",\"kind\":\"hivemem\",\"required\":true}],\"secrets\":[{\"env_name\":\"LLAMACPP_API_KEY\",\"purpose\":\"model key\"}]},\"runtime\":{\"package\":\"@hivemagnus/ardent\",\"required_capabilities\":[\"ardent.recovery.v1\"],\"version\":\"3.2.0\"},\"schema\":\"hive-agent-definition/1\",\"skills\":[{\"sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"slug\":\"web-research\",\"version\":\"1.2.0\"}],\"source_template\":{\"template_id\":\"tpl-research\",\"version\":3}}",
+  "persona_canonical": "{\"identity_md\":\"# Identity\\n\",\"soul_md\":\"# Soul\\n\"}",
+  "unicode": {
+    "schema": "hive-agent-definition/1",
+    "name": "Ärchivist ✓",
+    "created_at": "2026-11-24T00:00:00.000Z",
+    "persona": {
+      "soul_md": "# Søul 🐝\n",
+      "identity_md": "Identé \\ backslash",
+      "sha256": "e9f456b42c25edf61ddfdeb4aa8f78dc114044ef8d1184742adf78ea0bcee729"
+    },
+    "runtime": {
+      "package": "@hivemagnus/ardent",
+      "version": "3.2.0",
+      "required_capabilities": [
+        "ardent.recovery.v1"
+      ]
+    },
+    "extensions": [
+      {
+        "name": "@example/ardent-media",
+        "version": "0.2.0",
+        "integrity": "sha512-sRU36Ok1DOcSWqYvA3z8E7szGJ0jPd3ewR+Oo3NRdlDSb053ZXua6gAZX/g3UdaiFCZ0yyF+PzssiRO+IXhDRA==",
+        "package_tree_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugins": [
+          "@example/ardent-media",
+          "@example/ardent-media/tools"
+        ]
+      }
+    ],
+    "skills": [
+      {
+        "slug": "web-research",
+        "version": "1.2.0",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "config": {
+      "execution": {
+        "backend": "llamacpp",
+        "deadline_seconds": 900
+      },
+      "model": {
+        "emberpath_alias": "research-large"
+      },
+      "artifacts": {},
+      "channels": "excluded"
+    },
+    "requirements": {
+      "bindings": [
+        {
+          "key": "hivemem",
+          "kind": "hivemem",
+          "required": true
+        }
+      ],
+      "secrets": [
+        {
+          "env_name": "LLAMACPP_API_KEY",
+          "purpose": "model key"
+        }
+      ]
+    },
+    "excludes": [
+      "history",
+      "memory",
+      "sessions",
+      "artifacts"
+    ],
+    "description": "Line\n\"quoted\"   tab\t",
+    "sha256": "0cefdbbe1a3738126f9c93f2e2800c8caf08d5dcded5448cb0a796e388a92ebc"
+  },
+  "canonical_sample": {
+    "input": {
+      "b": [
+        1,
+        {
+          "d": "x"
+        }
+      ],
+      "a": null
+    },
+    "output": "{\"a\":null,\"b\":[1,{\"d\":\"x\"}]}"
+  }
+}

@@ -54,6 +54,9 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | | `POST /projects/:id/links`, `PATCH /links/:id`, `DELETE /links/:id`, `POST /links/:id/reindex` | projects:write |
 | Templates | `GET /templates?kind=&source=&archived=&q=`, `GET /templates/:id`, `GET /templates/:id/versions/:v` | templates:read |
 | | `POST /templates`, `POST /templates/:id/versions`, `POST /templates/:id/archive` | templates:write |
+| | `POST /templates/:id/versions/:v/definition` | templates:read |
+| | `POST /templates/import-definition` | templates:write |
+| | `POST /templates/:id/versions/:v/deploy-check`, `POST /templates/:id/versions/:v/deploy` | agents:admin |
 | Team | `GET /projects/:id/team`, `POST /projects/:id/team/validate`, `GET …/team/proposals`, `GET …/team/proposals/:proposalId` | projects:read |
 | | `PUT /projects/:id/team/draft`, `POST …/team/publish`, `POST …/team/apply-template`, `POST …/team/propose` | projects:write |
 | | `POST …/team/save-as-template` | projects:read + templates:write |
@@ -144,6 +147,67 @@ Team, Development Team, Adventure Studio, Deliberation Panel and their agent tem
 when absent and are never overwritten. Bodies that look like they contain credentials answer
 `422 CREDENTIAL_LIKE_VALUE`; team templates with structural errors answer `422 TEAM_INVALID`. A team template may also define
 workflows ([Workflows](#workflows)).
+
+An agent template skill may pin a HiveSkills release: `{kind: "hiveskills", ref, version, sha256}`
+(both or neither; only on `hiveskills` skills). Agent template versions carry `source_definition`
+(`{name, sha256}`, or `null`): the agent definition the version was imported from.
+
+### Agent definitions
+
+A `hive-agent-definition/1` is one portable, complete agent definition as Magnus 3.3.0 validates and
+installs it: persona, runtime, reviewed extensions and HiveSkills releases by reference, the portable
+configuration and the bindings and secrets a target must supply. It never carries a credential and
+always excludes history, memory, sessions and artifacts. `sha256` is the SHA-256 of its canonical JSON
+(sorted keys, no whitespace) without `sha256`; `persona.sha256` that of `{soul_md, identity_md}`.
+Studio ports the schema and digests from `@hivemagnus/magnus-contracts` (Magnus 3.3.0).
+
+- **Build** (`POST /templates/:id/versions/:v/definition`, empty body) answers `{definition, omitted}`
+  for an agent template version. Nothing is stored; `created_at` is the version's, so one version always
+  has one digest.
+  - `persona`: the template's `soul_md` and `identity_md` (`422 DEFINITION_INCOMPLETE` when one is empty).
+  - `skills`: the pinned HiveSkills skills (`slug`, `version`, `sha256`). Local skills, unpinned
+    HiveSkills skills and refs that are not catalog slugs go to `omitted` (`{kind: "skill", name, reason}`).
+  - `config.model.emberpath_alias`: the `model_hint` when it is an Emberpath alias; otherwise `omitted`
+    has `{kind: "model", name: "model_hint"}` and the target binds `model`.
+  - `runtime`: `@hivemagnus/ardent` at the template's `runtime_req.ardent` version when it is a later
+    3.x or newer, else `3.0.0`. Studio's features need Ardent 2.2.0 and fall back when newer
+    capabilities are missing, so `required_capabilities` is empty; Magnus accepts only the same major
+    version at or above the defined one, so the floor is the first release of the current major line.
+  - `config.execution.backend`: the template's backend; `any` becomes `llamacpp`, the backend Magnus
+    New Agent provisions.
+  - `requirements.bindings`: `hivemem` (required), `model` (`emberpath_alias`, required unless the
+    definition names an alias) and, with skills, `hiveskills` (required). No secrets; no extensions.
+  - `source_template`: `{template_id, version}`.
+
+  The credential guard runs over the whole answer (`422 DEFINITION_CONTAINS_CREDENTIAL`).
+- **Import** (`POST /templates/import-definition`, `{definition, template_id?, base_version?,
+  changelog?}`) checks the definition (credential guard over the whole request, then the schema and both
+  digests: `422 DEFINITION_CONTAINS_CREDENTIAL` or `422 DEFINITION_INVALID`) and stores it as a new
+  immutable agent template version with `source_definition: {name, sha256}`:
+  - of `template_id` (with `base_version`, else `400`),
+  - else of the definition's `source_template` when that agent template exists here, based on
+    `base_version` or the `source_template` version,
+  - else of a new user template (`created: true`).
+
+  A newer latest version answers `409 VERSION_CONFLICT` with `latest_version`; an archived template
+  `409 TEMPLATE_ARCHIVED`. The persona, pinned skills, model alias, runtime version and backend map onto
+  the body; an existing template keeps its category, examples, outputs, portrait, integrations and local
+  skills. What a template cannot hold (extensions, runtime capabilities, execution and artifact limits,
+  secrets, channel and peer bindings) is listed in `ignored` (`{path, reason}`). The answer is `{template,
+  version, created, source_definition, ignored}`.
+- **Deploy check** (`POST /templates/:id/versions/:v/deploy-check`, `{node_id, bindings?}`) builds the
+  version's definition and asks Magnus (`POST /ardent/agent-definitions/validate`) as the acting
+  person, whom Magnus requires to be a linked Magnus ADMIN. The answer is `{definition: {name, sha256},
+  omitted, preflight: {ok, problems: [{code, detail}]}}` with Magnus's codes (`MISSING_BINDING`,
+  `SKILL_VERSION_UNAVAILABLE`, `EXTENSION_NOT_REVIEWED`, `RUNTIME_INCOMPATIBLE`, `CAPABILITY_MISSING`,
+  `SECRET_UNBOUND`). Bindings are `{key: target}`: `hivemem` to `default` or the workspace, `model` to an
+  Emberpath alias, `hiveskills` to `default`. A Magnus without agent definitions (before 3.3.0) answers
+  `409 MAGNUS_UPGRADE_REQUIRED`; an unknown node `404`.
+- **Create agent from definition** (`POST /templates/:id/versions/:v/deploy`, `{node_id, profile,
+  bindings, api_port?, project_id?, role_key?}`) has Magnus install the definition as a new profile
+  (`POST /ardent/agent-definitions/install`), a New Agent operation of kind `definition` that starts only
+  when the preflight passes: otherwise `409 PREFLIGHT_FAILED` with `error.details.problems` and nothing is
+  created. The answer and the `agent.operation.updated` events are those of New Agent.
 
 ## Team assignment
 
