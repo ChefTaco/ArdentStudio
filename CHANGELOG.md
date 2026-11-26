@@ -6,13 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
-Upgrading: back up the data volume first. Migration 12 runs on the first start and is additive (it adds
-`projects.members_mode` and `projects.members_revision` and the `project_members` and
-`knowledge_retirements` tables), so a suite upgrade needs `--allow-migrations` for ArdentStudio, and a
-database it has run on no longer starts under 0.6.x. Every existing project stays open to everyone linked:
-nothing changes until an owner or an admin limits a project. No settings change. HiveXUI needs the new
-browser contract to show members and the purge action; older consoles keep working (the new fields are
-additive).
+## [0.7.0] - 2026-11-26
+
+Upgrading: back up the data volume first. Migration 12 (`project_membership_purge`) runs on the first start
+and is additive (it adds `projects.members_mode` and `projects.members_revision` and the `project_members` and
+`knowledge_retirements` tables), so a suite upgrade needs `--allow-migrations` for ArdentStudio. A database it
+has run on no longer starts under 0.6.x: to go back, restore the backup taken before the upgrade. From 0.5.x,
+0.6.0's upgrade notes apply as well. Every existing project stays open to everyone linked: nothing changes
+until an owner or an admin limits a project. `GET /people` now answers only `ardentstudio:agents:admin` and
+people who own at least one project, and returns at most 50 people (`truncated: true` when more match).
+No settings change. HiveXUI needs the new browser contract to show members and the purge action; older
+consoles keep working (the new fields are additive).
 
 ### Added
 
