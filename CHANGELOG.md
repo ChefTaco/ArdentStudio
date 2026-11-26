@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Dependabot now opens one grouped weekly pull request (group `hivemagnus`) for `@hivemagnus/*` package updates, so suite package bumps arrive together. Repository configuration only; nothing to do when upgrading.
+
 ## [0.6.1] - 2026-11-26
 
 Upgrading: no migration and no settings change. The schema stays at migration 11 (from 0.6.0), so a suite
