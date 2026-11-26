@@ -179,7 +179,21 @@ export const putProjectMembersRequestSchema = z.object({
 });
 /** A person with an account link, for choosing members. */
 export const linkedPersonSchema = z.object({ user_id: z.string(), subject: z.string(), issuer: z.string(), display_name: z.string().nullable() });
-export const listPeopleResponseSchema = z.object({ people: z.array(linkedPersonSchema) });
+/** The most people a GET /people search (q) returns. */
+export const PEOPLE_SEARCH_LIMIT = 50;
+export const listPeopleQuerySchema = z.object({
+  /**
+   * Case-insensitive prefix of the user id, the Oathweave subject, the display name or a word of it.
+   * With q at most PEOPLE_SEARCH_LIMIT people are returned (truncated true when more match);
+   * without it (or with an empty q), every linked person.
+   */
+  q: z.string().trim().max(200).optional(),
+});
+export const listPeopleResponseSchema = z.object({
+  people: z.array(linkedPersonSchema),
+  /** True when a search matched more people than it returned; narrow q. Always false without q. */
+  truncated: z.boolean(),
+});
 
 export const projectSummarySchema = projectSchema.omit({ deliverables: true, brief_md: true }).extend({
   brief_excerpt: z.string(),
@@ -1862,7 +1876,8 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'GET', path: '/projects/{projectId}/members', response: projectMembersResponseSchema, permissions: READ, idempotent: false, note: 'The membership mode, the listed members and the caller\'s access. See Project membership.' },
   { method: 'PUT', path: '/projects/{projectId}/members', requestBody: 'json', request: putProjectMembersRequestSchema, response: projectMembersResponseSchema, permissions: READ, idempotent: true, projectRole: 'owner',
     note: 'Replaces the membership (project owners and ardentstudio:agents:admin). mode everyone opens the project to everyone linked again. 409 VERSION_CONFLICT (details revision) when base_revision is stale, 422 MEMBERS_NOT_ALLOWED when mode everyone lists members, 422 OWNER_REQUIRED when mode members has no owner, 422 SELF_LOCKOUT when a caller who is not an admin would no longer be an owner. Announced as project.members.updated (mode, revision); open streams of people who lose access close.' },
-  { method: 'GET', path: '/people', response: listPeopleResponseSchema, permissions: READ, idempotent: false, note: 'People with an account link (Studio user, Oathweave subject and issuer, display name), to choose project members from.' },
+  { method: 'GET', path: '/people', query: listPeopleQuerySchema, response: listPeopleResponseSchema, permissions: READ, idempotent: false,
+    note: 'People with an account link (Studio user, Oathweave subject and issuer, display name), to choose project members from. Only for people who can edit a members list: ardentstudio:agents:admin, or the owner of at least one project (one they created that is open to everyone linked, or one that lists them as owner); anyone else gets 403 PROJECT_ROLE_REQUIRED (details required owner). q searches by prefix and returns at most 50 people (truncated true when more match).' },
 
   // Reference links
   { method: 'POST', path: '/projects/{projectId}/links', requestBody: 'json', request: createLinkRequestSchema, response: linkResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'http and https only, without credentials. 409 LINK_EXISTS when the project already has this URL. Synced to the project HiveMem workspace as a knowledge source (title, URL and note; the page is not fetched).' },

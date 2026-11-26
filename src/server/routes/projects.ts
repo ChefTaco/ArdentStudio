@@ -3,8 +3,9 @@ import type { Principal } from '../../auth/authenticator.js';
 import { isStudioAdmin, projectRole, roleAtLeast } from '../../auth/project-access.js';
 import type { Membership } from '../../db/repos/members.js';
 import type { Project } from '../../db/repos/projects.js';
-import type { createProjectRequestSchema, listProjectsQuerySchema, projectAccessSchema, projectMembersResponseSchema, projectSummarySchema,
+import type { createProjectRequestSchema, listPeopleQuerySchema, listProjectsQuerySchema, projectAccessSchema, projectMembersResponseSchema, projectSummarySchema,
   purgeProjectRequestSchema, putProjectMembersRequestSchema, ProjectRole, updateProjectRequestSchema } from '../../shared/browser.js';
+import { PEOPLE_SEARCH_LIMIT } from '../../shared/browser.js';
 import { publicTask } from '../../conductor/conductor.js';
 import { validateAssignment } from '../../team/service.js';
 import { actorOf, requireActive, requireProject, type RouteDeps } from '../deps.js';
@@ -204,9 +205,19 @@ export function projectRoutes(register: ReturnType<typeof createRouter>, deps: R
     return { body: membersView(project, updated, principal) };
   });
 
-  register('GET', '/people', () => ({
-    body: { people: (deps.people ?? []).map(link => ({ user_id: link.localUserId, subject: link.subject, issuer: link.issuer, display_name: link.displayName ?? null })) },
-  }));
+  // The account links name every person Studio knows; only people who can edit a members list need them.
+  register('GET', '/people', (_c, { query, principal }) => {
+    if (!principal) throw new ApiError(401, 'UNAUTHENTICATED', 'A bearer token is required');
+    if (!deps.access.ownsAny(principal)) throw new ApiError(403, 'PROJECT_ROLE_REQUIRED', 'Listing people needs the owner role in a project', { required: 'owner' });
+    const { q } = query as z.infer<typeof listPeopleQuerySchema>;
+    const people = (deps.people ?? []).map(link => ({ user_id: link.localUserId, subject: link.subject, issuer: link.issuer, display_name: link.displayName ?? null }));
+    if (!q) return { body: { people, truncated: false } };
+    const prefix = q.toLocaleLowerCase();
+    const starts = (value: string) => value.toLocaleLowerCase().startsWith(prefix);
+    const matches = people.filter(person => starts(person.user_id) || starts(person.subject)
+      || (person.display_name !== null && (starts(person.display_name) || person.display_name.split(/\s+/).some(starts))));
+    return { body: { people: matches.slice(0, PEOPLE_SEARCH_LIMIT), truncated: matches.length > PEOPLE_SEARCH_LIMIT } };
+  });
 
   // ── Purge ──
   register('POST', '/projects/{projectId}/purge', (_c, { params, body, principal, idempotencyKey }) => {

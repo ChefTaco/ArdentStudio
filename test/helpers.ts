@@ -154,7 +154,7 @@ export interface TestContext {
 
 let keyCache: Promise<Keys> | undefined;
 
-export async function createTestContext(options: { clock?: Clock; maxBlobBytes?: number; heartbeatMs?: number; streamRecheckMs?: number; seed?: boolean; conductor?: Partial<ConductorOptions>; docx?: DocxConverter; agentCacheMs?: number; logger?: Logger } = {}): Promise<TestContext> {
+export async function createTestContext(options: { clock?: Clock; maxBlobBytes?: number; heartbeatMs?: number; streamRecheckMs?: number; seed?: boolean; conductor?: Partial<ConductorOptions>; docx?: DocxConverter; agentCacheMs?: number; logger?: Logger; people?: readonly IdentityLink[] } = {}): Promise<TestContext> {
   const dir = mkdtempSync(join(tmpdir(), 'ardent-studio-test-'));
   const clock = options.clock ?? { now: () => new Date() };
   const db = openDatabase(join(dir, 'studio.sqlite'));
@@ -178,7 +178,7 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
   importer.start();
   const operations = new OperationRelay(store, magnusClient, silentLogger, { pollMs: 20, onFinished: () => agents.invalidate() });
   const proposer = new TeamProposer(store, agents, conductor);
-  const app = createApp({ operations, proposer, store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: options.logger ?? silentLogger, conductor, live, magnus: magnusClient, docx: options.docx, people: LINKS,
+  const app = createApp({ operations, proposer, store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: options.logger ?? silentLogger, conductor, live, magnus: magnusClient, docx: options.docx, people: options.people ?? LINKS,
     ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}), ...(options.streamRecheckMs ? { streamRecheckMs: options.streamRecheckMs } : {}) });
   let counter = 0;
   const token = (claims?: Parameters<typeof signToken>[1]) => signToken(keys, claims);

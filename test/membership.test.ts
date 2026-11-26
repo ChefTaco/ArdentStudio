@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseSse, type SseMessage } from '../src/clients/sse.js';
-import { ARDENT_STUDIO_API_PREFIX, projectMembersResponseSchema } from '../src/shared/browser.js';
-import { createProject, createTestContext, json, NOT_ADMIN, profile, publishTeam, type TestContext } from './helpers.js';
+import { ARDENT_STUDIO_API_PREFIX, PEOPLE_SEARCH_LIMIT, projectMembersResponseSchema } from '../src/shared/browser.js';
+import { createProject, createTestContext, json, LINKS, NOT_ADMIN, profile, publishTeam, type TestContext } from './helpers.js';
 
 let ctx: TestContext;
 const open: Array<() => void> = [];
@@ -159,7 +159,7 @@ describe('project membership', () => {
     expect((await json(await ctx.call('GET', `/projects/${project.id}/members`, { token: member }))).access).toEqual({ mode: 'everyone', role: 'editor' });
   });
 
-  it('hides restricted projects in agent roles and operations, and lists linked people', async () => {
+  it('hides restricted projects in agent roles and operations', async () => {
     ctx = await createTestContext();
     const { owner, member } = await people();
     ctx.magnus.profiles = [profile('node1', 'lead'), profile('node1', 'scout'), profile('node2', 'mapper')];
@@ -175,11 +175,75 @@ describe('project membership', () => {
     expect((await ctx.call('GET', '/agents/operations/op-restricted', { token: member })).status).toBe(404);
     expect((await ctx.call('GET', `/projects?agentRef=node1~lead`, { token: member })).status).toBe(200);
     expect((await json(await ctx.call('GET', `/projects?agentRef=node1~lead`, { token: member }))).projects).toEqual([]);
+  });
+});
 
-    expect(await json(await ctx.call('GET', '/people', { token: member }))).toEqual({ people: [
-      { user_id: 'operator', subject: 'subject-operator', issuer: 'https://identity.example.com', display_name: null },
-      { user_id: 'viewer', subject: 'subject-viewer', issuer: 'https://identity.example.com', display_name: null },
-      { user_id: 'member', subject: 'subject-member', issuer: 'https://identity.example.com', display_name: 'Member Person' },
-    ] });
+describe('GET /people', () => {
+  const everyone = { people: [
+    { user_id: 'operator', subject: 'subject-operator', issuer: 'https://identity.example.com', display_name: null },
+    { user_id: 'viewer', subject: 'subject-viewer', issuer: 'https://identity.example.com', display_name: null },
+    { user_id: 'member', subject: 'subject-member', issuer: 'https://identity.example.com', display_name: 'Member Person' },
+  ], truncated: false };
+  const refusedFor = async (token: string) => {
+    const response = await ctx.call('GET', '/people', { token });
+    expect(response.status).toBe(403);
+    expect((await json(response)).error).toMatchObject({ code: 'PROJECT_ROLE_REQUIRED', details: { required: 'owner' } });
+  };
+
+  it('lists linked people only to admins and project owners', async () => {
+    ctx = await createTestContext();
+    const { owner, member, admin } = await people();
+    const viewer = await ctx.token({ sub: 'subject-viewer', permissions: ['ardentstudio:projects:read'] });
+    // Nobody owns a project yet: only an admin may list people.
+    expect(await json(await ctx.call('GET', '/people', { token: admin }))).toEqual(everyone);
+    await refusedFor(owner);
+
+    const project = await createProject(ctx);
+    // The creator owns a project open to everyone; the other linked people only edit or view it.
+    expect(await json(await ctx.call('GET', '/people', { token: owner }))).toEqual(everyone);
+    await refusedFor(member);
+    await refusedFor(viewer);
+
+    // Limited to members: an owner listed there may list people, editors and viewers may not, and the
+    // creator no longer owns it when it does not list them as owner.
+    expect((await restrict(project.id, admin, [
+      { kind: 'subject', subject: 'subject-member', role: 'owner' },
+      { kind: 'subject', subject: 'subject-operator', role: 'editor' },
+      { kind: 'subject', subject: 'subject-viewer', role: 'viewer' },
+    ])).status).toBe(200);
+    expect(await json(await ctx.call('GET', '/people', { token: member }))).toEqual(everyone);
+    await refusedFor(owner);
+    await refusedFor(viewer);
+    // An owner through an Oathweave role counts too.
+    expect((await restrict(project.id, admin, [{ kind: 'oathweave_role', name: 'studio-leads', role: 'owner' }])).status).toBe(200);
+    await refusedFor(member);
+    const lead = await ctx.token({ sub: 'subject-member', permissions: NOT_ADMIN, roles: ['studio-leads'] });
+    expect((await ctx.call('GET', '/people', { token: lead })).status).toBe(200);
+    // Archived projects still count: their owners can still change the membership.
+    const second = await createProject(ctx, { name: 'Second' });
+    expect((await ctx.call('POST', `/projects/${second.id}/archive`, { token: owner })).status).toBe(200);
+    expect((await ctx.call('GET', '/people', { token: owner })).status).toBe(200);
+  });
+
+  it('searches by prefix and caps the results', async () => {
+    const many = Array.from({ length: 60 }, (_, index) => ({ issuer: 'https://identity.example.com', subject: `subject-bulk-${String(index).padStart(2, '0')}`,
+      localUserId: `bulk${String(index).padStart(2, '0')}`, displayName: `Bulk Person ${index}` }));
+    ctx = await createTestContext({ people: [...LINKS, ...many] });
+    const { admin } = await people();
+    const search = async (q: string) => json(await ctx.call('GET', `/people?q=${encodeURIComponent(q)}`, { token: admin }));
+    // A word of the display name, case-insensitive.
+    expect(await search('person')).toMatchObject({ people: [{ user_id: 'member' }, ...Array.from({ length: 49 }, () => ({}))], truncated: true });
+    expect((await search('person')).people).toHaveLength(PEOPLE_SEARCH_LIMIT);
+    expect(await search('MEMBER PE')).toEqual({ people: [everyone.people[2]], truncated: false });
+    expect(await search('subject-op')).toEqual({ people: [everyone.people[0]], truncated: false });
+    expect(await search('bulk5')).toMatchObject({ people: Array.from({ length: 10 }, (_, index) => ({ user_id: `bulk5${index}` })), truncated: false });
+    // Only prefixes match.
+    expect(await search('erson')).toEqual({ people: [], truncated: false });
+    // Without q, every linked person.
+    const all = await json(await ctx.call('GET', '/people', { token: admin }));
+    expect(all.people).toHaveLength(63);
+    expect(all.truncated).toBe(false);
+    expect((await search('  ')).people).toHaveLength(63);
+    expect((await ctx.call('GET', `/people?q=${'x'.repeat(201)}`, { token: admin })).status).toBe(400);
   });
 });

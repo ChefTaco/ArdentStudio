@@ -49,6 +49,15 @@ export class ProjectAccess {
     return (projectId, createdBy) => projectRole(principal, restricted.get(projectId) ?? { mode: 'everyone', revision: 0, createdBy, members: [] });
   }
 
+  /** Whether the principal owns at least one project (and so can edit a members list). Admins own every project. */
+  ownsAny(principal: Principal): boolean {
+    if (principal.kind === 'service') return false;
+    if (isStudioAdmin(principal)) return true;
+    if (this.store.members.createdOpen(principal.userId)) return true;
+    for (const membership of this.store.members.restricted().values()) if (projectRole(principal, membership) === 'owner') return true;
+    return false;
+  }
+
   /** Whether the principal can read a blob: some project it can see references it, or an agent portrait does. */
   canReadBlob(principal: Principal, sha256: string): boolean {
     const { projects, shared } = this.store.members.blobProjects(sha256);
