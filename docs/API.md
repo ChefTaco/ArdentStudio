@@ -53,7 +53,7 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | | `GET /projects/:id`, `GET /projects/:id/snapshot` | projects:read |
 | | `PATCH /projects/:id`, `POST /projects/:id/archive`, `POST /projects/:id/reopen` | projects:write |
 | | `POST /projects/:id/purge` | agents:admin |
-| Members | `GET /projects/:id/members`, `GET /people` | projects:read |
+| Members | `GET /projects/:id/members`, `GET /people?q=` | projects:read (`/people`: project owners and agents:admin) |
 | | `PUT /projects/:id/members` | projects:read + project owner |
 | Files | `POST /projects/:id/files?name=&purpose=` (raw body) | projects:write |
 | | `GET /projects/:id/files`, `GET /blobs/:sha256` | projects:read |
@@ -125,7 +125,16 @@ person holding `ardentstudio:agents:admin`, can limit it to listed members with
 - `GET /projects` lists only the projects the caller can see, and every summary carries
   `access: {mode, role}`, the caller's own. `GET /projects/:id/members` returns the mode, revision,
   members (subjects with the linked `user_id` and `display_name` when an account link names them) and
-  the caller's access. `GET /people` lists the account links to choose members from.
+  the caller's access.
+- `GET /people` lists the account links (`user_id`, `subject`, `issuer`, `display_name`) to choose
+  members from. It names every linked person, so it answers only people who can edit a members list:
+  holders of `ardentstudio:agents:admin` and the owner of at least one project (one they created that
+  is still open to everyone linked, or one whose members list them, or an Oathweave role they hold, as
+  `owner`; archived projects count). Anyone else gets `403 PROJECT_ROLE_REQUIRED` with
+  `details.required: "owner"`. `?q=` (up to 200 characters) keeps people whose user id, subject, display
+  name or a word of the display name starts with it, case-insensitively, and returns at most 50 of
+  them; `truncated` is `true` when more matched. Without `q` (or with an empty one) every linked person is returned and
+  `truncated` is `false`.
 - Records of a restricted project stay out of reach elsewhere too: `/blobs/:sha256` serves bytes only
   to people who can see a project that references them (or when an agent portrait uses them), agent
   role lists and `?agentRef=` show only visible projects, `GET /agents/operations/:id` of a project

@@ -24,7 +24,10 @@ additive).
   `403 PROJECT_ROLE_REQUIRED`. Changes are audited (`project.members`) and announced
   (`project.members.updated`); streams of people who lose access close. `GET /projects/{id}/members` and
   `GET /people` (account links) feed the console, and project summaries carry the caller's
-  `access: {mode, role}`. The contract publishes each route's project role (`projectRoleOf()`,
+  `access: {mode, role}`. `GET /people` answers only `ardentstudio:agents:admin` and people who own at
+  least one project (everyone else gets `403 PROJECT_ROLE_REQUIRED`, `details.required: "owner"`), and
+  `?q=` searches it by prefix (user id, subject, display name or a word of it), returning at most 50
+  people with `truncated: true` when more match. The contract publishes each route's project role (`projectRoleOf()`,
   `x-project-role`).
 - `POST /projects/{id}/purge` deletes an archived project for good (`ardentstudio:agents:admin`, with the
   exact project name as `confirm_name`): its events, files, links, team, room, tasks, workflow runs,

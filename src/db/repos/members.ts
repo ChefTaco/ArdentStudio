@@ -63,6 +63,11 @@ export class MembershipRepository {
     return result;
   }
 
+  /** Whether this user created a project that is still open to everyone linked (and so owns it). */
+  createdOpen(userId: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM projects WHERE members_mode = 'everyone' AND created_by = ? LIMIT 1").get(userId));
+  }
+
   /** Replace the membership and bump its revision. Call inside a transaction. */
   replace(projectId: string, mode: MembershipMode, members: readonly ProjectMemberInput[], addedBy: string): Membership {
     const now = this.clock.now().toISOString();

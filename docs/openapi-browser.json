@@ -745,7 +745,17 @@
     "/api/ardentstudio/v1/people": {
       "get": {
         "operationId": "getPeople",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
@@ -777,7 +787,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
-        "description": "People with an account link (Studio user, Oathweave subject and issuer, display name), to choose project members from.",
+        "description": "People with an account link (Studio user, Oathweave subject and issuer, display name), to choose project members from. Only for people who can edit a members list: ardentstudio:agents:admin, or the owner of at least one project (one they created that is open to everyone linked, or one that lists them as owner); anyone else gets 403 PROJECT_ROLE_REQUIRED (details required owner). q searches by prefix and returns at most 50 people (truncated true when more match).",
         "security": [
           {
             "oathweave": []
@@ -10866,10 +10876,14 @@
             "items": {
               "$ref": "#/components/schemas/LinkedPerson"
             }
+          },
+          "truncated": {
+            "type": "boolean"
           }
         },
         "required": [
-          "people"
+          "people",
+          "truncated"
         ]
       },
       "ListProjectsResponse": {
