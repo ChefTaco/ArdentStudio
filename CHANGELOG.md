@@ -21,9 +21,6 @@ the detail is in the service log. Uploads whose bytes do not match their `Conten
   example after restoring a backup.
 - The hourly maintenance removes stored bytes that nothing references any more (deleted files, refused or
   abandoned uploads, superseded conversions) once they are ten minutes old.
-
-### Added
-
 - `ardent-studio backup <dir>` makes a consistent backup of a running data directory without the `sqlite3`
   CLI: the database in one read transaction, then every blob it records, each checked against its digest.
 - `npm run verify` starts with `check:installed`, which fails at once with "run `npm ci`" when `node_modules`
