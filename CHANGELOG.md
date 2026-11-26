@@ -6,8 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
-Upgrading: no migration and no settings change. Deleting a reference file that has not synced yet now
-waits for an empty HiveMem sync before the file is removed (it leaves the project at once either way).
+## [0.6.1] - 2026-11-26
+
+Upgrading: no migration and no settings change. The schema stays at migration 11 (from 0.6.0), so a suite
+upgrade needs no `--allow-migrations` for ArdentStudio and going back to 0.6.0 is safe; from 0.5.x, 0.6.0's
+upgrade notes apply. Deleting a reference file that has not synced yet now waits for an empty HiveMem sync
+before the file is removed (it leaves the project at once either way).
 
 ### Fixed
 
