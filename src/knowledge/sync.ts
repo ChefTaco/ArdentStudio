@@ -3,11 +3,13 @@
 // restart resumes and the UI always shows the real state. Failures retry with backoff; reindex
 // starts over. A link is synced as its own text (title, URL, note): the page is never fetched.
 // A deleted link's source is retired with an empty sync, and so is a deleted reference file's, which
-// is then removed with its bytes (when nothing else references them).
+// is then removed with its bytes (when nothing else references them). The sources of a purged
+// project are retired from knowledge_retirements, since their file and link rows are gone.
 import type { BlobStore } from '../blobs/store.js';
 import { chunkHash, type HiveMemClient } from '../clients/hivemem.js';
 import type { Store } from '../db/store.js';
 import type { StudioFile } from '../db/repos/files.js';
+import type { KnowledgeRetirement } from '../db/repos/retirements.js';
 import { linkKnowledgeText, linkRevision, type ReferenceLink } from '../db/repos/links.js';
 import { hivememProjectId, type Project } from '../db/repos/projects.js';
 import type { Logger } from '../logger.js';
@@ -74,6 +76,30 @@ export class KnowledgeSync {
     for (const project of this.store.projects.pendingWorkspaces()) await this.ensureWorkspace(project);
     for (const file of this.store.files.dueForSync(this.options.batchSize ?? 10)) await this.syncFile(file);
     for (const link of this.store.links.dueForSync(this.options.batchSize ?? 10)) await this.syncLink(link);
+    for (const retirement of this.store.retirements.due(this.options.batchSize ?? 10)) await this.retireSource(retirement);
+  }
+
+  /** Retire one source of a purged project (an empty sync); retried with backoff until HiveMem takes it. */
+  async retireSource(retirement: KnowledgeRetirement): Promise<boolean> {
+    try {
+      await this.hivemem.syncKnowledgeSourceChecked({
+        workspace_id: retirement.workspace_id,
+        project_id: retirement.hivemem_project_id,
+        source_id: retirement.source_id,
+        source_uri: retirement.source_uri,
+        revision: retirement.revision,
+        observed_at: this.store.clock.now().toISOString(),
+        chunks: [],
+      });
+      this.store.retirements.done(retirement.id);
+      this.logger.info('Purged project source retired', { project_id: retirement.studio_project_id, source_id: retirement.source_id });
+      return true;
+    } catch (error) {
+      const attempts = retirement.attempts + 1;
+      this.store.retirements.failed(retirement.id, attempts, reason(error), new Date(this.store.clock.now().getTime() + retryDelayMs(attempts)));
+      this.logger.warn('Purged project source retirement failed', { project_id: retirement.studio_project_id, source_id: retirement.source_id, attempts, error: reason(error) });
+      return false;
+    }
   }
 
   async ensureWorkspace(project: Project): Promise<boolean> {
@@ -91,6 +117,8 @@ export class KnowledgeSync {
 
   private setWorkspaceState(projectId: string, state: 'ready' | 'failed', error: string | null): void {
     this.store.tx(() => {
+      // Purged while HiveMem was being asked.
+      if (!this.store.projects.get(projectId)) return;
       this.store.projects.setHiveMemState(projectId, state, error);
       this.store.emit(projectId, 'project.updated', { hivemem: { state, error } });
     });
@@ -98,6 +126,8 @@ export class KnowledgeSync {
 
   private update(file: StudioFile, change: Parameters<Store['files']['setKnowledge']>[1]): StudioFile {
     return this.store.tx(() => {
+      // Its project was purged while HiveMem was being called: the purge queued the retirement.
+      if (!this.store.files.stored(file.id)) return file;
       const updated = this.store.files.setKnowledge(file.id, change);
       // A deleted file is gone for everyone; its retirement is not announced as a file change.
       if (!this.store.files.stored(file.id)?.deleted_at) this.store.emit(file.project_id, 'file.updated', { file_id: file.id, knowledge: updated.knowledge });
@@ -179,6 +209,7 @@ export class KnowledgeSync {
 
   private updateLink(link: ReferenceLink, change: Parameters<Store['links']['setKnowledge']>[1]): ReferenceLink {
     return this.store.tx(() => {
+      if (!this.store.links.get(link.id)) return link;
       const updated = this.store.links.setKnowledge(link.id, change);
       this.store.emit(link.project_id, 'link.updated', { link: updated });
       return updated;

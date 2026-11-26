@@ -12,7 +12,7 @@ import type {
 import {
   buildTemplateDefinition, credentialLikePaths, DefinitionError, templateBodyFromDefinition, verifyAgentDefinition, type AgentDefinition,
 } from '../../templates/definition.js';
-import { actorOf, requireProject, type AppDeps } from '../deps.js';
+import { actorOf, requireProject, requireProjectRole, type RouteDeps } from '../deps.js';
 import { ApiError, notFound } from '../errors.js';
 import type { createRouter } from '../routing.js';
 import { checkTemplateBody, requireTemplate } from './templates.js';
@@ -42,7 +42,7 @@ function magnusDefinitionError(error: unknown): never {
   throw new ApiError(503, 'MAGNUS_UNAVAILABLE', `Magnus could not be reached: ${error instanceof Error ? error.message.slice(0, 200) : 'unknown error'}`);
 }
 
-export function definitionRoutes(register: ReturnType<typeof createRouter>, deps: AppDeps): void {
+export function definitionRoutes(register: ReturnType<typeof createRouter>, deps: RouteDeps): void {
   const { store, magnus } = deps;
 
   /** An agent template version and the definition built from it. */
@@ -81,6 +81,7 @@ export function definitionRoutes(register: ReturnType<typeof createRouter>, deps
     const actor = actorOf(principal);
     if (input.role_key && !input.project_id) throw new ApiError(422, 'PROJECT_REQUIRED', 'role_key needs project_id');
     const project = input.project_id ? requireProject(store, input.project_id) : undefined;
+    if (project) requireProjectRole(deps.access, principal, project.id, 'editor');
     const { version, definition } = await versionDefinition(params);
     let accepted: { operationId: string };
     try {

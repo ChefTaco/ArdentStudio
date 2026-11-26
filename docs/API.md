@@ -10,6 +10,11 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
   `ardentstudio`. The person must have an explicit identity link (see [OATHWEAVE.md](OATHWEAVE.md)).
   Missing or invalid token: `401 UNAUTHENTICATED`. Valid token without a link:
   `403 NO_ACCOUNT_LINK`. Missing permission: `403 FORBIDDEN` with `details.missing`.
+- **Project access.** Routes that act on a project, or on one of its records, also need a project
+  role ([Project membership](#project-membership)). Without access to that project they answer
+  `404 NOT_FOUND`, as for a record that does not exist; with too low a role,
+  `403 PROJECT_ROLE_REQUIRED` with `details.required` and `details.role`. The contract publishes each
+  route's role as `x-project-role` (`projectRoleOf()` in `browser.ts`).
 - **Idempotency.** Every mutation requires `x-idempotency-key` (8-128 characters of
   `A-Z a-z 0-9 . _ : -`). Repeating a key with the same request replays the first answer and sets
   `idempotent-replayed: true`; reusing it for a different request answers
@@ -35,7 +40,7 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | `ardentstudio:templates:read` | Read templates and versions |
 | `ardentstudio:templates:write` | Create templates, add versions, archive; save a project team as a template |
 | `ardentstudio:review:write` | Comment on, accept, reject and finalize deliverables; request revisions (with projects:write); export |
-| `ardentstudio:agents:admin` | New Agent, applying drafts and installing catalog skills through Magnus (Magnus also checks the acting person); read the audit export |
+| `ardentstudio:agents:admin` | New Agent, applying drafts and installing catalog skills through Magnus (Magnus also checks the acting person); read the audit export; owner of every project; purge archived projects |
 | `ardentstudio:audit:read` | Read the audit export. The only permission an Oathweave service token can use, and only on that route |
 
 ## Routes
@@ -47,6 +52,9 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | | `POST /projects` | projects:write |
 | | `GET /projects/:id`, `GET /projects/:id/snapshot` | projects:read |
 | | `PATCH /projects/:id`, `POST /projects/:id/archive`, `POST /projects/:id/reopen` | projects:write |
+| | `POST /projects/:id/purge` | agents:admin |
+| Members | `GET /projects/:id/members`, `GET /people` | projects:read |
+| | `PUT /projects/:id/members` | projects:read + project owner |
 | Files | `POST /projects/:id/files?name=&purpose=` (raw body) | projects:write |
 | | `GET /projects/:id/files`, `GET /blobs/:sha256` | projects:read |
 | | `POST /files/:id/reindex`, `DELETE /files/:id`, `POST /projects/:id/reindex` | projects:write |
@@ -86,6 +94,65 @@ background: `hivemem.state` is `pending`, then `ready`, or `failed` with an erro
 
 An archived project is read-only (`409 PROJECT_ARCHIVED`) except `last_area`. Archive answers
 `409 TASKS_ACTIVE` with the tasks while any Studio task is still active.
+
+### Project membership
+
+A project starts open to everyone linked (`mode: "everyone"`, as every project from before
+membership is): its creator (`created_by`) is its owner and every other linked person an editor. An owner, or a
+person holding `ardentstudio:agents:admin`, can limit it to listed members with
+`PUT /projects/:id/members`:
+
+```json
+{"base_revision": 0, "mode": "members", "members": [
+  {"kind": "subject", "subject": "example-subject", "issuer": null, "role": "owner"},
+  {"kind": "oathweave_role", "name": "studio-reviewers", "role": "viewer"}
+]}
+```
+
+- `subject` entries match an Oathweave subject (from any accepted issuer when `issuer` is null);
+  `oathweave_role` entries match everyone whose token carries that Oathweave role, directly or
+  through an Oathweave group. A person gets the highest role that matches; nobody else has access.
+- Roles: `viewer` reads (routes needing only read permissions, including team validation and the
+  stream), `editor` also changes the project and its records (routes needing projects:write,
+  review:write or agents:admin), `owner` also edits the membership. A role only narrows: the route's
+  permissions are still required. A Studio admin is the owner of every project.
+- `mode: "members"` needs an owner (`422 OWNER_REQUIRED`); `mode: "everyone"` lists nobody
+  (`422 MEMBERS_NOT_ALLOWED`) and opens the project to everyone linked again. A caller who is not an
+  admin must still be an owner afterwards (`422 SELF_LOCKOUT`). A stale `base_revision` answers
+  `409 VERSION_CONFLICT` with the current `revision`.
+- Every change is audited as `project.members` (the full list) and announced as
+  `project.members.updated` (`{mode, revision}`). Open streams of people it removes close at once.
+- `GET /projects` lists only the projects the caller can see, and every summary carries
+  `access: {mode, role}`, the caller's own. `GET /projects/:id/members` returns the mode, revision,
+  members (subjects with the linked `user_id` and `display_name` when an account link names them) and
+  the caller's access. `GET /people` lists the account links to choose members from.
+- Records of a restricted project stay out of reach elsewhere too: `/blobs/:sha256` serves bytes only
+  to people who can see a project that references them (or when an agent portrait uses them), agent
+  role lists and `?agentRef=` show only visible projects, `GET /agents/operations/:id` of a project
+  operation needs its project, and `project_id` on `POST /agents` and template deploys needs editor.
+- Studio has no route that queries HiveMem knowledge for people. A project's workspace is owned by
+  Studio's HiveMem service identity, and HiveMem limits it to its own members; Studio does not add people
+  to it.
+
+### Purge
+
+`POST /projects/:id/purge` with `{"confirm_name": "<the exact project name>"}` deletes an archived
+project for good (`ardentstudio:agents:admin` only). It removes the project's events, files, links,
+team, room, conversations and messages, tasks, workflow runs, deliverables, revisions, reviews and
+exports in one transaction, and answers `{project_id, name, purged_at, removed: {<kind>: <rows>},
+knowledge: {sources_retiring}}`. Afterwards:
+
+- bytes nothing else references are removed (at once when older than ten minutes, else by the hourly
+  sweep);
+- the HiveMem sources of its references and links are retired with empty syncs, retried with backoff
+  until HiveMem takes them; the project's HiveMem workspace is kept;
+- audit records are kept and the purge is audited as `project.purge` (name and row counts);
+- open streams of the project get `project.purged` (`{project_id, at}`, live only) and close.
+
+It answers `409 PROJECT_NOT_ARCHIVED`, `422 CONFIRMATION_MISMATCH` (compared exactly, with case and
+spaces), `409 TASKS_ACTIVE` and `409 FILE_IN_USE` (`details.agents`: an agent portrait uses one of its
+files; portraits are shown in every project). Repeating the request with its idempotency key replays
+the answer; otherwise the project is gone (`404`).
 
 `GET /projects/:id/snapshot` returns the project and its list summary, its files and links, its
 team, conversations, active tasks, decisions, agent activity, room layout and open team proposals,
@@ -522,7 +589,13 @@ cannot send the bearer token).
   current step, `replace` sets it. It has no `id` and is never replayed; when a stream connects,
   each message still streaming gets one `replace` with its current text. The stored message
   (`message.updated`) replaces the live text when the turn ends.
-- The stream closes when the token expires or its session ends; reconnect with a fresh token.
+- `project.members.updated` (`{mode, revision}`) follows a membership change; refetch
+  `GET /projects/:id/members` for the list.
+- `project.purged` (`{project_id, at}`) has no `id` and is never replayed: the project was purged and
+  the stream closes.
+- The stream closes when the token expires or its session ends (reconnect with a fresh token), and
+  when the caller loses access to the project (it is re-checked every 5 seconds and on every
+  membership change).
 
 ## Audit export
 

@@ -701,4 +701,45 @@ ALTER TABLE files ADD COLUMN deleted_by TEXT;
 ALTER TABLE blobs ADD COLUMN used_at TEXT;
 `,
   },
+  {
+    id: 12,
+    name: 'project_membership_purge',
+    sql: `
+-- Optional per-project membership. 'everyone' (the default, and every existing project) keeps the
+-- project open to everyone linked; 'members' limits it to the project_members rows.
+ALTER TABLE projects ADD COLUMN members_mode TEXT NOT NULL DEFAULT 'everyone' CHECK (members_mode IN ('everyone', 'members'));
+ALTER TABLE projects ADD COLUMN members_revision INTEGER NOT NULL DEFAULT 0;
+-- kind subject: value is the Oathweave subject and issuer the issuer ('' for any accepted issuer).
+-- kind oathweave_role: value is an Oathweave role name carried in the token; issuer is ''.
+CREATE TABLE project_members (
+  project_id TEXT NOT NULL REFERENCES projects (id),
+  kind TEXT NOT NULL CHECK (kind IN ('subject', 'oathweave_role')),
+  issuer TEXT NOT NULL DEFAULT '',
+  value TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'owner')),
+  added_by TEXT NOT NULL,
+  added_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, kind, issuer, value)
+);
+
+-- HiveMem sources of a purged project still to be retired (an empty sync). They outlive the project
+-- rows, so they carry the workspace and source identifiers themselves; a row is removed once HiveMem
+-- takes the retirement.
+CREATE TABLE knowledge_retirements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  studio_project_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  hivemem_project_id TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  source_uri TEXT NOT NULL,
+  revision TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT NOT NULL,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (workspace_id, source_id)
+);
+CREATE INDEX knowledge_retirements_due ON knowledge_retirements (next_attempt_at);
+`,
+  },
 ];

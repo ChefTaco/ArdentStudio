@@ -6,8 +6,11 @@ import { EventRepository, type ProjectEventRecord } from './repos/events.js';
 import { FileRepository } from './repos/files.js';
 import { IdempotencyRepository } from './repos/idempotency.js';
 import { LinkRepository } from './repos/links.js';
+import { MembershipRepository } from './repos/members.js';
 import { ProjectRepository } from './repos/projects.js';
 import { TeamProposalRepository } from './repos/proposals.js';
+import { purgeProjectRows, type PurgedRows } from './repos/purge.js';
+import { KnowledgeRetirementRepository } from './repos/retirements.js';
 import { ReviewRepository } from './repos/review.js';
 import { RoomRepository } from './repos/room.js';
 import { SessionRepository } from './repos/sessions.js';
@@ -37,6 +40,8 @@ export class Store {
   readonly proposals: TeamProposalRepository;
   readonly summaries: ProjectSummaryRepository;
   readonly workflows: WorkflowRepository;
+  readonly members: MembershipRepository;
+  readonly retirements: KnowledgeRetirementRepository;
   private pending: ProjectEventRecord[] = [];
   private depth = 0;
 
@@ -57,6 +62,8 @@ export class Store {
     this.proposals = new TeamProposalRepository(db, clock);
     this.summaries = new ProjectSummaryRepository(db);
     this.workflows = new WorkflowRepository(db, clock);
+    this.members = new MembershipRepository(db, clock);
+    this.retirements = new KnowledgeRetirementRepository(db, clock);
   }
 
   /**
@@ -101,6 +108,16 @@ export class Store {
     const event = this.events.append(projectId, type, payload);
     this.pending.push(event);
     return event;
+  }
+
+  /**
+   * Delete every row of a project and queue the retirement of its HiveMem sources, inside the
+   * current transaction. Events it emitted earlier in the transaction are dropped: they are gone.
+   */
+  purgeProject(projectId: string): PurgedRows & { sourcesRetiring: number } {
+    const rows = purgeProjectRows(this.db, projectId);
+    this.pending = this.pending.filter(event => event.project_id !== projectId);
+    return { ...rows, sourcesRetiring: this.retirements.queue(rows.retirements) };
   }
 
   /** Audit a mutation inside the current transaction. */

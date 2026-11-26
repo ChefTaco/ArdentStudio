@@ -118,6 +118,69 @@ export const projectCountsSchema = z.object({
   /** Studio tasks in an active state (queued, running, input_required, pausing, paused). */
   active_tasks: z.number().int(),
 });
+// ── Project membership ──
+/**
+ * Optional per-project membership. A project starts open to everyone linked (mode everyone): its
+ * creator is its owner and every other linked person an editor. With mode members only the listed
+ * Oathweave subjects, and people whose token carries a listed Oathweave role (the roles Oathweave
+ * groups grant), have access, each with the highest role that matches. A person holding
+ * ardentstudio:agents:admin is an owner of every project. A project role only narrows: a person
+ * still needs the route's Oathweave permissions. Without access to a project, its routes, stream
+ * and blobs answer 404 NOT_FOUND; with too low a role, 403 PROJECT_ROLE_REQUIRED
+ * (details required, role).
+ */
+export const PROJECT_ROLES = ['viewer', 'editor', 'owner'] as const;
+export const projectRoleSchema = z.enum(PROJECT_ROLES);
+export type ProjectRole = z.infer<typeof projectRoleSchema>;
+export const projectMembershipModeSchema = z.enum(['everyone', 'members']);
+/** The calling person's access to the project. */
+export const projectAccessSchema = z.object({ mode: projectMembershipModeSchema, role: projectRoleSchema });
+const memberSubject = z.string().trim().min(1).max(256);
+const memberRoleName = z.string().trim().min(1).max(128);
+export const projectMemberRequestSchema = z.discriminatedUnion('kind', [
+  /** An Oathweave subject. issuer null matches the subject from any accepted issuer. */
+  z.object({ kind: z.literal('subject'), subject: memberSubject, issuer: z.url().max(2_048).nullable().default(null), role: projectRoleSchema }).strict(),
+  /** Everyone whose Oathweave token carries this role (directly or through an Oathweave group). */
+  z.object({ kind: z.literal('oathweave_role'), name: memberRoleName, role: projectRoleSchema }).strict(),
+]);
+export const projectMemberSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('subject'), subject: z.string(), issuer: z.string().nullable(), role: projectRoleSchema,
+    /** The linked Studio user and display name for this subject, when an account link names it. */
+    user_id: z.string().nullable(), display_name: z.string().nullable(),
+    added_by: z.string(), added_at: isoDate,
+  }),
+  z.object({ kind: z.literal('oathweave_role'), name: z.string(), role: projectRoleSchema, added_by: z.string(), added_at: isoDate }),
+]);
+export const projectMembersResponseSchema = z.object({
+  project_id: projectIdSchema,
+  mode: projectMembershipModeSchema,
+  /** Increments on every change; send it back as base_revision. */
+  revision: z.number().int(),
+  /** Empty in mode everyone. */
+  members: z.array(projectMemberSchema),
+  access: projectAccessSchema,
+});
+const memberKey = (member: z.infer<typeof projectMemberRequestSchema>) =>
+  member.kind === 'subject' ? `subject\u0000${member.issuer ?? ''}\u0000${member.subject}` : `oathweave_role\u0000${member.name}`;
+export const putProjectMembersRequestSchema = z.object({
+  /** 409 VERSION_CONFLICT when it is not the current revision. */
+  base_revision: z.number().int().min(0),
+  mode: projectMembershipModeSchema,
+  /** Must be empty for mode everyone. For mode members it needs at least one owner. */
+  members: z.array(projectMemberRequestSchema).max(500).default([]),
+}).strict().superRefine((value, context) => {
+  const seen = new Set<string>();
+  value.members.forEach((member, index) => {
+    const key = memberKey(member);
+    if (seen.has(key)) context.addIssue({ code: 'custom', path: ['members', index], message: 'Each member is listed once' });
+    seen.add(key);
+  });
+});
+/** A person with an account link, for choosing members. */
+export const linkedPersonSchema = z.object({ user_id: z.string(), subject: z.string(), issuer: z.string(), display_name: z.string().nullable() });
+export const listPeopleResponseSchema = z.object({ people: z.array(linkedPersonSchema) });
+
 export const projectSummarySchema = projectSchema.omit({ deliverables: true, brief_md: true }).extend({
   brief_excerpt: z.string(),
   file_count: z.number().int(),
@@ -127,6 +190,8 @@ export const projectSummarySchema = projectSchema.omit({ deliverables: true, bri
   ...projectCountsSchema.shape,
   /** Never synthesized; null only when the project has no such record. */
   last_activity: lastActivitySchema.nullable(),
+  /** The calling person's membership mode and role (see Project membership). Always sent; absent only from releases before membership. */
+  access: projectAccessSchema.optional(),
 });
 
 const projectFields = {
@@ -166,6 +231,23 @@ export const listProjectsQuerySchema = z.object({
 });
 export const listProjectsResponseSchema = z.object({ projects: z.array(projectSummarySchema) });
 export const projectResponseSchema = projectSchema;
+
+/**
+ * Purges an archived project for good. confirm_name must equal the project's name exactly
+ * (422 CONFIRMATION_MISMATCH otherwise).
+ */
+export const purgeProjectRequestSchema = z.object({ confirm_name: z.string().max(400) }).strict();
+export const purgeProjectResponseSchema = z.object({
+  project_id: projectIdSchema,
+  name: z.string(),
+  purged_at: isoDate,
+  /** Rows removed per kind (events, files, links, conversations, messages, tasks, deliverables, revisions, ...). */
+  removed: z.record(z.string(), z.number().int()),
+  /** HiveMem sources queued for retirement (retried until HiveMem takes them). The workspace itself is kept. */
+  knowledge: z.object({ sources_retiring: z.number().int() }),
+});
+/** project.purged stream payload: sent live (never replayed) to open streams of the project, which then close. */
+export const projectPurgedEventSchema = z.object({ project_id: projectIdSchema, at: isoDate });
 
 // ── Files ──
 export const UPLOAD_MIME_TYPES = [
@@ -1656,6 +1738,7 @@ export const PROJECT_EVENT_TYPES = [
   'link.created', 'link.updated', 'link.deleted', 'team.proposal.updated',
   'workflow.run.created', 'workflow.run.updated', 'workflow.node.updated',
   'task.recovery', 'artifact.import.progress',
+  'project.members.updated',
 ] as const;
 export const projectEventTypeSchema = z.enum(PROJECT_EVENT_TYPES);
 /** A persisted event. The SSE `id` is its seq. */
@@ -1746,6 +1829,8 @@ export interface ArdentStudioBrowserRoute {
   successStatus?: 201;
   /** Server-sent event payloads by event name. Read with fetch: EventSource cannot send the bearer token. */
   events?: Readonly<Record<string, z.ZodType>>;
+  /** The project role this route needs, when it differs from projectRoleOf's default. */
+  projectRole?: ProjectRole;
   note?: string;
 }
 
@@ -1770,6 +1855,14 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'POST', path: '/projects/{projectId}/archive', response: projectResponseSchema, permissions: WRITE, idempotent: true, note: '409 with details.tasks while Studio tasks are still active.' },
   { method: 'POST', path: '/projects/{projectId}/reopen', response: projectResponseSchema, permissions: WRITE, idempotent: true },
   { method: 'GET', path: '/projects/{projectId}/snapshot', response: snapshotResponseSchema, permissions: READ, idempotent: false },
+  { method: 'POST', path: '/projects/{projectId}/purge', requestBody: 'json', request: purgeProjectRequestSchema, response: purgeProjectResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, projectRole: 'owner',
+    note: 'Deletes an archived project for good: its events, files, links, team, room, tasks, workflow runs, deliverables, reviews and exports. Bytes nothing else references are removed (at once, or by the hourly sweep), the HiveMem sources of its references and links are retired (retried until HiveMem takes them; the workspace is kept), and audit records are kept. Open streams of the project get project.purged and close. 409 PROJECT_NOT_ARCHIVED, 422 CONFIRMATION_MISMATCH (confirm_name is not the exact project name), 409 TASKS_ACTIVE, 409 FILE_IN_USE (details agents: an agent portrait uses one of its files).' },
+
+  // Project membership
+  { method: 'GET', path: '/projects/{projectId}/members', response: projectMembersResponseSchema, permissions: READ, idempotent: false, note: 'The membership mode, the listed members and the caller\'s access. See Project membership.' },
+  { method: 'PUT', path: '/projects/{projectId}/members', requestBody: 'json', request: putProjectMembersRequestSchema, response: projectMembersResponseSchema, permissions: READ, idempotent: true, projectRole: 'owner',
+    note: 'Replaces the membership (project owners and ardentstudio:agents:admin). mode everyone opens the project to everyone linked again. 409 VERSION_CONFLICT (details revision) when base_revision is stale, 422 MEMBERS_NOT_ALLOWED when mode everyone lists members, 422 OWNER_REQUIRED when mode members has no owner, 422 SELF_LOCKOUT when a caller who is not an admin would no longer be an owner. Announced as project.members.updated (mode, revision); open streams of people who lose access close.' },
+  { method: 'GET', path: '/people', response: listPeopleResponseSchema, permissions: READ, idempotent: false, note: 'People with an account link (Studio user, Oathweave subject and issuer, display name), to choose project members from.' },
 
   // Reference links
   { method: 'POST', path: '/projects/{projectId}/links', requestBody: 'json', request: createLinkRequestSchema, response: linkResponseSchema, permissions: WRITE, idempotent: true, successStatus: 201, note: 'http and https only, without credentials. 409 LINK_EXISTS when the project already has this URL. Synced to the project HiveMem workspace as a knowledge source (title, URL and note; the page is not fetched).' },
@@ -1881,7 +1974,27 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   // Stream
   {
     method: 'GET', path: '/projects/{projectId}/stream', query: streamQuerySchema, response: null, permissions: READ, idempotent: false,
-    events: { '*': projectEventSchema, reset: resetEventSchema, heartbeat: heartbeatEventSchema, 'message.delta': messageDeltaEventSchema },
-    note: 'Persisted events carry their seq as the SSE id and replay after ?after= (or, without it, after the Last-Event-ID header a reconnecting EventSource sends). reset means the cursor is older than retained events (or ahead of them): refetch the snapshot. message.delta (live reply text) has no id; on connect each streaming message gets one replace delta with its current text. heartbeat every 15 s. The stream closes when the token expires or its session ends; reconnect with a fresh token.',
+    events: { '*': projectEventSchema, reset: resetEventSchema, heartbeat: heartbeatEventSchema, 'message.delta': messageDeltaEventSchema, 'project.purged': projectPurgedEventSchema },
+    note: 'Persisted events carry their seq as the SSE id and replay after ?after= (or, without it, after the Last-Event-ID header a reconnecting EventSource sends). reset means the cursor is older than retained events (or ahead of them): refetch the snapshot. message.delta (live reply text) has no id; on connect each streaming message gets one replace delta with its current text. heartbeat every 15 s. The stream closes when the token expires or its session ends (reconnect with a fresh token), when the caller loses access to the project, and after project.purged (live only, no id).',
   },
 ];
+
+/**
+ * Path parameters that name a project record, in the order the project is taken from: the project
+ * itself first, then the record whose project it is.
+ */
+export const PROJECT_SCOPED_PARAMS = ['projectId', 'linkId', 'fileId', 'conversationId', 'messageId', 'decisionId', 'taskId', 'deliverableId', 'revisionId', 'commentId'] as const;
+export type ProjectScopedParam = typeof PROJECT_SCOPED_PARAMS[number];
+const PROJECT_WRITE_PERMISSIONS: readonly ArdentStudioPermission[] = ['ardentstudio:projects:write', 'ardentstudio:review:write', 'ardentstudio:agents:admin'];
+
+/**
+ * The project record a route acts on and the project role it needs, or undefined for routes outside
+ * any one project. Routes that change a project need editor, others viewer, unless projectRole says
+ * otherwise. /blobs/{sha256} and /agents/operations/{operationId} check their project themselves.
+ */
+export function projectRoleOf(route: Pick<ArdentStudioBrowserRoute, 'path' | 'permissions' | 'projectRole'>): { param: ProjectScopedParam; role: ProjectRole } | undefined {
+  const param = PROJECT_SCOPED_PARAMS.find(name => route.path.includes(`{${name}}`));
+  if (!param) return undefined;
+  const role = route.projectRole ?? (route.permissions.some(permission => PROJECT_WRITE_PERMISSIONS.includes(permission)) ? 'editor' : 'viewer');
+  return { param, role };
+}

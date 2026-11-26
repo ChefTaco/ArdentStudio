@@ -108,9 +108,23 @@ describe('migrations', () => {
       INSERT INTO blobs (sha256, size, mime, path, created_at) VALUES ('${'b'.repeat(64)}', 1, 'text/plain', 'bb/bb/x', '2026-01-01');
       INSERT INTO files (id, project_id, name, mime, size, sha256, purpose, created_by, created_at, knowledge_state, knowledge_updated_at)
         VALUES ('file_old', 'prj_old', 'a.txt', 'text/plain', 1, '${'b'.repeat(64)}', 'attachment', 'operator', '2026-01-01', 'not_indexed', '2026-01-01');`);
-    expect(migrate(db).at(-1)).toBe(11);
+    expect(migrate(db, MIGRATIONS.filter(item => item.id <= 11)).at(-1)).toBe(11);
     expect(db.prepare("SELECT deleted_at, deleted_by FROM files WHERE id = 'file_old'").get()).toEqual({ deleted_at: null, deleted_by: null });
     expect(db.prepare('SELECT used_at FROM blobs').get()).toEqual({ used_at: null });
+    db.close();
+  });
+
+  it('leave existing projects open to everyone linked when membership arrives', () => {
+    const db = new Database(':memory:');
+    migrate(db, MIGRATIONS.filter(item => item.id <= 11));
+    db.exec(`INSERT INTO projects (id, name, status, created_by, hivemem_workspace_id, created_at, updated_at)
+      VALUES ('prj_old', 'Old', 'archived', 'operator', 'ardentstudio-prj_old', '2026-01-01', '2026-01-01');`);
+    const before = db.prepare("SELECT * FROM projects WHERE id = 'prj_old'").get() as Record<string, unknown>;
+    expect(migrate(db).at(-1)).toBe(12);
+    expect(db.prepare("SELECT * FROM projects WHERE id = 'prj_old'").get()).toEqual({ ...before, members_mode: 'everyone', members_revision: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM project_members').get()).toEqual({ count: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM knowledge_retirements').get()).toEqual({ count: 0 });
+    expect(() => db.prepare("UPDATE projects SET members_mode = 'nobody'").run()).toThrow();
     db.close();
   });
 

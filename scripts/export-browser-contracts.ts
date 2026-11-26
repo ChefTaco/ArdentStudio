@@ -14,7 +14,7 @@ import { z } from 'zod';
 import * as contract from '../src/shared/browser.js';
 import {
   ARDENT_STUDIO_API_PREFIX, ARDENT_STUDIO_AUDIENCE, ARDENT_STUDIO_PERMISSIONS, ardentStudioBrowserContractVersion, ardentStudioBrowserRoutes,
-  errorResponseSchema, IDEMPOTENCY_HEADER, UPLOAD_MIME_TYPES, type ArdentStudioBrowserRoute,
+  errorResponseSchema, IDEMPOTENCY_HEADER, projectRoleOf, UPLOAD_MIME_TYPES, type ArdentStudioBrowserRoute,
 } from '../src/shared/browser.js';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -138,6 +138,8 @@ function operation(route: ArdentStudioBrowserRoute): Json {
   const result: Json = { operationId: operationId(route), parameters, responses, 'x-permissions': [...route.permissions], 'x-idempotent': route.idempotent };
   if (route.orPermission) result['x-or-permission'] = route.orPermission;
   if (route.accept === 'any') result['x-accept'] = 'any';
+  const scope = projectRoleOf(route);
+  if (scope) result['x-project-role'] = scope.role;
   if (route.note) result.description = route.note;
   if (route.permissions.length) result.security = [{ oathweave: [] }];
   else result.security = [];

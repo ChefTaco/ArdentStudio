@@ -3,8 +3,10 @@
 import { createHash } from 'node:crypto';
 import type { Context, Hono } from 'hono';
 import { AccessDenied, type Authenticator, type Principal } from '../auth/authenticator.js';
+import type { ProjectAccess } from '../auth/project-access.js';
 import type { Store } from '../db/store.js';
-import { ARDENT_STUDIO_API_PREFIX, ardentStudioBrowserRoutes, IDEMPOTENCY_HEADER, idempotencyKeySchema, type ArdentStudioBrowserRoute } from '../shared/browser.js';
+import { ARDENT_STUDIO_API_PREFIX, ardentStudioBrowserRoutes, IDEMPOTENCY_HEADER, idempotencyKeySchema, projectRoleOf, type ArdentStudioBrowserRoute, type ProjectScopedParam } from '../shared/browser.js';
+import { requireProjectRole } from './deps.js';
 import type { AppEnv } from './env.js';
 import { ApiError } from './errors.js';
 
@@ -92,16 +94,30 @@ async function readJsonBody(c: Context): Promise<{ value: unknown; text: string 
   try { return { value: JSON.parse(text) as unknown, text }; } catch { throw new ApiError(400, 'VALIDATION_ERROR', 'The body is not valid JSON'); }
 }
 
+/** What a 404 names when the caller has no access to the record's project. */
+const RECORD_NAMES: Record<ProjectScopedParam, string> = {
+  projectId: 'Project', linkId: 'Link', fileId: 'File', conversationId: 'Conversation', messageId: 'Message', decisionId: 'Decision',
+  taskId: 'Task', deliverableId: 'Deliverable', revisionId: 'Revision', commentId: 'Comment',
+};
+
 function fingerprintOf(...parts: string[]): string {
   return createHash('sha256').update(parts.join('\u0000')).digest('hex');
 }
 
-export function createRouter(app: Hono<AppEnv>, deps: { store: Store; authenticate: Authenticator }) {
+export function createRouter(app: Hono<AppEnv>, deps: { store: Store; authenticate: Authenticator; access: ProjectAccess }) {
   return function register(method: ArdentStudioBrowserRoute['method'], path: string, handler: RouteHandler): void {
     const route = routeDefinition(method, path);
+    const scope = projectRoleOf(route);
     app.on(method, honoPath(path), async c => {
       const principal = route.permissions.length ? await authenticateRequest(c, deps.authenticate, route.permissions, { accept: route.accept ?? 'user', orPermission: route.orPermission }) : undefined;
       c.set('principal', principal);
+      // Project membership, before anything is claimed or read. A record or project that does not exist is the
+      // handler's 404 (after an idempotent replay, so repeating a purge answers as the first request did).
+      if (scope && principal) {
+        const value = c.req.param(scope.param);
+        const projectId = value ? deps.store.members.projectOf(scope.param, value) : undefined;
+        if (projectId && deps.store.members.get(projectId)) requireProjectRole(deps.access, principal, projectId, scope.role, RECORD_NAMES[scope.param]);
+      }
 
       let idempotencyKey: string | undefined;
       if (route.idempotent) {
