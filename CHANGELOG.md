@@ -6,8 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
-Upgrading: replace the image; no migration and no settings change. Anything that read the error text of
-`/health/ready` now gets a code (see below); the detail is in the service log.
+Upgrading: back up the data volume first. Migration 11 runs on the first start and is additive (it adds
+`files.deleted_at`, `files.deleted_by` and `blobs.used_at`); a database it has run on no longer starts under
+0.5.x. No settings change. Anything that read the error text of `/health/ready` now gets a code (see below);
+the detail is in the service log. Uploads whose bytes do not match their `Content-Type` are now refused.
+
+### Added
+
+- `DELETE /files/{fileId}` deletes a project file, audited as `file.delete` and announced as `file.deleted`. The
+  file leaves the project and `/blobs` at once. An indexed reference file's HiveMem source is retired first
+  (retried until HiveMem takes it), then the file is removed. It answers `409 FILE_IN_USE` while an agent
+  portrait or a current or draft team role names the file.
+- `POST /projects/{projectId}/reindex` queues every reference file and link of a project for HiveMem sync, for
+  example after restoring a backup.
+- The hourly maintenance removes stored bytes that nothing references any more (deleted files, refused or
+  abandoned uploads, superseded conversions) once they are ten minutes old.
 
 ### Changed
 
@@ -24,6 +37,9 @@ Upgrading: replace the image; no migration and no settings change. Anything that
 
 ### Fixed
 
+- Uploads are checked against their declared type as they stream in, before anything is stored: images, PDF and
+  DOCX by their leading bytes, JSON must parse, SVG must contain an `<svg>` element, and text must not contain NUL
+  bytes. A mismatch answers `422 CONTENT_MISMATCH` and leaves no stored bytes behind.
 - `/health/ready` needs no token, so it no longer returns what Magnus or HiveMem said when a check fails. A
   failing check now answers `error` as a code (`<CHECK>_UNAVAILABLE` or `<CHECK>_TIMEOUT`), and the detail is
   logged as `Readiness check failed`, once per change.

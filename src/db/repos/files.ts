@@ -12,7 +12,7 @@ interface FileRow {
   id: string; project_id: string; name: string; mime: string; size: number; sha256: string; purpose: FilePurpose;
   created_by: string; created_at: string; knowledge_state: KnowledgeState; knowledge_source_id: string | null;
   knowledge_revision: string | null; knowledge_chunks: number | null; knowledge_error: string | null; knowledge_attempts: number;
-  knowledge_next_attempt_at: string | null; knowledge_updated_at: string | null;
+  knowledge_next_attempt_at: string | null; knowledge_updated_at: string | null; deleted_at: string | null; deleted_by: string | null;
 }
 
 const toFile = (row: FileRow): StudioFile => ({
@@ -40,28 +40,67 @@ export class FileRepository {
     return this.get(id)!;
   }
 
+  /** A file that is not deleted. */
   get(id: string): StudioFile | undefined {
-    const row = this.db.prepare('SELECT * FROM files WHERE id = ?').get(id) as FileRow | undefined;
+    const row = this.db.prepare('SELECT * FROM files WHERE id = ? AND deleted_at IS NULL').get(id) as FileRow | undefined;
     return row ? toFile(row) : undefined;
+  }
+
+  /** A file, also one deleted and waiting for its HiveMem source to be retired (deleted_at set). */
+  stored(id: string): (StudioFile & { deleted_at: string | null }) | undefined {
+    const row = this.db.prepare('SELECT * FROM files WHERE id = ?').get(id) as FileRow | undefined;
+    return row ? { ...toFile(row), deleted_at: row.deleted_at } : undefined;
   }
 
   list(projectId: string, purpose?: FilePurpose): StudioFile[] {
     const rows = (purpose
-      ? this.db.prepare('SELECT * FROM files WHERE project_id = ? AND purpose = ? ORDER BY created_at, id').all(projectId, purpose)
-      : this.db.prepare('SELECT * FROM files WHERE project_id = ? ORDER BY created_at, id').all(projectId)) as FileRow[];
+      ? this.db.prepare('SELECT * FROM files WHERE project_id = ? AND purpose = ? AND deleted_at IS NULL ORDER BY created_at, id').all(projectId, purpose)
+      : this.db.prepare('SELECT * FROM files WHERE project_id = ? AND deleted_at IS NULL ORDER BY created_at, id').all(projectId)) as FileRow[];
     return rows.map(toFile);
   }
 
   count(projectId: string): number {
-    return (this.db.prepare('SELECT COUNT(*) AS n FROM files WHERE project_id = ?').get(projectId) as { n: number }).n;
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM files WHERE project_id = ? AND deleted_at IS NULL').get(projectId) as { n: number }).n;
   }
 
-  /** Whether any project file references this blob. Only referenced blobs are served. */
+  /** Whether a file that is not deleted references this blob. Only referenced blobs are served. */
   blobReferenced(sha256: string): boolean {
-    return Boolean(this.db.prepare('SELECT 1 FROM files WHERE sha256 = ? LIMIT 1').get(sha256));
+    return Boolean(this.db.prepare('SELECT 1 FROM files WHERE sha256 = ? AND deleted_at IS NULL LIMIT 1').get(sha256));
   }
 
-  /** Files due for a knowledge sync attempt, oldest first. */
+  /** Agents whose Studio portrait is this file. */
+  avatarUses(id: string): string[] {
+    return (this.db.prepare('SELECT agent_ref FROM agent_presentation WHERE avatar_file_id = ? ORDER BY agent_ref').all(id) as Array<{ agent_ref: string }>).map(row => row.agent_ref);
+  }
+
+  /**
+   * Delete a file. One whose HiveMem source may hold chunks (it was indexed, or a sync may have run) is
+   * hidden and queued so knowledge sync retires the source, then removed by purge(); any other is removed
+   * now. Its DOCX conversions go with it. Call inside a transaction.
+   */
+  delete(id: string, deletedBy: string): { retire: boolean } {
+    const current = this.get(id);
+    if (!current) throw new Error('File not found');
+    const { state, revision, attempts } = current.knowledge;
+    const retire = current.purpose === 'reference' && (revision !== null || state === 'indexing' || (state === 'failed' && attempts > 0));
+    this.db.prepare("DELETE FROM docx_documents WHERE source_kind = 'file' AND source_id = ?").run(id);
+    if (!retire) {
+      this.db.prepare('DELETE FROM files WHERE id = ?').run(id);
+      return { retire };
+    }
+    const now = this.clock.now().toISOString();
+    this.db.prepare(`UPDATE files SET deleted_at = ?, deleted_by = ?, knowledge_state = 'pending', knowledge_source_id = COALESCE(knowledge_source_id, ?),
+      knowledge_error = NULL, knowledge_attempts = 0, knowledge_next_attempt_at = ?, knowledge_updated_at = ? WHERE id = ?`)
+      .run(now, deletedBy, knowledgeSourceId(id), now, now, id);
+    return { retire };
+  }
+
+  /** Remove a deleted file once its HiveMem source is retired. */
+  purge(id: string): boolean {
+    return this.db.prepare('DELETE FROM files WHERE id = ? AND deleted_at IS NOT NULL').run(id).changes > 0;
+  }
+
+  /** Files due for a knowledge sync attempt (deleted ones waiting for retirement too), oldest first. */
   dueForSync(limit: number): StudioFile[] {
     const now = this.clock.now().toISOString();
     return (this.db.prepare(`SELECT * FROM files WHERE knowledge_state IN ('pending', 'failed')
@@ -86,7 +125,7 @@ export class FileRepository {
   setKnowledge(id: string, update: { state: KnowledgeState; revision?: string | null; chunks?: number | null; error?: string | null;
     attempts?: number; nextAttemptAt?: Date | null }): StudioFile {
     const now = this.clock.now().toISOString();
-    const current = this.get(id);
+    const current = this.stored(id);
     if (!current) throw new Error('File not found');
     this.db.prepare(`UPDATE files SET knowledge_state = ?, knowledge_revision = ?, knowledge_chunks = ?, knowledge_error = ?, knowledge_attempts = ?,
       knowledge_next_attempt_at = ?, knowledge_updated_at = ? WHERE id = ?`).run(
@@ -97,6 +136,6 @@ export class FileRepository {
       update.attempts ?? current.knowledge.attempts,
       update.nextAttemptAt === undefined ? null : update.nextAttemptAt?.toISOString() ?? null,
       now, id);
-    return this.get(id)!;
+    return this.stored(id)!;
   }
 }

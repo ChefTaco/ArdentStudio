@@ -27,6 +27,20 @@ export interface BlobRecord {
 
 const SHA = /^[a-f0-9]{64}$/;
 
+/** Stored bytes written or reused this recently are never swept: a write may still be recording its reference. */
+export const BLOB_GC_GRACE_MS = 10 * 60_000;
+
+/**
+ * Every table that points at a blob, as one condition on `b.sha256`. A blob none of them names is
+ * unreferenced. Update this when a table starts referencing blobs.
+ */
+const UNREFERENCED = `NOT EXISTS (SELECT 1 FROM files f WHERE f.sha256 = b.sha256)
+  AND NOT EXISTS (SELECT 1 FROM deliverable_revisions r WHERE r.blob_sha256 = b.sha256)
+  AND NOT EXISTS (SELECT 1 FROM deliverable_renditions d WHERE d.sha256 = b.sha256)
+  AND NOT EXISTS (SELECT 1 FROM exports e WHERE e.blob_sha256 = b.sha256)
+  AND NOT EXISTS (SELECT 1 FROM docx_documents x WHERE x.blob_sha256 = b.sha256 OR x.document_sha256 = b.sha256)
+  AND NOT EXISTS (SELECT 1 FROM artifact_imports a WHERE a.sha256 = b.sha256)`;
+
 export class BlobStore {
   readonly root: string;
   private readonly tmp: string;
@@ -143,6 +157,8 @@ export class BlobStore {
     const relative = this.relativePath(sha256);
     const target = join(this.root, relative);
     const existing = this.get(sha256);
+    // Mark reused bytes before anything is awaited, so a sweep running meanwhile leaves them alone.
+    if (existing) this.db.prepare('UPDATE blobs SET used_at = ? WHERE sha256 = ?').run(this.clock.now().toISOString(), sha256);
     if (existing && await this.fileMatches(target, sha256, size)) {
       await rm(temp, { force: true });
       return existing;
@@ -155,8 +171,8 @@ export class BlobStore {
       throw new BlobIntegrityError('Stored blob failed verification');
     }
     const record: BlobRecord = { sha256, size, mime, path: relative, created_at: this.clock.now().toISOString() };
-    this.db.prepare('INSERT INTO blobs (sha256, size, mime, path, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (sha256) DO NOTHING')
-      .run(record.sha256, record.size, record.mime, record.path, record.created_at);
+    this.db.prepare('INSERT INTO blobs (sha256, size, mime, path, created_at, used_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (sha256) DO UPDATE SET used_at = excluded.used_at')
+      .run(record.sha256, record.size, record.mime, record.path, record.created_at, record.created_at);
     return this.get(sha256) ?? record;
   }
 
@@ -184,6 +200,32 @@ export class BlobStore {
     const bytes = readFileSync(join(this.root, record.path));
     if (createHash('sha256').update(bytes).digest('hex') !== sha256) throw new BlobIntegrityError('Stored blob does not match its address');
     return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  }
+
+  /**
+   * Remove recorded blobs that nothing references and that were not written or reused within `graceMs`,
+   * at most `limit` of them. Each row is deleted and its file unlinked synchronously, so no write can
+   * interleave: a write that reuses the bytes either marks them first (and they stay) or finds them gone
+   * (and writes them again).
+   */
+  sweepUnreferenced(graceMs = BLOB_GC_GRACE_MS, limit = 500): number {
+    const cutoff = new Date(this.clock.now().getTime() - graceMs).toISOString();
+    const rows = this.db.prepare(`SELECT b.sha256 FROM blobs b WHERE COALESCE(b.used_at, b.created_at) < ? AND ${UNREFERENCED} LIMIT ?`)
+      .all(cutoff, limit) as Array<{ sha256: string }>;
+    let removed = 0;
+    for (const row of rows) if (this.removeIfUnreferenced(row.sha256, graceMs)) removed++;
+    return removed;
+  }
+
+  /** Remove one blob when nothing references it and it was not written or reused within `graceMs`. */
+  removeIfUnreferenced(sha256: string, graceMs = BLOB_GC_GRACE_MS): boolean {
+    if (!SHA.test(sha256)) return false;
+    const cutoff = new Date(this.clock.now().getTime() - graceMs).toISOString();
+    const row = this.db.prepare(`DELETE FROM blobs AS b WHERE b.sha256 = ? AND COALESCE(b.used_at, b.created_at) < ? AND ${UNREFERENCED} RETURNING path`)
+      .get(sha256, cutoff) as { path: string } | undefined;
+    if (!row) return false;
+    rmSync(join(this.root, row.path), { force: true });
+    return true;
   }
 
   /** Re-hash a recorded blob. */

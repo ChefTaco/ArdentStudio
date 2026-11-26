@@ -49,7 +49,7 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | | `PATCH /projects/:id`, `POST /projects/:id/archive`, `POST /projects/:id/reopen` | projects:write |
 | Files | `POST /projects/:id/files?name=&purpose=` (raw body) | projects:write |
 | | `GET /projects/:id/files`, `GET /blobs/:sha256` | projects:read |
-| | `POST /files/:id/reindex` | projects:write |
+| | `POST /files/:id/reindex`, `DELETE /files/:id`, `POST /projects/:id/reindex` | projects:write |
 | Links | `GET /projects/:id/links` | projects:read |
 | | `POST /projects/:id/links`, `PATCH /links/:id`, `DELETE /links/:id`, `POST /links/:id/reindex` | projects:write |
 | Templates | `GET /templates?kind=&source=&archived=&q=`, `GET /templates/:id`, `GET /templates/:id/versions/:v` | templates:read |
@@ -122,9 +122,21 @@ moves with the events that create its records (`message.created`, `decision.crea
 
 Upload the raw bytes with their `Content-Type` (`text/markdown`, `text/plain`, `text/csv`,
 `application/json`, `application/pdf`, DOCX, PNG, JPEG, WebP, GIF, SVG), up to
-`ARDENT_STUDIO_MAX_BLOB_BYTES`. Bytes are stored by SHA-256 and served only through a file that
-references them, always as `application/octet-stream` attachments (the recorded type is in
-`X-Blob-Mime`).
+`ARDENT_STUDIO_MAX_BLOB_BYTES`. The bytes must be what the type says, checked as they arrive and before
+anything is stored: PNG, JPEG, GIF, WebP, PDF and DOCX by their leading bytes, JSON must parse (up to
+8 MiB; larger JSON must be UTF-8), SVG must contain an `<svg>` element, and plain text, Markdown and CSV
+must not contain NUL bytes (any encoding is accepted). A mismatch answers `422 CONTENT_MISMATCH`. Bytes are
+stored by SHA-256 and served only through a file that references them, always as
+`application/octet-stream` attachments (the recorded type is in `X-Blob-Mime`).
+
+`DELETE /files/:id` deletes a file. It leaves the file list, the snapshot and `/blobs` at once and is
+announced as `file.deleted`. A reference file that was indexed (or was being indexed) answers
+`knowledge: retiring`: its HiveMem source is retired with an empty sync, retried until HiveMem takes it,
+and the file is removed after that; any other file answers `knowledge: none` and is removed at once. The
+bytes are removed by the hourly sweep once no file, revision, rendition, export or conversion references
+them. `409 FILE_IN_USE` (with `details.agents` and `details.roles`) while an agent portrait or a role of
+the current or draft team names the file. Message attachments that named it stay in the transcript.
+`POST /projects/:id/reindex` queues every reference file and link of the project for HiveMem sync again.
 
 `purpose=reference` files are synced into the project's HiveMem workspace as one knowledge source
 per file (`source_id` `ardentstudio:file:<file id>`, revision = the file's SHA-256), preview first,

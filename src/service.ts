@@ -87,6 +87,9 @@ export function createService(config: Config, options: { logger?: Logger; clock?
       const removed = store.events.compact(cutoff);
       const keys = store.idempotency.prune();
       if (removed || keys) logger.info('Compacted project events', { events: removed, idempotency_keys: keys });
+      // Bytes nothing references any more: deleted files, failed uploads, superseded conversions.
+      const blobsRemoved = blobs.sweepUnreferenced();
+      if (blobsRemoved) logger.info('Removed unreferenced blobs', { count: blobsRemoved });
     } catch (error) {
       logger.error('Maintenance failed', { error: error instanceof Error ? error.message : 'unknown' });
     }

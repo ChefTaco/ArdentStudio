@@ -689,4 +689,16 @@ CREATE INDEX deliverable_renditions_blob ON deliverable_renditions (sha256);
 ALTER TABLE agent_template_versions ADD COLUMN source_definition_json TEXT;
 `,
   },
+  {
+    id: 11,
+    name: 'file_deletion',
+    sql: `
+-- A deleted reference file whose HiveMem source still has to be retired: hidden everywhere, kept until
+-- the retirement succeeds, then removed. Files with nothing to retire are removed at once.
+ALTER TABLE files ADD COLUMN deleted_at TEXT;
+ALTER TABLE files ADD COLUMN deleted_by TEXT;
+-- When stored bytes were last written or reused, so the unreferenced-blob sweep leaves fresh ones alone.
+ALTER TABLE blobs ADD COLUMN used_at TEXT;
+`,
+  },
 ];

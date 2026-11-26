@@ -212,6 +212,13 @@ export const listFilesQuerySchema = z.object({ purpose: filePurposeSchema.option
 export const blobQuerySchema = z.object({ disposition: z.enum(['attachment', 'inline']).default('attachment') });
 export const listFilesResponseSchema = z.object({ files: z.array(fileSchema) });
 export const fileResponseSchema = fileSchema;
+/**
+ * DELETE /files/{fileId}. knowledge retiring: the file's HiveMem source is being retired (the file is
+ * hidden now and removed once HiveMem took the retirement); none: nothing was indexed and it is gone.
+ */
+export const deleteFileResponseSchema = z.object({ file: fileSchema, deleted_at: isoDate, knowledge: z.enum(['retiring', 'none']) });
+/** POST /projects/{projectId}/reindex: how many reference files and links were queued for HiveMem sync. */
+export const reindexProjectResponseSchema = z.object({ files: z.number().int(), links: z.number().int() });
 
 // ── Reference links ──
 /** An http or https URL without user name or password. Studio stores it; it never fetches it. */
@@ -1640,7 +1647,7 @@ export const taskRecoveryEventSchema = z.object({
 export const artifactImportProgressEventSchema = z.object({ import: artifactImportSchema });
 export const PROJECT_EVENT_TYPES = [
   'project.created', 'project.updated', 'project.archived', 'project.reopened',
-  'file.created', 'file.updated',
+  'file.created', 'file.updated', 'file.deleted',
   'team.draft.updated', 'team.revision.published',
   'layout.updated', 'conversation.created', 'conversation.updated', 'message.created', 'message.updated',
   'presence.updated', 'task.created', 'task.updated', 'decision.created', 'decision.updated',
@@ -1776,6 +1783,8 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'GET', path: '/projects/{projectId}/files', query: listFilesQuerySchema, response: listFilesResponseSchema, permissions: READ, idempotent: false },
   { method: 'GET', path: '/blobs/{sha256}', query: blobQuerySchema, response: null, permissions: READ, idempotent: false, note: 'Bytes as application/octet-stream with Content-Disposition attachment; the recorded type is in X-Blob-Mime and the digest in X-Content-SHA256 (ETag "<sha256>"). Range (one bytes= range) answers 206 with Content-Range, 416 when unsatisfiable; If-Range with another ETag answers the whole blob. disposition=inline answers Content-Disposition inline and, for raster images (PNG, JPEG, WebP, GIF), their real Content-Type, for previews. Only blobs that a project file, a deliverable revision or rendition, or an export references are served.' },
   { method: 'POST', path: '/files/{fileId}/reindex', response: fileResponseSchema, permissions: WRITE, idempotent: true, note: 'Queues the file for HiveMem sync again.' },
+  { method: 'DELETE', path: '/files/{fileId}', response: deleteFileResponseSchema, permissions: WRITE, idempotent: true, note: 'Deletes the file: it leaves the file list, the snapshot and /blobs at once, its HiveMem source is retired (retried until HiveMem takes it), and its bytes are removed once nothing else references them (within about an hour). Announced as file.deleted. 409 FILE_IN_USE (details agents, roles) while an agent portrait or a role of the current or draft team names it; 409 PROJECT_ARCHIVED.' },
+  { method: 'POST', path: '/projects/{projectId}/reindex', response: reindexProjectResponseSchema, permissions: WRITE, idempotent: true, note: 'Queues every reference file and link of the project for HiveMem sync again, for example after restoring a backup.' },
 
   // Templates
   { method: 'GET', path: '/templates', query: listTemplatesQuerySchema, response: listTemplatesResponseSchema, permissions: TEMPLATES_READ, idempotent: false },
