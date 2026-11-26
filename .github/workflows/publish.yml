@@ -103,6 +103,15 @@ jobs:
             echo "Refusing to overwrite $IMAGE:$version" >&2; exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
+      # Both architectures are built and scanned with a fresh vulnerability database before anything is pushed.
+      - name: Scan both architectures before publication (HIGH and CRITICAL)
+        run: |
+          for arch in amd64 arm64; do
+            docker buildx build --load --platform "linux/$arch" -t "ardent-studio-check:$arch" .
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e image \
+              --image-src docker --platform "linux/$arch" --scanners vuln --severity HIGH,CRITICAL --exit-code 1 "ardent-studio-check:$arch"
+          done
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:

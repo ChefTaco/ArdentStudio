@@ -58,6 +58,12 @@ jobs:
           persist-credentials: false
       - name: Build
         run: docker build -t ardent-studio:ci .
+      # A fresh vulnerability database on every run, as the suite's pre-tag scan does.
+      - name: Scan the image (HIGH and CRITICAL)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e image \
+            --image-src docker --scanners vuln --severity HIGH,CRITICAL --exit-code 1 ardent-studio:ci
       - name: Smoke test
         run: |
           test "$(docker run --rm ardent-studio:ci version)" = "$(node -p "require('./package.json').version")"

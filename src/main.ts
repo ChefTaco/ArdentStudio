@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { BackupError, backupDataDir } from './backup.js';
 import { ConfigError, ENV_CATALOG, loadConfig } from './config.js';
 import { createLogger } from './logger.js';
 import { createService, listen, shutdown } from './service.js';
@@ -11,6 +12,20 @@ if (command === 'version' || command === '--version') {
 } else if (command === 'env') {
   // Names and descriptions only; values are never printed.
   process.stdout.write(ENV_CATALOG.map(entry => `${entry.name}\t${entry.required ? 'required' : 'optional'}${entry.secret ? '\tsecret' : ''}\t${entry.description}\n`).join(''));
+} else if (command === 'backup') {
+  // Only the data directory is needed: a backup runs beside the service, without its other settings.
+  const target = process.argv[3];
+  const dataDir = process.env.ARDENT_STUDIO_DATA ?? '';
+  if (!target) {
+    process.stderr.write('usage: ardent-studio backup <empty or new directory>  (reads ARDENT_STUDIO_DATA)\n');
+    process.exit(64);
+  }
+  backupDataDir(dataDir, target).then(result => {
+    process.stdout.write(`Backed up ${result.database} and ${result.blobs} blobs (${result.bytes} bytes)\n`);
+  }, (error: unknown) => {
+    process.stderr.write(`Backup failed: ${error instanceof BackupError ? error.message : error instanceof Error ? error.message : 'unknown error'}\n`);
+    process.exit(1);
+  });
 } else if (command === 'serve') {
   let config;
   try {
@@ -36,6 +51,6 @@ if (command === 'version' || command === '--version') {
   process.on('SIGTERM', () => onSignal('SIGTERM'));
   process.on('SIGINT', () => onSignal('SIGINT'));
 } else {
-  process.stderr.write('usage: ardent-studio [serve | env | version]\n');
+  process.stderr.write('usage: ardent-studio [serve | env | version | backup <dir>]\n');
   process.exit(64);
 }
