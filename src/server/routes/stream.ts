@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import type { BusMessage } from '../../events/bus.js';
 import type { streamQuerySchema } from '../../shared/browser.js';
 import { STREAM_RECHECK_MS } from '../../auth/authenticator.js';
-import { requireProject, type AppDeps } from '../deps.js';
+import { requireProject, type RouteDeps } from '../deps.js';
 import { bearerToken, type createRouter } from '../routing.js';
 
 export const HEARTBEAT_MS = 15_000;
@@ -16,7 +16,7 @@ const REPLAY_PAGE = 500;
 export const STREAM_QUEUE_MAX = 1_000;
 const CURSOR = /^\d{1,15}$/;
 
-export function streamRoutes(register: ReturnType<typeof createRouter>, deps: AppDeps): void {
+export function streamRoutes(register: ReturnType<typeof createRouter>, deps: RouteDeps): void {
   const { store, bus } = deps;
 
   register('GET', '/projects/{projectId}/stream', (c, { params, query, principal }) => {
@@ -57,11 +57,11 @@ export function streamRoutes(register: ReturnType<typeof createRouter>, deps: Ap
       if (deps.closing?.aborted) close(); else deps.closing?.addEventListener('abort', close, { once: true });
       const expiry = setTimeout(close, Math.max(0, (principal?.expiresAt ?? 0) * 1000 - Date.now()));
       const heartbeat = setInterval(() => enqueue({ kind: 'ephemeral', type: 'heartbeat', payload: {} }), deps.heartbeatMs ?? HEARTBEAT_MS);
-      // A stream must not outlive logout: re-check the token while it is open.
+      // A stream must not outlive logout or the caller's place in the project: re-check both while it is open.
       const recheck = setInterval(() => {
         if (!token) { close(); return; }
         deps.authenticate(token).then(current => {
-          if (!current.permissions.includes('ardentstudio:projects:read')) close();
+          if (!current.permissions.includes('ardentstudio:projects:read') || deps.access.roleIn(current, projectId) === null) close();
         }, close);
       }, deps.streamRecheckMs ?? STREAM_RECHECK_MS);
 
@@ -115,10 +115,16 @@ export function streamRoutes(register: ReturnType<typeof createRouter>, deps: Ap
             if (closed) break;
             if (message.kind === 'event') {
               if (message.event.seq <= last) continue;
+              // A membership change takes effect at once for someone it removes, not at the next re-check.
+              if (message.event.type === 'project.members.updated' && principal && deps.access.roleIn(principal, projectId) === null) { close(); break; }
               // A gap means events arrived out of order: read them from the log instead.
               last = message.event.seq === last + 1
                 ? (await stream.writeSSE({ event: message.event.type, id: String(message.event.seq), data: JSON.stringify(message.event) }), message.event.seq)
                 : await sendEvents(last);
+            } else if (message.type === 'project.purged') {
+              // The project is gone; nothing follows.
+              await stream.writeSSE({ event: message.type, data: JSON.stringify(message.payload) });
+              close();
             } else if (message.type === 'heartbeat') {
               await stream.writeSSE({ event: 'heartbeat', data: JSON.stringify({ seq: last, at: new Date().toISOString() }) });
             } else {

@@ -64,8 +64,14 @@ HiveMem back in line.
 Hourly, the service removes project events older than `ARDENT_STUDIO_EVENT_RETENTION_DAYS` (the
 cursor boundary is kept so stale clients get `reset`) and idempotency keys older than a day, and
 deletes stored bytes (`blobs/`) that nothing references any more and that were not written or reused in
-the last ten minutes: deleted files, refused or abandoned uploads and superseded conversions. The audit
-log is never pruned.
+the last ten minutes: deleted files, refused or abandoned uploads, superseded conversions and the bytes of
+purged projects. The audit log is never pruned.
+
+Purging an archived project (`POST /projects/<id>/purge`, `ardentstudio:agents:admin`, with the exact
+project name as `confirm_name`) cannot be undone except from a backup: take one first when in doubt.
+HiveMem sources of a purged project wait in `knowledge_retirements` until HiveMem accepts their
+retirement (`Purged project source retirement failed` in the log while it does not); the project's HiveMem
+workspace is kept and can be removed in HiveMem when it is no longer wanted.
 
 ## Logs
 

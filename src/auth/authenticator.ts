@@ -30,6 +30,8 @@ export interface OathweaveIdentity {
   issuer: string;
   sessionId: string;
   permissions: string[];
+  /** Oathweave roles in the token, including those granted through Oathweave groups. */
+  roles?: string[];
   displayName: string;
   issuedAt: number;
   expiresAt: number;
@@ -55,6 +57,8 @@ export interface Principal {
   issuer: string;
   displayName: string;
   permissions: ArdentStudioPermission[];
+  /** Oathweave roles in the token (for project membership by role). Absent means none. */
+  roles?: readonly string[];
   /** Token expiry in epoch seconds. Streams close at this time. */
   expiresAt: number;
 }
@@ -102,6 +106,7 @@ export function createOathweaveVerifier(
       issuer: principal.issuer,
       sessionId: principal.kind === 'user' ? principal.sessionId : '',
       permissions: [...principal.permissions],
+      roles: [...principal.roles],
       displayName: principal.kind === 'user' ? principal.displayName : principal.subject,
       issuedAt: principal.issuedAt,
       expiresAt: principal.expiresAt,
@@ -139,6 +144,7 @@ export function createAuthenticator(verify: OathweaveVerifier, links: readonly I
       issuer: identity.issuer,
       displayName: link.displayName ?? identity.displayName,
       permissions: effectivePermissions(link, identity.permissions),
+      roles: identity.roles ?? [],
       expiresAt: identity.expiresAt,
     };
   };

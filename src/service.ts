@@ -78,7 +78,8 @@ export function createService(config: Config, options: { logger?: Logger; clock?
   const operations = new OperationRelay(store, magnus, logger, { onFinished: () => agents.invalidate() });
   const proposer = new TeamProposer(store, agents, conductor);
   const closing = new AbortController();
-  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, conductor, live, magnus, operations, proposer, logger, closing: closing.signal });
+  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, conductor, live, magnus, operations, proposer, logger, closing: closing.signal,
+    people: config.oathweave.identities });
 
   let maintenance: NodeJS.Timeout | undefined;
   const maintain = () => {

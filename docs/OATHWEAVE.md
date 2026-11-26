@@ -37,7 +37,9 @@ runs its Oathweave conformance vectors.
 - `localUserId` is the Studio user recorded on records and audit rows. It may not be `system` or
   start with `service:`.
 - `permissions` is an optional ceiling. The token's permissions grant only within it; without it,
-  any Studio permission the token carries applies. Roles and email addresses are never consulted.
+  any Studio permission the token carries applies. Roles and email addresses never grant a permission.
+  The token's Oathweave roles are read only for project membership, when a project owner lists a role
+  (see [API.md](API.md#project-membership)); by default no project does.
 - Unlinked subjects are refused with `403 NO_ACCOUNT_LINK`.
 
 Permissions: `ardentstudio:projects:read`, `ardentstudio:projects:write`,

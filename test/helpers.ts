@@ -42,13 +42,13 @@ export async function makeKeys(): Promise<Keys> {
   return { privateKey, jwks: createLocalJWKSet({ keys: [jwk] }) };
 }
 
-export async function signToken(keys: Keys, claims: { sub?: string; permissions?: string[]; aud?: string; actorType?: string; lifetime?: number; iss?: string; sessionId?: string | null } = {}): Promise<string> {
+export async function signToken(keys: Keys, claims: { sub?: string; permissions?: string[]; roles?: string[]; aud?: string; actorType?: string; lifetime?: number; iss?: string; sessionId?: string | null } = {}): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const payload: Record<string, unknown> = {
     actorType: claims.actorType ?? 'USER',
     clientId: 'hivexui-ardentstudio',
     permissions: claims.permissions ?? ALL,
-    roles: [],
+    roles: claims.roles ?? [],
   };
   if (claims.sessionId !== null) payload.sessionId = claims.sessionId ?? 'fixture-session';
   return new SignJWT(payload)
@@ -91,7 +91,10 @@ export function userinfoFetch(revoked: Set<string> = new Set()): typeof fetch {
 export const LINKS: IdentityLink[] = [
   { issuer: ISSUER, subject: 'subject-operator', localUserId: 'operator' },
   { issuer: ISSUER, subject: 'subject-viewer', localUserId: 'viewer', permissions: ['ardentstudio:projects:read', 'ardentstudio:templates:read'] },
+  { issuer: ISSUER, subject: 'subject-member', localUserId: 'member', displayName: 'Member Person' },
 ];
+/** Every Studio permission except ardentstudio:agents:admin: a linked person who is not a Studio admin. */
+export const NOT_ADMIN = ALL.filter(permission => permission !== 'ardentstudio:agents:admin');
 
 export const profile = fakeProfile;
 export { FakeMagnusServer };
@@ -175,7 +178,7 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
   importer.start();
   const operations = new OperationRelay(store, magnusClient, silentLogger, { pollMs: 20, onFinished: () => agents.invalidate() });
   const proposer = new TeamProposer(store, agents, conductor);
-  const app = createApp({ operations, proposer, store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: options.logger ?? silentLogger, conductor, live, magnus: magnusClient, docx: options.docx,
+  const app = createApp({ operations, proposer, store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: options.logger ?? silentLogger, conductor, live, magnus: magnusClient, docx: options.docx, people: LINKS,
     ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}), ...(options.streamRecheckMs ? { streamRecheckMs: options.streamRecheckMs } : {}) });
   let counter = 0;
   const token = (claims?: Parameters<typeof signToken>[1]) => signToken(keys, claims);

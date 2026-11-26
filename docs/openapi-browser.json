@@ -262,6 +262,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -330,6 +331,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "An archived project is read-only (409) except last_area.",
         "security": [
           {
@@ -402,6 +404,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "409 with details.tasks while Studio tasks are still active.",
         "security": [
           {
@@ -464,6 +467,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "security": [
           {
             "oathweave": []
@@ -515,6 +519,265 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/purge": {
+      "post": {
+        "operationId": "postProjectsProjectIdPurge",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeProjectResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:agents:admin"
+        ],
+        "x-idempotent": true,
+        "x-project-role": "owner",
+        "description": "Deletes an archived project for good: its events, files, links, team, room, tasks, workflow runs, deliverables, reviews and exports. Bytes nothing else references are removed (at once, or by the hourly sweep), the HiveMem sources of its references and links are retired (retried until HiveMem takes them; the workspace is kept), and audit records are kept. Open streams of the project get project.purged and close. 409 PROJECT_NOT_ARCHIVED, 422 CONFIRMATION_MISMATCH (confirm_name is not the exact project name), 409 TASKS_ACTIVE, 409 FILE_IN_USE (details agents: an agent portrait uses one of its files).",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeProjectRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/members": {
+      "get": {
+        "operationId": "getProjectsProjectIdMembers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMembersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "x-project-role": "viewer",
+        "description": "The membership mode, the listed members and the caller's access. See Project membership.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "putProjectsProjectIdMembers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMembersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": true,
+        "x-project-role": "owner",
+        "description": "Replaces the membership (project owners and ardentstudio:agents:admin). mode everyone opens the project to everyone linked again. 409 VERSION_CONFLICT (details revision) when base_revision is stale, 422 MEMBERS_NOT_ALLOWED when mode everyone lists members, 422 OWNER_REQUIRED when mode members has no owner, 422 SELF_LOCKOUT when a caller who is not an admin would no longer be an owner. Announced as project.members.updated (mode, revision); open streams of people who lose access close.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutProjectMembersRequestInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ardentstudio/v1/people": {
+      "get": {
+        "operationId": "getPeople",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPeopleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:read"
+        ],
+        "x-idempotent": false,
+        "description": "People with an account link (Studio user, Oathweave subject and issuer, display name), to choose project members from.",
         "security": [
           {
             "oathweave": []
@@ -585,6 +848,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "http and https only, without credentials. 409 LINK_EXISTS when the project already has this URL. Synced to the project HiveMem workspace as a knowledge source (title, URL and note; the page is not fetched).",
         "security": [
           {
@@ -645,6 +909,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "description": "Links that are not deleted.",
         "security": [
           {
@@ -716,6 +981,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "A change queues the link for HiveMem sync again.",
         "security": [
           {
@@ -786,6 +1052,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Marks the link deleted and retires its HiveMem source.",
         "security": [
           {
@@ -848,6 +1115,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Queues the link for HiveMem sync again.",
         "security": [
           {
@@ -943,6 +1211,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Raw body up to ARDENT_STUDIO_MAX_BLOB_BYTES (default 64 MiB) with an allowed Content-Type (UPLOAD_MIME_TYPES). References are indexed into the project HiveMem workspace.",
         "security": [
           {
@@ -1077,6 +1346,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -1204,6 +1474,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Queues the file for HiveMem sync again.",
         "security": [
           {
@@ -1266,6 +1537,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Deletes the file: it leaves the file list, the snapshot and /blobs at once, its HiveMem source is retired (retried until HiveMem takes it), and its bytes are removed once nothing else references them (within about an hour). Announced as file.deleted. 409 FILE_IN_USE (details agents, roles) while an agent portrait or a role of the current or draft team names it; 409 PROJECT_ARCHIVED.",
         "security": [
           {
@@ -1328,6 +1600,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Queues every reference file and link of the project for HiveMem sync again, for example after restoring a backup.",
         "security": [
           {
@@ -2132,6 +2405,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -2202,6 +2476,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "security": [
           {
             "oathweave": []
@@ -2272,6 +2547,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "description": "Validates the given body, else the draft, else the current revision. No side effects.",
         "security": [
           {
@@ -2353,6 +2629,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "409 with details.validation when the draft has errors.",
         "security": [
           {
@@ -2434,6 +2711,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "security": [
           {
             "oathweave": []
@@ -2514,6 +2792,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Asks one agent through Magnus (a mission at studio level 2 with Ardent 2.2.0, else task-submit) for a TeamProposal JSON reply with the brief, deliverables, templates and available agents. An invalid reply is retried once with the validation error, then the proposal fails. Progress arrives as team.proposal.updated; nothing is applied. 409 NO_COORDINATOR without agent_ref and a bound coordinator, 409 PROPOSAL_IN_PROGRESS while one is queued or running, 422 UNKNOWN_AGENT, 409 AGENT_UNAVAILABLE, 503 MAGNUS_UNAVAILABLE.",
         "security": [
           {
@@ -2576,6 +2855,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "description": "Newest first, at most 20.",
         "security": [
           {
@@ -2636,6 +2916,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -2707,6 +2988,7 @@
           "ardentstudio:templates:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "viewer",
         "description": "Bindings and knowledge are not copied.",
         "security": [
           {
@@ -3673,6 +3955,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -3741,6 +4024,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Each save is a new revision. 409 when base_revision is not the latest.",
         "security": [
           {
@@ -3803,6 +4087,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -3871,6 +4156,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "A discussion posts its question and starts round 1 at once: one turn per participant in order, then the next round, then a coordinator summary. Needs a published team with the participants bound (409 TEAM_NOT_READY).",
         "security": [
           {
@@ -3943,6 +4229,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Unstarted turns are cancelled; started ones are cancelled through Magnus.",
         "security": [
           {
@@ -4013,6 +4300,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "description": "Oldest first after ?after=<seq>; at most 200 (default 100).",
         "security": [
           {
@@ -4082,6 +4370,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Team or Coordinator starts a coordinator turn; roles or @role_key mentions start one turn per addressee in order. A direct conversation always goes to its role; a discussion takes notes without starting turns. 409 TEAM_NOT_READY without a published team and bound roles.",
         "security": [
           {
@@ -4163,6 +4452,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Answers a clarification: the answer continues the same agent session. 409 when it is already answered.",
         "security": [
           {
@@ -4244,6 +4534,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Asks the agent that wrote the message to follow up on it.",
         "security": [
           {
@@ -4306,6 +4597,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -4374,6 +4666,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Pinning is a person's act; an agent can only propose.",
         "security": [
           {
@@ -4455,6 +4748,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Creates the new decision and marks this one superseded by it. 409 when it is already superseded.",
         "security": [
           {
@@ -4540,6 +4834,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -4608,6 +4903,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "security": [
           {
             "oathweave": []
@@ -4679,6 +4975,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "A started task pauses at its next step boundary (state pausing, then paused); an unstarted one is held. 409 AGENT_UPGRADE_REQUIRED when the agent cannot pause.",
         "security": [
           {
@@ -4741,6 +5038,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "security": [
           {
             "oathweave": []
@@ -4802,6 +5100,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "security": [
           {
             "oathweave": []
@@ -4853,6 +5152,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "description": "The task's Ardent recovery, read now through Magnus when the agent supports it (profile recovery >= 1, Magnus 3.3.0), else as last recorded with unavailable saying why (RECOVERY_UNSUPPORTED, MAGNUS_UNAVAILABLE, NOT_STARTED). A continuation decided elsewhere is followed by this read.",
         "security": [
           {
@@ -4922,6 +5222,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Sends a person's decision on a task Ardent holds awaiting_decision through Magnus (task-recovery). mark_applied, mark_not_applied and retry_with_new_deadline continue the work in an Ardent continuation task that the same Studio task follows (state running, ardent.attempts gains the old id); abandon ends the task as unknown. 409 RECOVERY_UNAVAILABLE when the task is not held, 409 RECOVERY_UNSUPPORTED (details capability, required_level, level, installed_version) when the agent cannot take decisions, 409 ARDENT_CONFLICT when Ardent refuses this action now, 422 INVALID_INPUT, 409 AGENT_UPGRADE_REQUIRED, 503 MAGNUS_UNAVAILABLE.",
         "security": [
           {
@@ -4984,6 +5285,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "description": "Studio relationships of the task, the Ardent lineage of each of its Ardent attempts (profile lineage >= 1; otherwise ardent is null and ardent_unavailable says why) and the Emberpath trace filter. Attribution only.",
         "security": [
           {
@@ -5055,6 +5357,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Cancels the task when it is still active and creates the same work for another role, with reassigned_from.",
         "security": [
           {
@@ -5131,6 +5434,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "description": "Newest first, at most 50. active: running or blocked.",
         "security": [
           {
@@ -5200,6 +5504,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Starts a workflow: an inline spec, or template_ref with the key of a workflow of that team template version. 400 VALIDATION_ERROR for a spec with more than 16 nodes, a cycle, an unknown need or other than exactly one output. Every role must be bound in the published team (409 TEAM_NOT_READY; 422 UNKNOWN_ROLE). Each node becomes an ordinary task of its role when all its needs are done, with their results and imported artifact references as context items (data). Progress arrives as workflow.run.* and workflow.node.updated.",
         "security": [
           {
@@ -5270,6 +5575,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -5356,6 +5662,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "retry: a failed node runs again as a new task (attempt + 1, source.workflow.retry_of). skip: a node that is not required is skipped (its task is cancelled when it runs); dependents go on without its result. cancel_run: the run is cancelled and its active node tasks with it. 409 ACTION_UNAVAILABLE when the node does not offer the action (see actions).",
         "security": [
           {
@@ -5418,6 +5725,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "description": "Deliverables with every revision, plus artifact imports that are still pending or failed.",
         "security": [
           {
@@ -5470,6 +5778,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -5521,6 +5830,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -5572,6 +5882,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -5640,6 +5951,7 @@
           "ardentstudio:review:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "The anchor kind must fit the revision type (422 ANCHOR_KIND). A text anchor must quote the revision exactly (422 ANCHOR_MISMATCH) and name its digest (409 ANCHOR_STALE). A docx anchor needs the stored conversion (409 DOCX_NOT_CONVERTED).",
         "security": [
           {
@@ -5712,6 +6024,7 @@
           "ardentstudio:review:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "security": [
           {
             "oathweave": []
@@ -5782,6 +6095,7 @@
           "ardentstudio:review:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "changes_requested needs a note or an open comment (422 NOTE_REQUIRED).",
         "security": [
           {
@@ -5863,6 +6177,7 @@
           "ardentstudio:review:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "One final revision per deliverable; a rejected revision cannot be final (409).",
         "security": [
           {
@@ -5945,6 +6260,7 @@
           "ardentstudio:projects:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "Starts a revision task for the producer role with the anchored comments as context, and links the comments to it. The revised file comes back as the next revision, superseding this one.",
         "security": [
           {
@@ -6007,6 +6323,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "security": [
           {
             "oathweave": []
@@ -6075,6 +6392,7 @@
           "ardentstudio:review:write"
         ],
         "x-idempotent": true,
+        "x-project-role": "editor",
         "description": "A zip of the final revisions with manifest.json (Ardent manifest fields, review status and decisions). Deliverables without a final revision are listed as excluded; none at all answers 409 NOTHING_FINAL.",
         "security": [
           {
@@ -6137,6 +6455,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "description": "Answers 501 DOCX_CONVERTER_UNAVAILABLE until the canvas Word codec package is installed.",
         "security": [
           {
@@ -6189,6 +6508,7 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
+        "x-project-role": "viewer",
         "description": "Answers 501 DOCX_CONVERTER_UNAVAILABLE until the canvas Word codec package is installed.",
         "security": [
           {
@@ -6305,6 +6625,9 @@
               },
               "message.delta": {
                 "$ref": "#/components/schemas/MessageDeltaEvent"
+              },
+              "project.purged": {
+                "$ref": "#/components/schemas/ProjectPurgedEvent"
               }
             }
           },
@@ -6328,7 +6651,8 @@
           "ardentstudio:projects:read"
         ],
         "x-idempotent": false,
-        "description": "Persisted events carry their seq as the SSE id and replay after ?after= (or, without it, after the Last-Event-ID header a reconnecting EventSource sends). reset means the cursor is older than retained events (or ahead of them): refetch the snapshot. message.delta (live reply text) has no id; on connect each streaming message gets one replace delta with its current text. heartbeat every 15 s. The stream closes when the token expires or its session ends; reconnect with a fresh token.",
+        "x-project-role": "viewer",
+        "description": "Persisted events carry their seq as the SSE id and replay after ?after= (or, without it, after the Last-Event-ID header a reconnecting EventSource sends). reset means the cursor is older than retained events (or ahead of them): refetch the snapshot. message.delta (live reply text) has no id; on connect each streaming message gets one replace delta with its current text. heartbeat every 15 s. The stream closes when the token expires or its session ends (reconnect with a fresh token), when the caller loses access to the project, and after project.purged (live only, no id).",
         "security": [
           {
             "oathweave": []
@@ -10269,6 +10593,32 @@
           "mode"
         ]
       },
+      "LinkedPerson": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "user_id",
+          "subject",
+          "issuer",
+          "display_name"
+        ]
+      },
       "LinkId": {
         "type": "string",
         "pattern": "^lnk_[0-9A-HJKMNP-TV-Z]{26}$"
@@ -10506,6 +10856,20 @@
         "required": [
           "messages",
           "next_after"
+        ]
+      },
+      "ListPeopleResponse": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkedPerson"
+            }
+          }
+        },
+        "required": [
+          "people"
         ]
       },
       "ListProjectsResponse": {
@@ -11286,6 +11650,21 @@
           "archived_at"
         ]
       },
+      "ProjectAccess": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/ProjectMembershipMode"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          }
+        },
+        "required": [
+          "mode",
+          "role"
+        ]
+      },
       "ProjectArea": {
         "type": "string",
         "enum": [
@@ -11368,12 +11747,225 @@
           "workflow.run.updated",
           "workflow.node.updated",
           "task.recovery",
-          "artifact.import.progress"
+          "artifact.import.progress",
+          "project.members.updated"
         ]
       },
       "ProjectId": {
         "type": "string",
         "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "ProjectMember": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "subject"
+              },
+              "subject": {
+                "type": "string"
+              },
+              "issuer": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "role": {
+                "$ref": "#/components/schemas/ProjectRole"
+              },
+              "user_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "display_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "added_by": {
+                "type": "string"
+              },
+              "added_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              }
+            },
+            "required": [
+              "kind",
+              "subject",
+              "issuer",
+              "role",
+              "user_id",
+              "display_name",
+              "added_by",
+              "added_at"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "oathweave_role"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "$ref": "#/components/schemas/ProjectRole"
+              },
+              "added_by": {
+                "type": "string"
+              },
+              "added_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "role",
+              "added_by",
+              "added_at"
+            ]
+          }
+        ]
+      },
+      "ProjectMemberRequestInput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "subject"
+              },
+              "subject": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "issuer": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "format": "uri"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "role": {
+                "$ref": "#/components/schemas/ProjectRole"
+              }
+            },
+            "required": [
+              "kind",
+              "subject",
+              "role"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "oathweave_role"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "role": {
+                "$ref": "#/components/schemas/ProjectRole"
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "role"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ProjectMembershipMode": {
+        "type": "string",
+        "enum": [
+          "everyone",
+          "members"
+        ]
+      },
+      "ProjectMembersResponse": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ProjectMembershipMode"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectMember"
+            }
+          },
+          "access": {
+            "$ref": "#/components/schemas/ProjectAccess"
+          }
+        },
+        "required": [
+          "project_id",
+          "mode",
+          "revision",
+          "members",
+          "access"
+        ]
+      },
+      "ProjectPurgedEvent": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "project_id",
+          "at"
+        ]
+      },
+      "ProjectRole": {
+        "type": "string",
+        "enum": [
+          "viewer",
+          "editor",
+          "owner"
+        ]
       },
       "ProjectStatus": {
         "type": "string",
@@ -11549,6 +12141,9 @@
                 "type": "null"
               }
             ]
+          },
+          "access": {
+            "$ref": "#/components/schemas/ProjectAccess"
           }
         },
         "required": [
@@ -11573,7 +12168,8 @@
           "open_questions",
           "review_pending",
           "active_tasks",
-          "last_activity"
+          "last_activity",
+          "access"
         ]
       },
       "ProposeTeamRequestInput": {
@@ -11598,6 +12194,66 @@
           "draft_revision"
         ],
         "additionalProperties": false
+      },
+      "PurgeProjectRequestInput": {
+        "type": "object",
+        "properties": {
+          "confirm_name": {
+            "type": "string",
+            "maxLength": 400
+          }
+        },
+        "required": [
+          "confirm_name"
+        ],
+        "additionalProperties": false
+      },
+      "PurgeProjectResponse": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "purged_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "removed": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          },
+          "knowledge": {
+            "type": "object",
+            "properties": {
+              "sources_retiring": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "sources_retiring"
+            ]
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "purged_at",
+          "removed",
+          "knowledge"
+        ]
       },
       "PutAgentDraftRequestInput": {
         "type": "object",
@@ -11704,6 +12360,32 @@
         "required": [
           "display_name",
           "portrait"
+        ],
+        "additionalProperties": false
+      },
+      "PutProjectMembersRequestInput": {
+        "type": "object",
+        "properties": {
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ProjectMembershipMode"
+          },
+          "members": {
+            "default": [],
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectMemberRequestInput"
+            }
+          }
+        },
+        "required": [
+          "base_revision",
+          "mode"
         ],
         "additionalProperties": false
       },

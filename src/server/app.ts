@@ -1,7 +1,8 @@
 import { requestContext, securityHeaders } from '@hivemagnus/hive-common/hono';
 import { Hono } from 'hono';
 import { ARDENT_STUDIO_API_PREFIX } from '../shared/browser.js';
-import type { AppDeps } from './deps.js';
+import { ProjectAccess } from '../auth/project-access.js';
+import type { AppDeps, RouteDeps } from './deps.js';
 import type { AppEnv } from './env.js';
 import { errorResponse } from './errors.js';
 import { createRouter } from './routing.js';
@@ -22,7 +23,8 @@ import { workRoutes } from './routes/work.js';
 import { workflowRoutes } from './routes/workflows.js';
 
 /** The ArdentStudio HTTP API under /api/ardentstudio/v1. */
-export function createApp(deps: AppDeps): Hono<AppEnv> {
+export function createApp(input: AppDeps): Hono<AppEnv> {
+  const deps: RouteDeps = { ...input, access: input.access ?? new ProjectAccess(input.store) };
   const app = new Hono<AppEnv>();
   // x-request-id (or x-hive-request-id / x-correlation-id) and W3C traceparent: read, generated
   // when absent, echoed as x-request-id, and attached to log lines written during the request.
@@ -33,7 +35,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.onError((error, c) => errorResponse(c, error, deps.logger));
   app.notFound(c => c.json({ error: { code: 'NOT_FOUND', message: c.req.path.startsWith(ARDENT_STUDIO_API_PREFIX) ? 'No such route' : 'Not found' } }, 404));
 
-  const register = createRouter(app, { store: deps.store, authenticate: deps.authenticate });
+  const register = createRouter(app, { store: deps.store, authenticate: deps.authenticate, access: deps.access });
   healthRoutes(register, deps);
   projectRoutes(register, deps);
   fileRoutes(register, deps);

@@ -6,6 +6,33 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+Upgrading: back up the data volume first. Migration 12 runs on the first start and is additive (it adds
+`projects.members_mode` and `projects.members_revision` and the `project_members` and
+`knowledge_retirements` tables), so a suite upgrade needs `--allow-migrations` for ArdentStudio, and a
+database it has run on no longer starts under 0.6.x. Every existing project stays open to everyone linked:
+nothing changes until an owner or an admin limits a project. No settings change. HiveXUI needs the new
+browser contract to show members and the purge action; older consoles keep working (the new fields are
+additive).
+
+### Added
+
+- Optional per-project membership. `PUT /projects/{id}/members` (project owners and
+  `ardentstudio:agents:admin`) limits a project to listed Oathweave subjects and Oathweave roles (the roles
+  Oathweave groups grant), each `viewer`, `editor` or `owner`; `mode: "everyone"`, the default, keeps the
+  current behaviour, with the creator as owner. When a project is limited, every project route, the stream,
+  `/blobs` and agent role lists enforce it: people outside it get `404`, a role that is too low
+  `403 PROJECT_ROLE_REQUIRED`. Changes are audited (`project.members`) and announced
+  (`project.members.updated`); streams of people who lose access close. `GET /projects/{id}/members` and
+  `GET /people` (account links) feed the console, and project summaries carry the caller's
+  `access: {mode, role}`. The contract publishes each route's project role (`projectRoleOf()`,
+  `x-project-role`).
+- `POST /projects/{id}/purge` deletes an archived project for good (`ardentstudio:agents:admin`, with the
+  exact project name as `confirm_name`): its events, files, links, team, room, tasks, workflow runs,
+  deliverables, reviews and exports. Unreferenced bytes are removed, the HiveMem sources of its references
+  and links are retired (retried until HiveMem takes them; the workspace is kept), audit rows are kept and
+  the purge is audited as `project.purge`. Open streams get `project.purged` and close. It refuses
+  `409 PROJECT_NOT_ARCHIVED`, `422 CONFIRMATION_MISMATCH`, `409 TASKS_ACTIVE` and `409 FILE_IN_USE`.
+
 ### Changed
 
 - Dependabot now opens one grouped weekly pull request (group `hivemagnus`) for `@hivemagnus/*` package updates, so suite package bumps arrive together. Repository configuration only; nothing to do when upgrading.

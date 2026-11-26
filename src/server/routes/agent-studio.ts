@@ -17,7 +17,7 @@ import {
   type applyRequestSchema, type applyResultSchema, type createDevelopmentCommentRequestSchema, type developmentQuerySchema, type installSkillRequestSchema, type newAgentRequestSchema,
   type previewRequestSchema, type putAgentDraftRequestSchema, type putPresentationRequestSchema,
 } from '../../shared/browser.js';
-import { actorOf, requireProject, type AppDeps } from '../deps.js';
+import { actorOf, requireProject, requireProjectRole, type RouteDeps } from '../deps.js';
 import { ApiError, notFound } from '../errors.js';
 import type { createRouter } from '../routing.js';
 
@@ -55,13 +55,15 @@ function magnusError(error: unknown, upgradeCode = 'AGENT_UPGRADE_REQUIRED'): ne
 
 const draftView = (draft: AgentDraft | undefined) => draft ? { agent_ref: draft.agent_ref, user_id: draft.user_id, base: draft.base, draft: draft.draft, created_at: draft.created_at, updated_at: draft.updated_at } : null;
 
-export function agentStudioRoutes(register: ReturnType<typeof createRouter>, deps: AppDeps): void {
+export function agentStudioRoutes(register: ReturnType<typeof createRouter>, deps: RouteDeps): void {
   const { store, magnus } = deps;
 
   // Registered before /agents/{agentRef}/… so the static segment wins.
-  register('GET', '/agents/operations/{operationId}', async (_c, { params }) => {
+  register('GET', '/agents/operations/{operationId}', async (_c, { params, principal }) => {
     const record = /^[A-Za-z0-9_-]{1,128}$/.test(params.operationId ?? '') ? store.agents.operation(params.operationId!) : undefined;
     if (!record) throw notFound('Operation');
+    // An operation started for a project is that project's record.
+    if (record.project_id) requireProjectRole(deps.access, principal, record.project_id, 'viewer', 'Operation');
     try {
       const current = await magnus.agentOperation(record.id);
       deps.operations.apply(record.id, current);
@@ -86,6 +88,7 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
     if (!soul.trim() || !identity.trim()) throw new ApiError(422, 'IDENTITY_REQUIRED', 'Give soul_md and identity_md, or an agent template that has them');
     if (input.role_key && !input.project_id) throw new ApiError(422, 'PROJECT_REQUIRED', 'role_key needs project_id');
     const project = input.project_id ? requireProject(store, input.project_id) : undefined;
+    if (project) requireProjectRole(deps.access, principal, project.id, 'editor');
     const skills = input.skills ?? (template?.skills ?? []).filter(skill => skill.kind === 'local' && /^[A-Za-z0-9_-]{1,100}$/.test(skill.ref)).map(skill => skill.ref);
     const ref = `${input.node_id}~${input.profile}`;
     let accepted: { operationId: string };
@@ -118,7 +121,11 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
   register('PUT', '/agents/{agentRef}/presentation', (_c, { params, body, principal, idempotencyKey }) => {
     const ref = requireRef(params.agentRef);
     const input = body as z.infer<typeof putPresentationRequestSchema>;
-    if (input.avatar_file_id && store.files.get(input.avatar_file_id)?.purpose !== 'avatar') throw new ApiError(422, 'UNKNOWN_FILE', 'avatar_file_id must be a file uploaded with purpose avatar');
+    const avatar = input.avatar_file_id ? store.files.get(input.avatar_file_id) : undefined;
+    // A file of a project the caller cannot see is as unknown as one that does not exist.
+    if (input.avatar_file_id && (avatar?.purpose !== 'avatar' || !principal || deps.access.roleIn(principal, avatar.project_id) === null)) {
+      throw new ApiError(422, 'UNKNOWN_FILE', 'avatar_file_id must be a file uploaded with purpose avatar');
+    }
     const actor = actorOf(principal);
     const saved = store.tx(() => {
       const next = store.agents.savePresentation({ agentRef: ref, portrait: input.portrait, avatarFileId: input.avatar_file_id, displayName: input.display_name, updatedBy: actor.userId });

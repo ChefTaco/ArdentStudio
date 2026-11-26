@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import { ContentMismatchError, inspected } from '../../blobs/content.js';
 import { BlobTooLargeError } from '../../blobs/store.js';
 import { fileIdSchema, sha256Schema, uploadMimeSchema, type blobQuerySchema, type listFilesQuerySchema, type uploadFileQuerySchema } from '../../shared/browser.js';
-import { actorOf, requireActive, requireProject, type AppDeps } from '../deps.js';
+import { actorOf, requireActive, requireProject, type RouteDeps } from '../deps.js';
 import { ApiError, notFound } from '../errors.js';
 import type { createRouter } from '../routing.js';
 
@@ -29,7 +29,7 @@ export function parseRange(header: string, size: number): { start: number; end: 
   return { start, end };
 }
 
-export function fileRoutes(register: ReturnType<typeof createRouter>, deps: AppDeps): void {
+export function fileRoutes(register: ReturnType<typeof createRouter>, deps: RouteDeps): void {
   const { store, blobs } = deps;
 
   register('POST', '/projects/{projectId}/files', async (c, { params, query, principal, idempotencyKey, idempotent }) => {
@@ -71,10 +71,12 @@ export function fileRoutes(register: ReturnType<typeof createRouter>, deps: AppD
     return { body: { files: store.files.list(project.id, (query as z.infer<typeof listFilesQuerySchema>).purpose) } };
   });
 
-  register('GET', '/blobs/{sha256}', (c, { query }) => {
+  register('GET', '/blobs/{sha256}', (c, { query, principal }) => {
     const sha = sha256Schema.safeParse(c.req.param('sha256'));
     // Only blobs a project file, a revision, a rendition or an export references are served; other stored bytes (DOCX conversions) stay private.
-    const record = sha.success && (store.files.blobReferenced(sha.data) || store.review.blobReferenced(sha.data)) ? blobs.get(sha.data) : undefined;
+    // And only to people who can see one of those projects (or an agent portrait that uses the bytes).
+    const record = sha.success && (store.files.blobReferenced(sha.data) || store.review.blobReferenced(sha.data))
+      && principal && deps.access.canReadBlob(principal, sha.data) ? blobs.get(sha.data) : undefined;
     if (!record) throw notFound('Blob');
     const { disposition } = query as z.infer<typeof blobQuerySchema>;
     const etag = `"${record.sha256}"`;
