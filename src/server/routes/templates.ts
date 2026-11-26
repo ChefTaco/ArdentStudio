@@ -7,7 +7,7 @@ import {
   type archiveTemplateRequestSchema, type createTemplateRequestSchema, type createTemplateVersionRequestSchema, type listTemplatesQuerySchema,
 } from '../../shared/browser.js';
 import { validateTeam } from '../../team/validation.js';
-import { credentialLikePaths } from '../../templates/secrets.js';
+import { credentialLikePaths } from '../../templates/definition.js';
 import { actorOf, type AppDeps } from '../deps.js';
 import { ApiError, notFound } from '../errors.js';
 import type { createRouter } from '../routing.js';

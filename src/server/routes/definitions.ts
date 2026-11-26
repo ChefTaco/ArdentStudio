@@ -9,8 +9,9 @@ import { TemplateConflictError } from '../../db/repos/templates.js';
 import type {
   definitionDeployCheckRequestSchema, definitionDeployRequestSchema, importDefinitionRequestSchema,
 } from '../../shared/browser.js';
-import { buildTemplateDefinition, DefinitionError, templateBodyFromDefinition, verifyAgentDefinition, type AgentDefinition } from '../../templates/definition.js';
-import { credentialLikePaths } from '../../templates/secrets.js';
+import {
+  buildTemplateDefinition, credentialLikePaths, DefinitionError, templateBodyFromDefinition, verifyAgentDefinition, type AgentDefinition,
+} from '../../templates/definition.js';
 import { actorOf, requireProject, type AppDeps } from '../deps.js';
 import { ApiError, notFound } from '../errors.js';
 import type { createRouter } from '../routing.js';
@@ -45,29 +46,29 @@ export function definitionRoutes(register: ReturnType<typeof createRouter>, deps
   const { store, magnus } = deps;
 
   /** An agent template version and the definition built from it. */
-  const versionDefinition = (params: Record<string, string>) => {
+  const versionDefinition = async (params: Record<string, string>) => {
     const { id, kind } = requireTemplate(store, params.templateId);
     const number = /^\d{1,9}$/.test(params.version ?? '') ? Number(params.version) : NaN;
     const version = Number.isSafeInteger(number) ? store.templates.version(id, number) : undefined;
     if (!version) throw notFound('Template version');
     if (kind !== 'agent' || version.kind !== 'agent') throw new ApiError(422, 'NOT_AGENT_TEMPLATE', 'Only agent templates become agent definitions');
     try {
-      return { version, ...buildTemplateDefinition(version) };
+      return { version, ...await buildTemplateDefinition(version) };
     } catch (error) {
       if (error instanceof DefinitionError) throw definitionError(error);
       throw error;
     }
   };
 
-  register('POST', '/templates/{templateId}/versions/{version}/definition', (_c, { params }) => {
-    const { definition, omitted } = versionDefinition(params);
+  register('POST', '/templates/{templateId}/versions/{version}/definition', async (_c, { params }) => {
+    const { definition, omitted } = await versionDefinition(params);
     return { body: { definition, omitted } };
   });
 
   register('POST', '/templates/{templateId}/versions/{version}/deploy-check', async (_c, { params, body, principal }) => {
     const input = body as z.infer<typeof definitionDeployCheckRequestSchema>;
     const actor = actorOf(principal);
-    const { definition, omitted } = versionDefinition(params);
+    const { definition, omitted } = await versionDefinition(params);
     let preflight;
     try {
       preflight = await magnus.validateDefinition({ definition, nodeId: input.node_id, bindings: input.bindings }, { actingSubject: actor.subject });
@@ -80,7 +81,7 @@ export function definitionRoutes(register: ReturnType<typeof createRouter>, deps
     const actor = actorOf(principal);
     if (input.role_key && !input.project_id) throw new ApiError(422, 'PROJECT_REQUIRED', 'role_key needs project_id');
     const project = input.project_id ? requireProject(store, input.project_id) : undefined;
-    const { version, definition } = versionDefinition(params);
+    const { version, definition } = await versionDefinition(params);
     let accepted: { operationId: string };
     try {
       accepted = await magnus.installDefinition({ definition, nodeId: input.node_id, name: input.profile, bindings: input.bindings, apiPort: input.api_port },
@@ -104,13 +105,13 @@ export function definitionRoutes(register: ReturnType<typeof createRouter>, deps
     return { status: 201, body: { ...operationView(record, undefined), kind: 'definition' as const } };
   });
 
-  register('POST', '/templates/import-definition', (_c, { body, principal, idempotencyKey }) => {
+  register('POST', '/templates/import-definition', async (_c, { body, principal, idempotencyKey }) => {
     const input = body as z.infer<typeof importDefinitionRequestSchema>;
     const actor = actorOf(principal);
     // The whole request, as Magnus checks it: a credential anywhere is refused before anything is parsed.
     const leaked = credentialLikePaths(input);
     if (leaked.length) throw new ApiError(422, 'DEFINITION_CONTAINS_CREDENTIAL', `Credential-like values at ${leaked.slice(0, 10).join(', ')}`, { paths: leaked.slice(0, 50) });
-    const checked = verifyAgentDefinition(input.definition);
+    const checked = await verifyAgentDefinition(input.definition);
     if (!checked.ok) throw new ApiError(422, checked.code, checked.detail, checked.paths ? { paths: checked.paths.slice(0, 50) } : undefined);
     const definition: AgentDefinition = checked.definition;
 

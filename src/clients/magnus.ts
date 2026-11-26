@@ -19,18 +19,20 @@
 // `recovery` >= 1 (tasks/{id}/recovery and the task-recovery action), `lineage` >= 1 (tasks/{id}/lineage)
 // and `artifact_transfer` >= 2 (artifacts/{sha256}/content with Range, renditions, manifest/v2). A profile
 // below a level answers 409 unsupported_capability with { capability, required_version, installed_version }.
-// Those answers are validated with the local schemas below until a magnus-contracts release carries them.
+// Those answers are validated with the magnus-contracts schemas, narrowed where Studio stores them.
 //
 // Every call carries x-request-id and traceparent (the current request's, or new ones for background
 // work) and, when the call belongs to a task, x-hive-execution. Magnus ignores headers it does not know.
 import { formatTraceparent, generateRequestId, generateTraceparent, HIVE_HEADERS, outboundHeaders } from '@hivemagnus/hive-common/context';
 import { EXECUTION_HEADER, executionHeaders, type ExecutionContext } from '@hivemagnus/hive-common/execution';
 import { retryAfterFromHeaders } from '@hivemagnus/hive-common/retry';
+import { agentDefinitionPreflightSchema, agentDefinitionProblemSchema } from '@hivemagnus/magnus-contracts/agent-definition';
 import {
   ARDENT_ACTING_SUBJECT_HEADER,
   ARDENT_SERVICE_CONFIG_PATHS,
   ardentAgentDeployRequestSchema,
-  ardentAgentOperationSchema as contractAgentOperationSchema,
+  ardentAgentOperationSchema,
+  ardentArtifactRenditionsSchema as contractRenditionsSchema,
   ardentConfigEditSchema,
   ardentConfigFileSchema,
   ardentConfigSavedSchema,
@@ -56,7 +58,10 @@ import {
   ardentArtifactRecordSchema,
   ardentTaskJournalEventSchema,
   ardentTaskPauseStateSchema,
+  ardentTaskRecoveryDecisionSchema,
+  ardentTaskRecoverySchema as contractTaskRecoverySchema,
   ardentTeamMissionSchema,
+  type ArdentTaskRecoveryDecision,
 } from '@hivemagnus/magnus-contracts/ardent-service';
 import { z } from 'zod';
 import { parseSse, type SseMessage } from './sse.js';
@@ -64,8 +69,10 @@ import type { ServiceTokenProvider } from './service-token.js';
 import { trimTrailingSlashes } from '../url.js';
 
 export {
-  ARDENT_SERVICE_ADMIN_ACTIONS, ARDENT_SERVICE_CONFIG_PATHS, ARDENT_STUDIO_CAPABILITY, ARDENT_STUDIO_EVENT_KINDS,
-  ardentTaskDoneEventSchema, ardentTaskJournalEventSchema, ardentTaskTextEventSchema, ardentTeamMissionSchema,
+  ARDENT_RECOVERY_ACTIONS, ARDENT_SERVICE_ADMIN_ACTIONS, ARDENT_SERVICE_CONFIG_PATHS, ARDENT_STUDIO_CAPABILITY, ARDENT_STUDIO_EVENT_KINDS,
+  ARDENT_UNSUPPORTED_CAPABILITY, ardentAgentOperationSchema, ardentTaskDoneEventSchema, ardentTaskJournalEventSchema, ardentTaskRecoveryDecisionSchema,
+  ardentTaskTextEventSchema, ardentTeamMissionSchema, ardentUnsupportedCapabilityDetailsSchema,
+  type ArdentTaskRecoveryDecision,
 } from '@hivemagnus/magnus-contracts/ardent-service';
 export { ARDENT_CONTEXT_ITEMS_MAX_BYTES } from '@hivemagnus/magnus-contracts/browser';
 
@@ -83,12 +90,6 @@ export class MagnusError extends Error {
     this.details = options.details;
   }
 }
-
-/** The 409 code of a profile that lacks a runtime capability a route or action needs (Magnus 3.3.0). */
-export const ARDENT_UNSUPPORTED_CAPABILITY = 'unsupported_capability';
-export const ardentUnsupportedCapabilityDetailsSchema = z.object({
-  capability: z.string(), required_version: z.string(), installed_version: z.string().nullable(),
-}).loose();
 
 /** The per-profile runtime levels Studio needs: recovery and lineage reads, and artifact transfer v2. */
 export const ARDENT_RUNTIME_LEVELS = { recovery: 1, lineage: 1, artifact_transfer: 2 } as const;
@@ -170,46 +171,28 @@ export const ardentTaskSchema = z.object({
 });
 
 // Ardent 3.2.0 runtime contracts (C3, lineage and artifact transfer v2), as Magnus 3.3.0 relays them.
-export const ARDENT_RECOVERY_ACTIONS = ['mark_applied', 'mark_not_applied', 'retry_with_new_deadline', 'abandon'] as const;
-export const ardentRecoveryActionSchema = z.enum(ARDENT_RECOVERY_ACTIONS);
-export type ArdentRecoveryAction = z.infer<typeof ardentRecoveryActionSchema>;
-export const ARDENT_RECOVERY_STATUSES = ['ready', 'reconciling', 'resumed', 'awaiting_decision', 'unsupported', 'resolved'] as const;
-/** A task's execution recovery (C3). Fields Ardent may add are kept. */
-export const ardentTaskRecoverySchema = z.object({
-  status: z.enum(ARDENT_RECOVERY_STATUSES),
-  reason: z.object({ code: z.string().max(128), message: z.string().max(2000) }),
-  attempt: z.number().int().min(1),
-  checkpoint: z.object({
-    step: z.number().int(), completed_calls: z.number().int().min(0),
-    pending_calls: z.array(z.object({ call_id: z.string(), tool: z.string(), effect: z.string(), dispatched_at: z.string().nullable(), reconcilable: z.boolean() }).loose()).max(256),
-  }).loose().optional(),
-  actions: z.array(ardentRecoveryActionSchema),
-  continuation_task_id: z.string().optional(),
-  decided: z.object({ action: ardentRecoveryActionSchema, by: z.string(), at: z.string(), note: z.string().optional() }).loose().optional(),
-}).loose();
+/**
+ * A task's execution recovery (C3), as magnus-contracts reads it (fields Ardent may add are kept), within
+ * the sizes Studio stores and shows: a recovery outside them is treated as unreadable.
+ */
+export const ardentTaskRecoverySchema = contractTaskRecoverySchema.refine(value => value.reason.code.length <= 128 && value.reason.message.length <= 2000
+  && (value.checkpoint?.pending_calls.length ?? 0) <= 256, 'Recovery exceeds the sizes Studio records');
 export type ArdentTaskRecovery = z.infer<typeof ardentTaskRecoverySchema>;
-/** The task-recovery action body: a decision on a task held awaiting_decision. result (mark_applied) is at most 64 KiB. */
-export const ardentTaskRecoveryDecisionSchema = z.object({
-  action: ardentRecoveryActionSchema,
-  call_id: z.string().min(1).max(256).optional(),
-  result: z.unknown().optional().refine(value => value === undefined || new TextEncoder().encode(JSON.stringify(value) ?? '').length <= 64 * 1024, 'Exceeds 65536 bytes'),
-  note: z.string().min(1).max(2000).optional(),
-  deadline_seconds: z.number().int().min(1).max(86_400).optional(),
-}).strict();
-export type ArdentTaskRecoveryDecision = z.infer<typeof ardentTaskRecoveryDecisionSchema>;
-/** GET tasks/{id}/lineage: what the profile knows about a task's causal tree. Relayed as-is; only its frame is checked. */
+/**
+ * GET tasks/{id}/lineage: what the profile knows about a task's causal tree. magnus-contracts relays it as
+ * Ardent's response without a schema, so only its frame is checked here and the rest is passed on as-is.
+ */
 export const ardentTaskLineageSchema = z.object({
   task_id: z.string(),
   continuations: z.array(z.object({ ref: z.string(), local_task_id: z.string() }).loose()).optional(),
 }).loose();
 export type ArdentTaskLineage = z.infer<typeof ardentTaskLineageSchema>;
-/** GET artifacts/{sha256}/renditions: the original first. */
-export const ardentArtifactRenditionSchema = z.object({
-  sha256: z.string().regex(/^[a-f0-9]{64}$/), role: z.string().min(1).max(64), mime: z.string().min(1).max(200), size: z.number().int().min(0),
-  purpose: z.string().max(64).optional(), width: z.number().int().min(0).optional(), height: z.number().int().min(0).optional(), has_alpha: z.boolean().optional(),
-}).loose();
-export type ArdentArtifactRendition = z.infer<typeof ardentArtifactRenditionSchema>;
-export const ardentArtifactRenditionsSchema = z.object({ renditions: z.array(ardentArtifactRenditionSchema).max(64) }).loose();
+/** GET artifacts/{sha256}/renditions (magnus-contracts), the original first, with digests Studio can fetch and at most 64 entries. */
+const contractRendition = contractRenditionsSchema.shape.renditions.element;
+export const ardentArtifactRenditionsSchema = contractRenditionsSchema.extend({
+  renditions: z.array(contractRendition.extend({ sha256: z.string().regex(/^[a-f0-9]{64}$/) })).max(64),
+});
+export type ArdentArtifactRendition = z.infer<typeof ardentArtifactRenditionsSchema>['renditions'][number];
 
 /** One read of artifact transfer v2 content: the status, the bytes and what the headers say about them. */
 export interface ArtifactContent {
@@ -270,26 +253,15 @@ export type ArdentContextItem = z.infer<typeof ardentContextItemSchema>;
 export type ArdentDevelopmentRecord = z.infer<typeof ardentDevelopmentRecordSchema>;
 export type ArdentTaskEvent = z.infer<typeof ardentTaskJournalEventSchema>;
 export type NewAgentRequest = z.input<typeof ardentAgentDeployRequestSchema>;
-/**
- * A New Agent or Enable HiveMem operation. Magnus 3.3.0 also runs `definition` operations, the install of a
- * hive-agent-definition/1, which name the definition in request.definition; validated locally until a
- * magnus-contracts release carries them.
- */
-export const ardentAgentOperationSchema = contractAgentOperationSchema.extend({
-  kind: z.enum(['deploy', 'hivemem', 'definition']),
-  request: contractAgentOperationSchema.shape.request.extend({ definition: z.object({ name: z.string(), sha256: z.string() }).nullable().optional() }),
-});
+/** A New Agent, Enable HiveMem or agent definition (Magnus 3.3.0, request.definition names it) operation. */
 export type MagnusAgentOperation = z.infer<typeof ardentAgentOperationSchema>;
 
-/**
- * Magnus 3.3.0 agent definitions (POST /ardent/agent-definitions/validate and …/install), validated with
- * local schemas until a magnus-contracts release carries them. Both need an acting Magnus ADMIN.
- */
+/** Magnus 3.3.0 agent definitions (POST /ardent/agent-definitions/validate and …/install). Both need an acting Magnus ADMIN. */
 export interface DefinitionValidateRequest { definition: unknown; nodeId: string; bindings?: Record<string, string> | undefined }
 export interface DefinitionInstallRequest { definition: unknown; nodeId: string; name: string; bindings: Record<string, string>; apiPort?: number | undefined }
-export const definitionPreflightSchema = z.object({
-  ok: z.boolean(),
-  problems: z.array(z.object({ code: z.string().max(64), detail: z.string().max(500) })).max(200),
+/** The magnus-contracts preflight report, with problem codes a later Magnus may add kept as text. */
+export const definitionPreflightSchema = agentDefinitionPreflightSchema.extend({
+  problems: z.array(agentDefinitionProblemSchema.extend({ code: z.string().max(64) })).max(200),
 });
 export type DefinitionPreflight = z.infer<typeof definitionPreflightSchema>;
 
