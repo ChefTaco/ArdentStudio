@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## [0.6.0] - 2026-11-26
+
 Upgrading: back up the data volume first. Migration 11 runs on the first start and is additive (it adds
 `files.deleted_at`, `files.deleted_by` and `blobs.used_at`); a database it has run on no longer starts under
 0.5.x. No settings change. Anything that read the error text of `/health/ready` now gets a code (see below);
