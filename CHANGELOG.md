@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+Upgrading: no migration and no settings change. Deleting a reference file that has not synced yet now
+waits for an empty HiveMem sync before the file is removed (it leaves the project at once either way).
+
+### Fixed
+
+- `ardent-studio backup` no longer fails with "recorded but missing" when a file delete or the hourly sweep
+  removes a blob while it runs: it copies the database again and resumes with the blobs that copy records, so
+  the backup stays consistent. A blob that is still recorded and still missing fails the backup as before.
+- Deleting a reference file retires its HiveMem source whenever a sync may have reached HiveMem. Before, a
+  file whose sync answer was lost and that was then reindexed was removed without retiring its source, so its
+  chunks stayed retrievable. Only a reference that never syncs (`not_indexed`, `unsupported`) is removed at once.
+- An artifact rendition whose bytes Studio already stored is marked as reused, so the sweep no longer removes it
+  before the rendition is recorded.
+- A DOCX conversion of a file deleted while it was being converted answers `404` and stores no conversion.
+  Before, the stored conversion kept the deleted file's bytes from ever being swept.
+
 ## [0.6.0] - 2026-11-26
 
 Upgrading: back up the data volume first. Migration 11 runs on the first start and is additive (it adds

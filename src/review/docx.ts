@@ -23,17 +23,34 @@ export class DocxUnavailableError extends Error {
   constructor() { super('DOCX conversion is not available yet: it needs the canvas Word codec package (@hivemagnus/canvas-word-codec)'); }
 }
 
+/** The file was deleted while it was being converted; nothing was stored for it. */
+export class DocxSourceGoneError extends Error {
+  override name = 'DocxSourceGoneError';
+  constructor() { super('The file was deleted'); }
+}
+
 /** The stored conversion of a file or revision, converting it once when a converter is configured. */
 export async function docxDocument(store: Store, blobs: BlobStore, converter: DocxConverter | undefined, source: { kind: 'file' | 'revision'; id: string; sha256: string })
   : Promise<{ record: DocxDocument; document: unknown }> {
   const stored = store.review.docxDocument(source.kind, source.id);
   if (stored) return { record: stored, document: JSON.parse(new TextDecoder().decode(await blobs.readBytes(stored.document_sha256))) as unknown };
   if (!converter) throw new DocxUnavailableError();
-  const converted = await converter.convert(await blobs.readBytes(source.sha256));
+  const gone = () => source.kind === 'file' && !store.files.get(source.id);
+  let bytes: Uint8Array;
+  try { bytes = await blobs.readBytes(source.sha256); } catch (error) {
+    // A delete may have removed the bytes since the route looked the file up.
+    if (gone()) throw new DocxSourceGoneError();
+    throw error;
+  }
+  const converted = await converter.convert(bytes);
   const blob = await blobs.putBytes(new TextEncoder().encode(JSON.stringify(converted.document)), 'application/json');
-  // A concurrent conversion may have stored first: keep the first, so ids never change.
-  const record = store.review.saveDocxDocument({ source_kind: source.kind, source_id: source.id, blob_sha256: source.sha256, codec: converter.name,
-    codec_version: converter.version, document_sha256: blob.sha256, paragraphs: converted.paragraphs });
+  // A concurrent conversion may have stored first: keep the first, so ids never change. A file deleted
+  // meanwhile gets no row: it would name bytes nothing else needs and keep them from the sweep for good.
+  const record = store.tx(() => {
+    if (gone()) throw new DocxSourceGoneError();
+    return store.review.saveDocxDocument({ source_kind: source.kind, source_id: source.id, blob_sha256: source.sha256, codec: converter.name,
+      codec_version: converter.version, document_sha256: blob.sha256, paragraphs: converted.paragraphs });
+  });
   if (record.document_sha256 !== blob.sha256) return docxDocument(store, blobs, converter, source);
   return { record, document: converted.document };
 }

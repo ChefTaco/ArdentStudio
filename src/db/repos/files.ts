@@ -74,15 +74,18 @@ export class FileRepository {
   }
 
   /**
-   * Delete a file. One whose HiveMem source may hold chunks (it was indexed, or a sync may have run) is
-   * hidden and queued so knowledge sync retires the source, then removed by purge(); any other is removed
-   * now. Its DOCX conversions go with it. Call inside a transaction.
+   * Delete a file. A reference file's HiveMem source may hold chunks whenever a sync may have reached
+   * HiveMem, which its state cannot rule out (a sync whose answer was lost, then a reindex that reset
+   * the attempts), so every reference file is hidden and queued so knowledge sync retires the source
+   * (an empty sync, harmless when there was nothing), then removed by purge(). Only one that never
+   * syncs (not_indexed, unsupported) and has no synced revision, and every other file, is removed now.
+   * Its DOCX conversions go with it. Call inside a transaction.
    */
   delete(id: string, deletedBy: string): { retire: boolean } {
     const current = this.get(id);
     if (!current) throw new Error('File not found');
-    const { state, revision, attempts } = current.knowledge;
-    const retire = current.purpose === 'reference' && (revision !== null || state === 'indexing' || (state === 'failed' && attempts > 0));
+    const { state, revision } = current.knowledge;
+    const retire = current.purpose === 'reference' && (revision !== null || (state !== 'not_indexed' && state !== 'unsupported'));
     this.db.prepare("DELETE FROM docx_documents WHERE source_kind = 'file' AND source_id = ?").run(id);
     if (!retire) {
       this.db.prepare('DELETE FROM files WHERE id = ?').run(id);

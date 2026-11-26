@@ -130,9 +130,10 @@ stored by SHA-256 and served only through a file that references them, always as
 `application/octet-stream` attachments (the recorded type is in `X-Blob-Mime`).
 
 `DELETE /files/:id` deletes a file. It leaves the file list, the snapshot and `/blobs` at once and is
-announced as `file.deleted`. A reference file that was indexed (or was being indexed) answers
-`knowledge: retiring`: its HiveMem source is retired with an empty sync, retried until HiveMem takes it,
-and the file is removed after that; any other file answers `knowledge: none` and is removed at once. The
+announced as `file.deleted`. A reference file answers `knowledge: retiring` unless it never syncs
+(`not_indexed` or `unsupported`, with no synced revision): its HiveMem source is retired with an empty sync
+(harmless when HiveMem holds nothing for it), retried until HiveMem takes it, and the file is removed after
+that; any other file answers `knowledge: none` and is removed at once. The
 bytes are removed by the hourly sweep once no file, revision, rendition, export or conversion references
 them. `409 FILE_IN_USE` (with `details.agents` and `details.roles`) while an agent portrait or a role of
 the current or draft team names the file. Message attachments that named it stay in the transcript.

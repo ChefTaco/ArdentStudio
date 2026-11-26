@@ -260,4 +260,29 @@ describe('review', () => {
     const text = await json(await ctx.call('POST', `/projects/${other.id}/files?name=a.md`, { raw: '# A', headers: { 'content-type': 'text/markdown' } }));
     expect((await ctx.call('GET', `/files/${text.id}/docx`)).status).toBe(409);
   });
+
+  it('stores no DOCX conversion for a file deleted while it was being converted', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let started!: () => void;
+    const converting = new Promise<void>(resolve => { started = resolve; });
+    const converter: DocxConverter = { name: 'fixture-codec', version: '0.0.0', convert: async () => {
+      started();
+      await gate;
+      return { document: { paragraphs: [{ id: 'p1', text: 'Brief.' }] }, paragraphs: [{ id: 'p1', text: 'Brief.' }] };
+    } };
+    ctx = await createTestContext({ docx: converter });
+    const project = await createProject(ctx);
+    const file = await json(await ctx.call('POST', `/projects/${project.id}/files?name=brief.docx&purpose=attachment`, { raw: 'PK\u0003\u0004 fixture', headers: { 'content-type': DOCX } }));
+    const pending = ctx.call('GET', `/files/${file.id}/docx`);
+    await converting;
+    expect((await ctx.call('DELETE', `/files/${file.id}`)).status).toBe(200);
+    release();
+    const answer = await pending;
+    expect(answer.status).toBe(404);
+    expect(ctx.store.db.prepare('SELECT COUNT(*) AS n FROM docx_documents').get()).toEqual({ n: 0 });
+    // Nothing pins the file's bytes: they go with the next sweep.
+    expect(ctx.blobs.sweepUnreferenced(0)).toBeGreaterThanOrEqual(1);
+    expect(ctx.blobs.get(file.sha256)).toBeUndefined();
+  });
 });

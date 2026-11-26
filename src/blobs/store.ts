@@ -107,6 +107,17 @@ export class BlobStore {
     return this.db.prepare('SELECT * FROM blobs WHERE sha256 = ?').get(sha256) as BlobRecord | undefined;
   }
 
+  /**
+   * A recorded blob a caller is about to reference again without writing it, marked as reused so the
+   * sweep leaves it alone for the grace period while the reference is recorded. Undefined when it is
+   * not recorded (write it with put()).
+   */
+  reuse(sha256: string): BlobRecord | undefined {
+    if (!SHA.test(sha256)) return undefined;
+    const marked = this.db.prepare('UPDATE blobs SET used_at = ? WHERE sha256 = ?').run(this.clock.now().toISOString(), sha256).changes > 0;
+    return marked ? this.get(sha256) : undefined;
+  }
+
   async putBytes(bytes: Uint8Array, mime: string, expectedSha256?: string): Promise<BlobRecord> {
     return this.put((async function* () { yield bytes; })(), mime, expectedSha256);
   }

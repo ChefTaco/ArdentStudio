@@ -282,7 +282,8 @@ export class ArtifactImporter {
       if (item.sha256 === row.sha256) { out.push({ ...entry, mime: row.mime, size: original.size }); continue; }
       if (out.some(existing => existing.sha256 === item.sha256) || item.size > this.options.blobs.maxBytes) continue;
       try {
-        if (!this.options.blobs.get(item.sha256)) {
+        // Bytes already stored are marked reused, so the sweep keeps them until the rendition rows are written.
+        if (!this.options.blobs.reuse(item.sha256)) {
           const content = await this.options.magnus.artifactContent(row.agent_ref, item.sha256, { signal: this.transfer.signal });
           await this.options.blobs.put(content.body, item.mime, item.sha256);
         }
