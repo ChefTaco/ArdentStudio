@@ -19,7 +19,7 @@ import type { Clock } from '../src/db/json.js';
 import { Store } from '../src/db/store.js';
 import { EventBus } from '../src/events/bus.js';
 import { KnowledgeSync } from '../src/knowledge/sync.js';
-import { silentLogger } from '../src/logger.js';
+import { silentLogger, type Logger } from '../src/logger.js';
 import { createApp } from '../src/server/app.js';
 import { ARDENT_STUDIO_API_PREFIX, ARDENT_STUDIO_PERMISSIONS, IDEMPOTENCY_HEADER } from '../src/shared/browser.js';
 import { TeamProposer } from '../src/team/proposals.js';
@@ -148,7 +148,7 @@ export interface TestContext {
 
 let keyCache: Promise<Keys> | undefined;
 
-export async function createTestContext(options: { clock?: Clock; maxBlobBytes?: number; heartbeatMs?: number; streamRecheckMs?: number; seed?: boolean; conductor?: Partial<ConductorOptions>; docx?: DocxConverter; agentCacheMs?: number } = {}): Promise<TestContext> {
+export async function createTestContext(options: { clock?: Clock; maxBlobBytes?: number; heartbeatMs?: number; streamRecheckMs?: number; seed?: boolean; conductor?: Partial<ConductorOptions>; docx?: DocxConverter; agentCacheMs?: number; logger?: Logger } = {}): Promise<TestContext> {
   const dir = mkdtempSync(join(tmpdir(), 'ardent-studio-test-'));
   const clock = options.clock ?? { now: () => new Date() };
   const db = openDatabase(join(dir, 'studio.sqlite'));
@@ -172,7 +172,7 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
   importer.start();
   const operations = new OperationRelay(store, magnusClient, silentLogger, { pollMs: 20, onFinished: () => agents.invalidate() });
   const proposer = new TeamProposer(store, agents, conductor);
-  const app = createApp({ operations, proposer, store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: silentLogger, conductor, live, magnus: magnusClient, docx: options.docx,
+  const app = createApp({ operations, proposer, store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: options.logger ?? silentLogger, conductor, live, magnus: magnusClient, docx: options.docx,
     ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}), ...(options.streamRecheckMs ? { streamRecheckMs: options.streamRecheckMs } : {}) });
   let counter = 0;
   const token = (claims?: Parameters<typeof signToken>[1]) => signToken(keys, claims);

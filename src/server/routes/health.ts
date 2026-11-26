@@ -9,12 +9,32 @@ const CACHE_MS = 10_000;
 const CHECK_TIMEOUT_MS = 25_000;
 
 type Check = { status: 'ok' | 'unavailable'; error: string | null };
-const toCheck = (report: CheckReport | undefined, maxError = 200): Check => report?.status === 'up'
+/**
+ * The readiness route needs no token, so a failing check answers only a code: `<CHECK>_TIMEOUT` or
+ * `<CHECK>_UNAVAILABLE`. What the dependency said is logged instead (once per change), never returned.
+ */
+const toCheck = (name: string, report: CheckReport | undefined): Check => report?.status === 'up'
   ? { status: 'ok', error: null }
-  : { status: 'unavailable', error: (report?.error ?? 'unavailable').slice(0, maxError) };
+  : { status: 'unavailable', error: `${name.toUpperCase()}_${report?.error === 'timeout' ? 'TIMEOUT' : 'UNAVAILABLE'}` };
 
 export function healthRoutes(register: ReturnType<typeof createRouter>, deps: AppDeps): void {
   let cached: { at: number; ready: boolean; body: unknown } | undefined;
+  const logged = new Map<string, string>();
+  /** Log a failing check's detail when it changes, so a dependency that stays down is logged once. */
+  const detail = (name: string, error: unknown): never => {
+    const message = error instanceof Error ? error.message.slice(0, 300) : 'unavailable';
+    if (logged.get(name) !== message) {
+      logged.set(name, message);
+      deps.logger.warn('Readiness check failed', { check: name, error: message });
+    }
+    throw error;
+  };
+  const guarded = (name: string, check: () => void | Promise<void>) => async (): Promise<void> => {
+    try {
+      await check();
+      logged.delete(name);
+    } catch (error) { detail(name, error); }
+  };
 
   // Liveness never touches dependencies. Its body stays Studio's published `{status:'ok'}`.
   register('GET', '/health/live', () => ({ body: { status: 'ok' } }));
@@ -26,14 +46,14 @@ export function healthRoutes(register: ReturnType<typeof createRouter>, deps: Ap
       listing.catch(() => undefined);
       const report = await readiness({
         timeoutMs: CHECK_TIMEOUT_MS,
-        exposeErrors: true,
+        exposeErrors: false,
         checks: [
-          { name: 'database', check: () => { deps.store.db.prepare('SELECT 1').get(); } },
-          { name: 'magnus', check: async () => {
+          { name: 'database', check: guarded('database', () => { deps.store.db.prepare('SELECT 1').get(); }) },
+          { name: 'magnus', check: guarded('magnus', async () => {
             const list = await listing;
             if (list.magnus.state !== 'ok') throw new Error(list.magnus.error ?? 'unavailable');
-          } },
-          { name: 'hivemem', check: async () => { await deps.hivemem.health(); } },
+          }) },
+          { name: 'hivemem', check: guarded('hivemem', async () => { await deps.hivemem.health(); }) },
           // Ardent Project Studio requires at least one reachable Ardent agent.
           { name: 'agents', check: async () => {
             const list = await listing;
@@ -49,9 +69,9 @@ export function healthRoutes(register: ReturnType<typeof createRouter>, deps: Ap
       cached = { at: Date.now(), ready, body: {
         status: ready ? 'ready' : 'not_ready',
         checks: {
-          database: toCheck(checks['database']),
-          magnus: toCheck(checks['magnus'], 300),
-          hivemem: toCheck(checks['hivemem']),
+          database: toCheck('database', checks['database']),
+          magnus: toCheck('magnus', checks['magnus']),
+          hivemem: toCheck('hivemem', checks['hivemem']),
           agents: { status: agents?.status === 'up' ? 'ok' : 'unavailable', available },
         },
       } };

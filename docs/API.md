@@ -74,7 +74,7 @@ Base path: `/api/ardentstudio/v1`. The authoritative contract is
 | Review | `GET /projects/:id/deliverables`, `GET /deliverables/:id`, `GET /revisions/:id`, `GET /revisions/:id/comments`, `GET /projects/:id/exports`, `GET /files/:id/docx`, `GET /revisions/:id/docx` | projects:read |
 | | `POST /revisions/:id/comments`, `POST /comments/:id/resolve`, `POST /revisions/:id/decisions`, `POST /deliverables/:id/final`, `POST /projects/:id/exports` | review:write |
 | | `POST /projects/:id/revision-requests` | review:write + projects:write |
-| Stream | `GET /projects/:id/stream?after=<seq>` | projects:read |
+| Stream | `GET /projects/:id/stream?after=<seq>` (or `Last-Event-ID`) | projects:read |
 | Audit | `GET /audit/export?after=&limit=` | audit:read (people or services) or agents:admin (people) |
 
 ## Projects
@@ -90,6 +90,11 @@ An archived project is read-only (`409 PROJECT_ARCHIVED`) except `last_area`. Ar
 `GET /projects/:id/snapshot` returns the project and its list summary, its files and links, its
 team, conversations, active tasks, decisions, agent activity, room layout and open team proposals,
 with the `seq` they are consistent with. Open the stream with `?after=<seq>` to continue from it.
+Without `?after`, the stream continues after the `Last-Event-ID` header, which a browser `EventSource`
+sends on its own when it reconnects; with neither it starts at the current cursor. A subscriber that
+reads slowly never makes Studio queue without limit: past 1000 waiting messages, the waiting events are
+read again from the event log and the waiting live deltas become one `replace` delta per streaming
+message, so nothing is lost. On shutdown the stream ends; reconnect with the last `seq`.
 
 ### Summaries
 

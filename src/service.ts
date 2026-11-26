@@ -1,5 +1,6 @@
 // Wires configuration, storage, clients and workers into one running service.
 import { join } from 'node:path';
+import type { Server } from 'node:http';
 import { serve, type ServerType } from '@hono/node-server';
 import { AgentDirectory } from './agents/directory.js';
 import { OperationRelay } from './agents/operations.js';
@@ -37,8 +38,14 @@ export interface Service {
   importer: ArtifactImporter;
   /** Start background work (knowledge sync, event compaction, the conductor). */
   start(): void;
+  /** Stop background work and close the database. End HTTP traffic first (see shutdown). */
   stop(): Promise<void>;
+  /** End the open event streams (their clients reconnect elsewhere with their cursor). stop() does too. */
+  endStreams(): void;
 }
+
+/** How long shutdown waits for requests in flight before it closes their connections: inside a container stop's default 10 s. */
+export const SHUTDOWN_GRACE_MS = 8_000;
 
 export function createService(config: Config, options: { logger?: Logger; clock?: Clock; authenticate?: Authenticator; fetch?: typeof fetch } = {}): Service {
   const logger = options.logger ?? createLogger(config.logLevel);
@@ -70,7 +77,8 @@ export function createService(config: Config, options: { logger?: Logger; clock?
   const importer = attachReview({ store, blobs, magnus, conductor, logger });
   const operations = new OperationRelay(store, magnus, logger, { onFinished: () => agents.invalidate() });
   const proposer = new TeamProposer(store, agents, conductor);
-  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, conductor, live, magnus, operations, proposer, logger });
+  const closing = new AbortController();
+  const app = createApp({ store, blobs, bus, authenticate, agents, hivemem, knowledge, conductor, live, magnus, operations, proposer, logger, closing: closing.signal });
 
   let maintenance: NodeJS.Timeout | undefined;
   const maintain = () => {
@@ -86,6 +94,7 @@ export function createService(config: Config, options: { logger?: Logger; clock?
 
   return {
     app, store, magnus, hivemem, chattermost, knowledge, conductor, importer,
+    endStreams: () => closing.abort(),
     start() {
       knowledge.start();
       conductor.start();
@@ -96,6 +105,7 @@ export function createService(config: Config, options: { logger?: Logger; clock?
       maintenance.unref();
     },
     async stop() {
+      closing.abort();
       if (maintenance) clearInterval(maintenance);
       await conductor.stop();
       await importer.stop();
@@ -110,4 +120,30 @@ export function listen(service: Service, config: Config, logger: Logger): Server
   return serve({ fetch: service.app.fetch, hostname: config.host, port: config.port }, info => {
     logger.info('ArdentStudio listening', { host: config.host, port: info.port });
   });
+}
+
+/**
+ * Stop in order: refuse new connections, end the event streams, let requests in flight finish for up to
+ * `graceMs`, close what is still open, and only then stop the background work and close the database.
+ */
+export async function shutdown(service: Service, server: ServerType, logger: Logger, graceMs = SHUTDOWN_GRACE_MS): Promise<void> {
+  const http = server as Server;
+  const closed = new Promise<void>(resolve => http.close(() => resolve()));
+  service.endStreams();
+  // Keep-alive connections turn idle as their last response ends (an ended stream, a finished request).
+  http.closeIdleConnections();
+  const idle = setInterval(() => http.closeIdleConnections(), 50);
+  let timer: NodeJS.Timeout | undefined;
+  const forced = await Promise.race([
+    closed.then(() => false),
+    new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(true), graceMs); }),
+  ]);
+  clearTimeout(timer);
+  clearInterval(idle);
+  if (forced) {
+    logger.warn('Closing connections still open after the shutdown grace period', { grace_ms: graceMs });
+    http.closeAllConnections();
+    await closed;
+  }
+  await service.stop();
 }

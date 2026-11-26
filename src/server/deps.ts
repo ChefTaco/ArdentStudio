@@ -39,6 +39,8 @@ export interface AppDeps {
   heartbeatMs?: number;
   /** How often an open stream re-checks its token. Default 5 s. */
   streamRecheckMs?: number;
+  /** Aborted when the service shuts down: open event streams end so the HTTP server can close. */
+  closing?: AbortSignal | undefined;
 }
 
 export function actorOf(principal: Principal | undefined): AuditActor {

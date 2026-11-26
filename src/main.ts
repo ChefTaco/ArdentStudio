@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { ConfigError, ENV_CATALOG, loadConfig } from './config.js';
 import { createLogger } from './logger.js';
-import { createService, listen } from './service.js';
+import { createService, listen, shutdown } from './service.js';
 import { VERSION } from './version.js';
 
 const command = process.argv[2] ?? 'serve';
@@ -24,15 +24,17 @@ if (command === 'version' || command === '--version') {
   service.start();
   const server = listen(service, config, logger);
   let stopping = false;
-  const shutdown = (signal: string) => {
+  const onSignal = (signal: string) => {
     if (stopping) return;
     stopping = true;
     logger.info('Shutting down', { signal });
-    server.close();
-    service.stop().then(() => process.exit(0), () => process.exit(1));
+    shutdown(service, server, logger).then(() => process.exit(0), error => {
+      logger.error('Shutdown failed', { error: error instanceof Error ? error.message : 'unknown' });
+      process.exit(1);
+    });
   };
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => onSignal('SIGTERM'));
+  process.on('SIGINT', () => onSignal('SIGINT'));
 } else {
   process.stderr.write('usage: ardent-studio [serve | env | version]\n');
   process.exit(64);

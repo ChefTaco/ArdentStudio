@@ -41,7 +41,16 @@ Knowledge in HiveMem is derived from the stored files: after restoring an older 
 - `GET /api/ardentstudio/v1/health/live`: the process serves requests (the image's health check).
 - `GET /api/ardentstudio/v1/health/ready`: 200 only when the database answers, Magnus answers with
   at least one available Ardent agent, and HiveMem is healthy; otherwise 503 with the failing
-  checks. Results are cached for ten seconds.
+  checks. Results are cached for ten seconds. The route needs no token, so a failing check answers
+  only a code (`MAGNUS_UNAVAILABLE`, `HIVEMEM_TIMEOUT`, ...); what the dependency said is in the
+  service log (`Readiness check failed`, logged when it changes).
+- A fresh suite has no Ardent agent until one is created (Studio's New Agent, or `./hive.sh ardent
+  setup`), so `/health/ready` answers 503 until then. Use `/health/live` for container health checks,
+  restarts and load-balancer liveness; use `/health/ready` to tell whether Studio can run work.
+- On `SIGTERM` or `SIGINT` Studio stops accepting connections, ends open event streams (clients
+  reconnect with their last `seq`), gives requests in flight up to 8 seconds, closes what is still
+  open, then stops background work and closes the database. That fits a container stop's default
+  10-second timeout.
 
 ## Maintenance
 
