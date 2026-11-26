@@ -13,9 +13,13 @@ All state is in the data directory (`ARDENT_STUDIO_DATA`, the `/data` volume in 
 **Back up the whole volume as one unit.** The database references blobs by digest, so a database
 without its blobs is incomplete.
 
-- Consistent backup while running: `sqlite3 studio.sqlite ".backup '/backup/studio.sqlite'"` (or the
-  SQLite online backup API), then copy `blobs/` (blobs are immutable once written, so copying after
-  the database backup captures everything it references).
+- Consistent backup while running: `ardent-studio backup <dir>` (in the container:
+  `docker exec <container> node /app/dist/main.js backup /data-backup/<stamp>` with a backup volume
+  mounted there). It reads only `ARDENT_STUDIO_DATA`, copies the database in one read transaction
+  (`VACUUM INTO`), then copies every blob that copy records and checks each against its digest, and
+  writes `backup.json`. The directory must be new or empty and outside the data directory. The image
+  has no `sqlite3` CLI; on a host that has one, `sqlite3 studio.sqlite ".backup ..."` followed by a copy
+  of `blobs/` works too.
 - Simplest: stop the container, copy or snapshot the volume, start it again.
 
 ## Restore

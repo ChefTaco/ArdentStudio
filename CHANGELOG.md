@@ -22,8 +22,19 @@ the detail is in the service log. Uploads whose bytes do not match their `Conten
 - The hourly maintenance removes stored bytes that nothing references any more (deleted files, refused or
   abandoned uploads, superseded conversions) once they are ten minutes old.
 
+### Added
+
+- `ardent-studio backup <dir>` makes a consistent backup of a running data directory without the `sqlite3`
+  CLI: the database in one read transaction, then every blob it records, each checked against its digest.
+- `npm run verify` starts with `check:installed`, which fails at once with "run `npm ci`" when `node_modules`
+  does not match `package-lock.json`, instead of failing later with errors such as `"./execution" is not exported`.
+- CI scans the container image for HIGH and CRITICAL vulnerabilities with a fresh Trivy database, and the
+  publish workflow scans both architectures before it pushes anything.
+
 ### Changed
 
+- Dependencies: `@hivemagnus/hivemem-sdk` 1.1.0 to 1.3.0 (Studio keeps its own retry schedule, so the SDK's new
+  POST retries stay off), `@hono/node-server` 2.1.11, `hono` 4.13.22, `jose` 6.2.18.
 - `@hivemagnus/magnus-contracts` moves from an exact 3.1.2 pin to `^3.3.6`. Agent definitions are now digested,
   sealed, verified and checked for credentials with that package's `agent-definition` module, and the Magnus
   3.3.0 answers (task recovery and its decision, artifact renditions, `unsupported_capability` details, definition
