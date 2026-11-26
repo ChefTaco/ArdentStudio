@@ -112,6 +112,36 @@ describe('file deletion', () => {
     expect(ctx.store.files.stored(file.id)).toBeUndefined();
   });
 
+  it('retires a reference whose earlier sync may have reached HiveMem, even after a reindex reset its attempts', async () => {
+    ctx = await createTestContext();
+    const project = await createProject(ctx);
+    // The sync's answer is lost: HiveMem may hold the chunks, but the file records only a failure.
+    ctx.hivemem.failSync = 1;
+    const file = await json(await upload(project.id, '# Brief', 'text/markdown'));
+    await ctx.knowledge.idle();
+    expect(ctx.store.files.get(file.id)!.knowledge).toMatchObject({ state: 'failed', revision: null, attempts: 1 });
+    // What POST /files/{id}/reindex leaves until the next sync pass picks the file up.
+    ctx.store.tx(() => ctx.store.files.queueSync(file.id));
+    expect(ctx.store.files.get(file.id)!.knowledge).toMatchObject({ state: 'pending', revision: null, attempts: 0 });
+
+    expect((await json(await ctx.call('DELETE', `/files/${file.id}`))).knowledge).toBe('retiring');
+    await ctx.knowledge.idle(); await ctx.knowledge.runPass();
+    expect(ctx.hivemem.syncs.at(-1)).toMatchObject({ mode: 'apply', source_id: `ardentstudio:file:${file.id}`, chunks: [] });
+    expect(ctx.store.files.stored(file.id)).toBeUndefined();
+  });
+
+  it('removes a reference that never syncs at once', async () => {
+    ctx = await createTestContext();
+    const project = await createProject(ctx);
+    const file = await json(await upload(project.id, PNG, 'image/png', 'name=map.png'));
+    await ctx.knowledge.idle(); await ctx.knowledge.runPass();
+    expect(ctx.store.files.get(file.id)!.knowledge.state).toBe('unsupported');
+    const syncs = ctx.hivemem.syncs.length;
+    expect((await json(await ctx.call('DELETE', `/files/${file.id}`))).knowledge).toBe('none');
+    expect(ctx.store.files.stored(file.id)).toBeUndefined();
+    expect(ctx.hivemem.syncs.length).toBe(syncs);
+  });
+
   it('refuses while an agent portrait or a team role names the file, and on an archived project', async () => {
     ctx = await createTestContext();
     const project = await createProject(ctx);

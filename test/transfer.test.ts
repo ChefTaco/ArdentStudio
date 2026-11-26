@@ -84,6 +84,30 @@ describe('artifact transfer v2', () => {
     expect(Buffer.from(await shown.arrayBuffer()).equals(Buffer.from(preview))).toBe(true);
   });
 
+  it('marks a rendition it already stores as reused, so the sweep keeps it while the rows are written', async () => {
+    const { project, ardentId } = await followed();
+    const bytes = new Uint8Array(randomBytes(64 * 1024));
+    const preview = new Uint8Array(randomBytes(2048));
+    const previewSha = ctx.magnus.addArtifact(preview, 'image/webp');
+    // The preview's bytes are already stored, unreferenced and old enough to be swept.
+    await ctx.blobs.putBytes(preview, 'image/webp');
+    ctx.store.db.prepare('UPDATE blobs SET created_at = ?, used_at = ? WHERE sha256 = ?').run(new Date(0).toISOString(), new Date(0).toISOString(), previewSha);
+    const sha = digest(bytes);
+    ctx.magnus.renditions.set(sha, [
+      { sha256: sha, role: 'original', mime: 'image/png', size: bytes.byteLength, purpose: 'download', width: 64, height: 64, has_alpha: false },
+      { sha256: previewSha, role: 'preview', mime: 'image/webp', size: preview.byteLength, purpose: 'display', width: 32, height: 32, has_alpha: false },
+    ]);
+    const started = Date.now();
+    register(ardentId, 'Tile.png', 'image/png', bytes);
+    await waitFor(() => importOf(sha)?.state === 'imported', 5000);
+    expect(contentCalls(previewSha)).toEqual([]);
+    const usedAt = (ctx.store.db.prepare('SELECT used_at FROM blobs WHERE sha256 = ?').get(previewSha) as { used_at: string }).used_at;
+    expect(Date.parse(usedAt)).toBeGreaterThanOrEqual(started - 1000);
+    const [deliverable] = (await json(await ctx.call('GET', `/projects/${project.id}/deliverables`))).deliverables;
+    expect(deliverable.revisions[0].renditions.map((item: { sha256: string }) => item.sha256)).toEqual([sha, previewSha]);
+    expect(ctx.blobs.reuse('0'.repeat(64))).toBeUndefined();
+  });
+
   it('starts over when the relay ignores the range, and still verifies the digest', async () => {
     const { ardentId } = await followed();
     const bytes = new Uint8Array(randomBytes(3 * MIB));

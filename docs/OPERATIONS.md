@@ -17,7 +17,9 @@ without its blobs is incomplete.
   `docker exec <container> node /app/dist/main.js backup /data-backup/<stamp>` with a backup volume
   mounted there). It reads only `ARDENT_STUDIO_DATA`, copies the database in one read transaction
   (`VACUUM INTO`), then copies every blob that copy records and checks each against its digest, and
-  writes `backup.json`. The directory must be new or empty and outside the data directory. The image
+  writes `backup.json`. When a file delete or the hourly sweep removes a blob during the copy, it copies
+  the database again and copies the blobs that newer copy records (up to five copies); a blob still
+  recorded and still missing fails the backup. The directory must be new or empty and outside the data directory. The image
   has no `sqlite3` CLI; on a host that has one, `sqlite3 studio.sqlite ".backup ..."` followed by a copy
   of `blobs/` works too.
 - Simplest: stop the container, copy or snapshot the volume, start it again.

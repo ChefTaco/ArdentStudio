@@ -5,7 +5,7 @@ import { publicTask } from '../../conductor/conductor.js';
 import type { Deliverable, DeliverableRevision } from '../../db/repos/review.js';
 import type { Store } from '../../db/store.js';
 import { AnchorError, checkAnchor } from '../../review/anchors.js';
-import { DOCX_MIME, docxDocument, DocxUnavailableError } from '../../review/docx.js';
+import { DOCX_MIME, docxDocument, DocxSourceGoneError, DocxUnavailableError } from '../../review/docx.js';
 import { buildExport, ExportError } from '../../review/export.js';
 import { toPublicImport } from '../../review/importer.js';
 import {
@@ -187,6 +187,7 @@ export function reviewRoutes(register: ReturnType<typeof createRouter>, deps: Ap
         document_sha256: record.document_sha256, paragraphs: record.paragraphs, document } };
     } catch (error) {
       if (error instanceof DocxUnavailableError) throw new ApiError(501, 'DOCX_CONVERTER_UNAVAILABLE', error.message);
+      if (error instanceof DocxSourceGoneError) throw notFound('File');
       throw error;
     }
   };
