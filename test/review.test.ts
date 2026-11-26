@@ -253,7 +253,7 @@ describe('review', () => {
 
     ctx = await createTestContext();
     const other = await createProject(ctx);
-    const file = await json(await ctx.call('POST', `/projects/${other.id}/files?name=brief.docx`, { raw: 'PK fixture', headers: { 'content-type': DOCX } }));
+    const file = await json(await ctx.call('POST', `/projects/${other.id}/files?name=brief.docx`, { raw: 'PK\u0003\u0004 fixture', headers: { 'content-type': DOCX } }));
     const unavailable = await ctx.call('GET', `/files/${file.id}/docx`);
     expect(unavailable.status).toBe(501);
     expect((await json(unavailable)).error.code).toBe('DOCX_CONVERTER_UNAVAILABLE');

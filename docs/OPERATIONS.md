@@ -27,8 +27,9 @@ without its blobs is incomplete.
    `blobs/tmp/`.
 4. Clients reconnecting with a cursor newer than the restored feed get `reset` and refetch.
 
-Knowledge in HiveMem is derived from the stored files: after restoring an older backup, use
-**reindex** on reference files to bring HiveMem back in line.
+Knowledge in HiveMem is derived from the stored files: after restoring an older backup, call
+`POST /api/ardentstudio/v1/projects/<id>/reindex` for each project (or reindex single files) to bring
+HiveMem back in line.
 
 ## Upgrade
 
@@ -55,8 +56,10 @@ Knowledge in HiveMem is derived from the stored files: after restoring an older 
 ## Maintenance
 
 Hourly, the service removes project events older than `ARDENT_STUDIO_EVENT_RETENTION_DAYS` (the
-cursor boundary is kept so stale clients get `reset`) and idempotency keys older than a day. The
-audit log is never pruned.
+cursor boundary is kept so stale clients get `reset`) and idempotency keys older than a day, and
+deletes stored bytes (`blobs/`) that nothing references any more and that were not written or reused in
+the last ten minutes: deleted files, refused or abandoned uploads and superseded conversions. The audit
+log is never pruned.
 
 ## Logs
 

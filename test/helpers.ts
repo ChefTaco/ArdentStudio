@@ -109,7 +109,10 @@ export class FakeHiveMem {
     this.workspaces.set(input.workspace_id, input);
     return { workspace_id: input.workspace_id, owner_agent_id: 'ardentstudio' };
   };
+  /** Held syncs wait for this before they answer (a slow HiveMem). */
+  gate: Promise<void> | undefined;
   syncKnowledgeSourceChecked = async (body: Omit<KnowledgeSyncRequest, 'mode'>): Promise<{ preview: KnowledgeSyncResponse; applied: KnowledgeSyncResponse }> => {
+    if (this.gate) await this.gate;
     if (this.failSync > 0) { this.failSync--; throw new Error('HiveMem answered HTTP 503'); }
     const result = (mode: 'preview' | 'apply'): KnowledgeSyncResponse => ({ mode, workspace_id: body.workspace_id, project_id: body.project_id, source_id: body.source_id,
       revision: body.revision, created: body.chunks.length, superseded: 0, retired: 0, unchanged: 0 });

@@ -108,7 +108,7 @@ describe('files', () => {
   it('stores images and attachments without indexing them, and says why DOCX is not indexed', async () => {
     ctx = await createTestContext();
     const project = await createProject(ctx);
-    const image = await json(await upload(ctx, project.id, Buffer.from([0x89, 0x50, 0x4e, 0x47]), 'image/png', 'name=map.png'));
+    const image = await json(await upload(ctx, project.id, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]), 'image/png', 'name=map.png'));
     await ctx.knowledge.idle(); await ctx.knowledge.runPass();
     expect(ctx.store.files.get(image.id)!.knowledge).toMatchObject({ state: 'unsupported', error: expect.stringMatching(/no text/) });
     const attachment = await json(await upload(ctx, project.id, 'notes', 'text/plain', 'name=a.txt&purpose=attachment'));

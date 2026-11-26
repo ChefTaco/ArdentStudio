@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
 import type { z } from 'zod';
+import { ContentMismatchError, inspected } from '../../blobs/content.js';
 import { BlobTooLargeError } from '../../blobs/store.js';
 import { fileIdSchema, sha256Schema, uploadMimeSchema, type blobQuerySchema, type listFilesQuerySchema, type uploadFileQuerySchema } from '../../shared/browser.js';
 import { actorOf, requireActive, requireProject, type AppDeps } from '../deps.js';
@@ -42,10 +43,12 @@ export function fileRoutes(register: ReturnType<typeof createRouter>, deps: AppD
     if (!stream) throw new ApiError(400, 'VALIDATION_ERROR', 'The request has no body');
     let blob;
     try {
-      // Streamed to a temp file, fsynced, renamed and re-verified; never buffered whole in memory.
-      blob = await blobs.put(stream as ReadableStream<Uint8Array>, mime.data);
+      // Checked against its type as it streams to a temp file, fsynced, renamed and re-verified; never buffered whole
+      // in memory. Bytes that are not what Content-Type says are refused before anything is stored.
+      blob = await blobs.put(inspected(stream as ReadableStream<Uint8Array>, mime.data), mime.data);
     } catch (error) {
       if (error instanceof BlobTooLargeError) throw new ApiError(413, 'PAYLOAD_TOO_LARGE', `Files are limited to ${blobs.maxBytes} bytes`);
+      if (error instanceof ContentMismatchError) throw new ApiError(422, 'CONTENT_MISMATCH', error.message);
       throw error;
     }
     if (blob.size === 0) throw new ApiError(400, 'VALIDATION_ERROR', 'The file is empty');
@@ -102,10 +105,15 @@ export function fileRoutes(register: ReturnType<typeof createRouter>, deps: AppD
     return new Response(Readable.toWeb(opened.stream) as ReadableStream, { status: 200, headers: { ...headers, 'content-length': String(record.size) } });
   });
 
-  register('POST', '/files/{fileId}/reindex', (_c, { params, principal, idempotencyKey }) => {
-    const id = fileIdSchema.safeParse(params.fileId);
+  const requireFile = (fileId: string | undefined) => {
+    const id = fileIdSchema.safeParse(fileId);
     const file = id.success ? store.files.get(id.data) : undefined;
     if (!file) throw notFound('File');
+    return file;
+  };
+
+  register('POST', '/files/{fileId}/reindex', (_c, { params, principal, idempotencyKey }) => {
+    const file = requireFile(params.fileId);
     requireActive(requireProject(store, file.project_id));
     if (file.purpose !== 'reference') throw new ApiError(409, 'NOT_A_REFERENCE', 'Only reference files are indexed');
     const actor = actorOf(principal);
@@ -114,6 +122,46 @@ export function fileRoutes(register: ReturnType<typeof createRouter>, deps: AppD
       store.emit(file.project_id, 'file.updated', { file_id: file.id, knowledge: updated.knowledge });
       store.record(actor, 'file.reindex', { type: 'file', id: file.id }, {}, idempotencyKey);
       return updated;
+    });
+    deps.knowledge.kick();
+    return { body: queued };
+  });
+
+  register('DELETE', '/files/{fileId}', (_c, { params, principal, idempotencyKey }) => {
+    const file = requireFile(params.fileId);
+    const project = requireActive(requireProject(store, file.project_id));
+    // A portrait or a team role that names the file must stop naming it first.
+    const agents = store.files.avatarUses(file.id);
+    const roles = [store.team.current(project.id), store.team.draft(project.id)].flatMap(revision =>
+      (revision?.body.roles ?? []).filter(role => role.knowledge.includes(file.id)).map(role => role.key));
+    if (agents.length || roles.length) {
+      throw new ApiError(409, 'FILE_IN_USE', 'Remove the file from the agent portraits and team roles that use it first', { agents, roles: [...new Set(roles)] });
+    }
+    const actor = actorOf(principal);
+    const result = store.tx(() => {
+      const { retire } = store.files.delete(file.id, actor.userId);
+      const deletedAt = store.clock.now().toISOString();
+      store.emit(project.id, 'file.deleted', { file_id: file.id, name: file.name, purpose: file.purpose, knowledge: retire ? 'retiring' : 'none' });
+      store.record(actor, 'file.delete', { type: 'file', id: file.id }, {
+        project_id: project.id, name: file.name, sha256: file.sha256, size: file.size, mime: file.mime, purpose: file.purpose, knowledge_retired: retire,
+      }, idempotencyKey);
+      return { file, deleted_at: deletedAt, knowledge: retire ? 'retiring' as const : 'none' as const };
+    });
+    if (result.knowledge === 'retiring') deps.knowledge.kick();
+    else blobs.removeIfUnreferenced(file.sha256);
+    return { body: result };
+  });
+
+  register('POST', '/projects/{projectId}/reindex', (_c, { params, principal, idempotencyKey }) => {
+    const project = requireActive(requireProject(store, params.projectId));
+    const actor = actorOf(principal);
+    const queued = store.tx(() => {
+      const files = store.files.list(project.id, 'reference').map(file => store.files.queueSync(file.id));
+      for (const file of files) store.emit(project.id, 'file.updated', { file_id: file.id, knowledge: file.knowledge });
+      const links = store.links.list(project.id).map(link => store.links.queueSync(link.id));
+      for (const link of links) store.emit(project.id, 'link.updated', { link });
+      store.record(actor, 'project.reindex', { type: 'project', id: project.id }, { files: files.length, links: links.length }, idempotencyKey);
+      return { files: files.length, links: links.length };
     });
     deps.knowledge.kick();
     return { body: queued };

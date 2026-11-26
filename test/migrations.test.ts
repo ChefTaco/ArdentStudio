@@ -95,9 +95,22 @@ describe('migrations', () => {
     db.exec(`PRAGMA foreign_keys = OFF;
       INSERT INTO agent_template_versions (template_id, version, body_json, changelog, created_by, created_at) VALUES ('tpl_old', 1, '{}', 'Initial', 'operator', '2026-01-01');`);
     const before = db.prepare("SELECT * FROM agent_template_versions WHERE template_id = 'tpl_old'").get() as Record<string, unknown>;
-    expect(migrate(db).at(-1)).toBe(10);
+    expect(migrate(db, MIGRATIONS.filter(item => item.id <= 10)).at(-1)).toBe(10);
     expect(db.prepare("SELECT * FROM agent_template_versions WHERE template_id = 'tpl_old'").get()).toEqual({ ...before, source_definition_json: null });
     expect(() => db.prepare("UPDATE agent_template_versions SET source_definition_json = '{}'").run()).toThrow();
+    db.close();
+  });
+
+  it('add file deletion and blob use columns without changing existing rows', () => {
+    const db = new Database(':memory:');
+    migrate(db, MIGRATIONS.filter(item => item.id <= 10));
+    db.exec(`PRAGMA foreign_keys = OFF;
+      INSERT INTO blobs (sha256, size, mime, path, created_at) VALUES ('${'b'.repeat(64)}', 1, 'text/plain', 'bb/bb/x', '2026-01-01');
+      INSERT INTO files (id, project_id, name, mime, size, sha256, purpose, created_by, created_at, knowledge_state, knowledge_updated_at)
+        VALUES ('file_old', 'prj_old', 'a.txt', 'text/plain', 1, '${'b'.repeat(64)}', 'attachment', 'operator', '2026-01-01', 'not_indexed', '2026-01-01');`);
+    expect(migrate(db).at(-1)).toBe(11);
+    expect(db.prepare("SELECT deleted_at, deleted_by FROM files WHERE id = 'file_old'").get()).toEqual({ deleted_at: null, deleted_by: null });
+    expect(db.prepare('SELECT used_at FROM blobs').get()).toEqual({ used_at: null });
     db.close();
   });
 

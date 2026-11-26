@@ -1212,6 +1212,130 @@
         ]
       }
     },
+    "/api/ardentstudio/v1/files/{fileId}": {
+      "delete": {
+        "operationId": "deleteFilesFileId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteFileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Deletes the file: it leaves the file list, the snapshot and /blobs at once, its HiveMem source is retired (retried until HiveMem takes it), and its bytes are removed once nothing else references them (within about an hour). Announced as file.deleted. 409 FILE_IN_USE (details agents, roles) while an agent portrait or a role of the current or draft team names it; 409 PROJECT_ARCHIVED.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
+    "/api/ardentstudio/v1/projects/{projectId}/reindex": {
+      "post": {
+        "operationId": "postProjectsProjectIdReindex",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": true,
+            "description": "Repeating a key replays the first answer; reusing it for a different request answers 409.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReindexProjectResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-permissions": [
+          "ardentstudio:projects:write"
+        ],
+        "x-idempotent": true,
+        "description": "Queues every reference file and link of the project for HiveMem sync again, for example after restoring a backup.",
+        "security": [
+          {
+            "oathweave": []
+          }
+        ]
+      }
+    },
     "/api/ardentstudio/v1/templates": {
       "get": {
         "operationId": "getTemplates",
@@ -8915,6 +9039,31 @@
           "reason"
         ]
       },
+      "DeleteFileResponse": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "$ref": "#/components/schemas/File"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "knowledge": {
+            "type": "string",
+            "enum": [
+              "retiring",
+              "none"
+            ]
+          }
+        },
+        "required": [
+          "file",
+          "deleted_at",
+          "knowledge"
+        ]
+      },
       "Deliverable": {
         "type": "object",
         "properties": {
@@ -11190,6 +11339,7 @@
           "project.reopened",
           "file.created",
           "file.updated",
+          "file.deleted",
           "team.draft.updated",
           "team.revision.published",
           "layout.updated",
@@ -11788,6 +11938,25 @@
           "awaiting_decision",
           "unsupported",
           "resolved"
+        ]
+      },
+      "ReindexProjectResponse": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "links": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "files",
+          "links"
         ]
       },
       "Relationship": {
