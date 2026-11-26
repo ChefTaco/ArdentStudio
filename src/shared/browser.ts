@@ -190,8 +190,8 @@ export const projectSummarySchema = projectSchema.omit({ deliverables: true, bri
   ...projectCountsSchema.shape,
   /** Never synthesized; null only when the project has no such record. */
   last_activity: lastActivitySchema.nullable(),
-  /** The calling person's membership mode and role (see Project membership). */
-  access: projectAccessSchema,
+  /** The calling person's membership mode and role (see Project membership). Always sent; absent only from releases before membership. */
+  access: projectAccessSchema.optional(),
 });
 
 const projectFields = {

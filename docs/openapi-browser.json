@@ -12168,8 +12168,7 @@
           "open_questions",
           "review_pending",
           "active_tasks",
-          "last_activity",
-          "access"
+          "last_activity"
         ]
       },
       "ProposeTeamRequestInput": {
