@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+Upgrading: replace the image; no migration and no settings change. Anything that read the error text of
+`/health/ready` now gets a code (see below); the detail is in the service log.
+
 ### Changed
 
 - `@hivemagnus/magnus-contracts` moves from an exact 3.1.2 pin to `^3.3.6`. Agent definitions are now digested,
@@ -18,6 +21,25 @@ All notable changes to this project are documented here. The format follows
   from magnus-contracts.
 - The fake Magnus in the tests checks every request Studio sends and every answer and stream event it serves
   against the published magnus-contracts routes and schemas, so a Magnus shape change now fails Studio's tests.
+
+### Fixed
+
+- `/health/ready` needs no token, so it no longer returns what Magnus or HiveMem said when a check fails. A
+  failing check now answers `error` as a code (`<CHECK>_UNAVAILABLE` or `<CHECK>_TIMEOUT`), and the detail is
+  logged as `Readiness check failed`, once per change.
+- Shutdown is ordered: Studio stops accepting connections, ends open project and preview streams, waits up to
+  8 seconds for requests in flight, closes what is still open, and only then stops background work and closes
+  the database. Before, it closed the database while requests and streams could still be using it.
+- A slow project stream subscriber no longer queues without limit. Past 1000 waiting messages Studio drops
+  the waiting events and reads them from the event log instead, and replaces the waiting live deltas with one
+  `replace` delta per streaming message, so the subscriber still receives every event in order.
+- The project stream honours `Last-Event-ID` when `?after=` is absent, so a browser `EventSource` that
+  reconnects on its own replays what it missed instead of silently skipping it.
+
+### Documentation
+
+- docs/OPERATIONS.md says to use `/health/live` for container health and restarts: `/health/ready` answers
+  503 on a fresh suite until the first Ardent agent exists.
 
 ## [0.5.1] - 2026-11-24
 

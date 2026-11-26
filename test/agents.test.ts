@@ -1,3 +1,4 @@
+import { silentLogger } from '../src/logger.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createTestContext, json, profile, type TestContext } from './helpers.js';
 import { readyResponseSchema } from '../src/shared/browser.js';
@@ -49,7 +50,24 @@ describe('health', () => {
     ctx.close();
     ctx = await createTestContext();
     ctx.hivemem.healthy = false;
-    expect(await (await ctx.call('GET', '/health/ready', { token: null })).json()).toMatchObject({ status: 'not_ready', checks: { hivemem: { status: 'unavailable', error: 'HiveMem down' } } });
+    expect(await (await ctx.call('GET', '/health/ready', { token: null })).json()).toMatchObject({ status: 'not_ready', checks: { hivemem: { status: 'unavailable', error: 'HIVEMEM_UNAVAILABLE' } } });
+  });
+
+  it('answers only codes without a token, and logs what a dependency said once', async () => {
+    const warnings: Array<Record<string, unknown> | undefined> = [];
+    ctx = await createTestContext({ logger: { ...silentLogger, warn: (_message, fields) => warnings.push(fields) } });
+    ctx.magnus.fail = true;
+    ctx.hivemem.healthy = false;
+    const response = await ctx.call('GET', '/health/ready', { token: null });
+    expect(response.status).toBe(503);
+    const text = await response.text();
+    expect(JSON.parse(text)).toMatchObject({ checks: {
+      magnus: { status: 'unavailable', error: 'MAGNUS_UNAVAILABLE' }, hivemem: { status: 'unavailable', error: 'HIVEMEM_UNAVAILABLE' },
+    } });
+    expect(text).not.toMatch(/Magnus unavailable|HiveMem down|127\.0\.0\.1/);
+    expect(warnings).toEqual(expect.arrayContaining([
+      { check: 'magnus', error: 'Magnus unavailable' }, { check: 'hivemem', error: 'HiveMem down' },
+    ]));
   });
 
   it('keeps the published readiness body exactly', async () => {

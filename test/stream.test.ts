@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseSse, type SseMessage } from '../src/clients/sse.js';
+import { STREAM_QUEUE_MAX } from '../src/server/routes/stream.js';
 import { ARDENT_STUDIO_API_PREFIX } from '../src/shared/browser.js';
 import { createProject, createTestContext, ManualClock, type TestContext } from './helpers.js';
 
@@ -7,10 +8,10 @@ let ctx: TestContext;
 const open: Array<() => void> = [];
 afterEach(() => { for (const close of open.splice(0)) close(); ctx?.close(); });
 
-async function connect(projectId: string, query = '', token?: string) {
+async function connect(projectId: string, query = '', token?: string, headers: Record<string, string> = {}) {
   const controller = new AbortController();
   const response = await ctx.app.request(`${ARDENT_STUDIO_API_PREFIX}/projects/${projectId}/stream${query}`, {
-    headers: { authorization: `Bearer ${token ?? await ctx.token()}` }, signal: controller.signal,
+    headers: { ...headers, authorization: `Bearer ${token ?? await ctx.token()}` }, signal: controller.signal,
   });
   const iterator = parseSse(response.body!)[Symbol.asyncIterator]();
   const close = () => controller.abort();
@@ -65,6 +66,49 @@ describe('project stream', () => {
     expect(await current.next()).toMatchObject({ event: 'project.updated', id: '3' });
     const ahead = await connect(project.id, '?after=99');
     expect(await ahead.next()).toMatchObject({ event: 'reset', data: JSON.stringify({ seq: 3, reason: 'cursor_ahead' }) });
+  });
+
+  it('replays after the Last-Event-ID a reconnecting EventSource sends; ?after= wins over it', async () => {
+    ctx = await createTestContext();
+    const project = await createProject(ctx);
+    const reconnected = await connect(project.id, '', undefined, { 'last-event-id': '1' });
+    expect(await reconnected.next()).toMatchObject({ event: 'project.updated', id: '2' });
+    const explicit = await connect(project.id, '?after=0', undefined, { 'last-event-id': '1' });
+    expect(await explicit.next()).toMatchObject({ event: 'project.created', id: '1' });
+    const ahead = await connect(project.id, '', undefined, { 'last-event-id': '99' });
+    expect(await ahead.next()).toMatchObject({ event: 'reset', data: JSON.stringify({ seq: 2, reason: 'cursor_ahead' }) });
+    // A malformed Last-Event-ID is ignored: the stream starts at the current cursor.
+    const malformed = await connect(project.id, '', undefined, { 'last-event-id': 'abc' });
+    ctx.store.tx(() => ctx.store.emit(project.id, 'project.updated', {}));
+    expect(await malformed.next()).toMatchObject({ event: 'project.updated', id: '3' });
+  });
+
+  it('bounds what a slow subscriber has queued without losing events or live text', async () => {
+    ctx = await createTestContext({ heartbeatMs: 60_000 });
+    const project = await createProject(ctx);
+    const stream = await connect(project.id);
+    // Everything below is published before the stream can send any of it.
+    const events = STREAM_QUEUE_MAX;
+    for (let index = 0; index < events; index++) {
+      ctx.store.tx(() => ctx.store.emit(project.id, 'project.updated', { index }));
+      ctx.live.append(project.id, 'msg_slow', 1, 'x');
+    }
+    const seqs: number[] = [];
+    let text = '';
+    let deltas = 0;
+    while (seqs.at(-1) !== events + 2 || text.length < events) {
+      const message = (await stream.next())!;
+      if (message.event === 'message.delta') {
+        deltas++;
+        const delta = JSON.parse(message.data) as { text: string; mode?: string };
+        text = delta.mode === 'replace' ? delta.text : text + delta.text;
+      } else {
+        seqs.push(Number(message.id));
+      }
+    }
+    expect(seqs).toEqual(Array.from({ length: events }, (_, index) => index + 3));
+    expect(text).toBe('x'.repeat(events));
+    expect(deltas).toBeLessThan(events);
   });
 
   it('sends heartbeats carrying the last seq', async () => {

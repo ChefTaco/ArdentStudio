@@ -189,6 +189,9 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
     return streamSSE(c, async stream => {
       const abort = new AbortController();
       stream.onAbort(() => abort.abort());
+      // On shutdown the preview stream ends; the preview task itself runs on in Ardent.
+      const onClosing = () => abort.abort();
+      if (deps.closing?.aborted) abort.abort(); else deps.closing?.addEventListener('abort', onClosing, { once: true });
       const send = (event: string, data: unknown) => stream.writeSSE({ event, data: JSON.stringify(data) });
       await send('preview.accepted', { task_id: taskId, session_id: sessionId });
       let cursor = 0;
@@ -223,6 +226,8 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
         }
       } catch (error) {
         if (!abort.signal.aborted) await send('preview.error', { code: 'STREAM_FAILED', message: error instanceof Error ? error.message.slice(0, 300) : 'The preview stream failed' });
+      } finally {
+        deps.closing?.removeEventListener('abort', onClosing);
       }
     });
   });

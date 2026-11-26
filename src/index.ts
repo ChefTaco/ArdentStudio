@@ -1,6 +1,6 @@
 export { createApp } from './server/app.js';
 export type { AppDeps } from './server/deps.js';
-export { createService, listen, type Service } from './service.js';
+export { createService, listen, shutdown, SHUTDOWN_GRACE_MS, type Service } from './service.js';
 export { loadConfig, ConfigError, ENV_CATALOG, type Config } from './config.js';
 export { openDatabase, migrate, type Db } from './db/database.js';
 export { MIGRATIONS } from './db/migrations.js';
