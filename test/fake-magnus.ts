@@ -1,13 +1,25 @@
 // A fake Magnus control API on loopback, for tests. It serves the Ardent routes ArdentStudio uses
 // with synthetic data, and lets a test drive each Ardent task: journal events, live reply text
 // and the final record, over a real HTTP server-sent event stream.
+//
+// Every request Studio sends and every answer and stream event the fake serves is checked against the
+// published @hivemagnus/magnus-contracts schemas (see contractFor), so a test cannot pass on a shape real
+// Magnus would refuse or never send. Violations are collected and fail the test in assertContract().
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { ArdentFleetInstallationSchema } from '@hivemagnus/magnus-contracts';
+import { agentDefinitionPreflightSchema, verifyAgentDefinition } from '@hivemagnus/magnus-contracts/agent-definition';
+import {
+  ardentArtifactRecordSchema, ardentArtifactRenditionsSchema, ardentConfigFileSchema, ardentConfigSavedSchema, ardentDevelopmentPageSchema,
+  ardentDevelopmentRecordSchema, ardentIdentityFileSchema, ardentServiceRoutes, ardentServiceSessionSchema,
+  ardentSkillInstallResultSchema, ardentTaskAdmissionSchema, ardentTaskArtifactsSchema, ardentTaskPauseStateSchema, ardentTaskRecoverySchema,
+  ardentUnsupportedCapabilityDetailsSchema, type ArdentServiceRoute,
+} from '@hivemagnus/magnus-contracts/ardent-service';
 import { parseDocument } from 'yaml';
+import { z } from 'zod';
 import { changedConfigPaths, configuredSkills } from '../src/agents/config-edit.js';
 import { ARDENT_SERVICE_CONFIG_PATHS, type MagnusArdentProfile } from '../src/clients/magnus.js';
-import { verifyAgentDefinition } from '../src/templates/definition.js';
 
 export interface FakeTask {
   id: string; ref: string; context: 'direct' | 'mission' | 'preview'; session_id: string | null; prompt: string; body: Record<string, unknown>;
@@ -32,13 +44,81 @@ export function fakeProfile(nodeId: string, id: string, overrides: Partial<Magnu
   };
 }
 
+// ── The real contract ──
+
+interface ServedContract { where: string; envelope?: z.ZodType | undefined; data?: z.ZodType | undefined; events?: Record<string, z.ZodType> | undefined }
+/** The contract of the request each response answers, and where to report a violation. */
+const served = new WeakMap<ServerResponse, ServedContract & { report: (message: string) => void }>();
+
+// The catch-all resource route is matched last, so streams and artifact reads find their own routes.
+const ROUTES = ardentServiceRoutes.map(route => ({
+  route, pattern: new RegExp(`^/api/v1${route.path.replace(/\{resource\}/u, '(?<resource>.+)').replace(/\{[A-Za-z0-9]+\}/gu, '[^/]+')}$`, 'u'),
+})).sort((left, right) => Number(left.route.path.includes('{resource}')) - Number(right.route.path.includes('{resource}')));
+/** Resources whose answer the contract's route notes name a schema for (the others are Ardent's own responses, relayed). */
+const RESOURCE_SCHEMAS: Array<[RegExp, z.ZodType]> = [
+  [/^identity\/(?:soul|identity)$/u, ardentIdentityFileSchema],
+  [/^config$/u, ardentConfigFileSchema],
+  [/^tasks\/[^/]+\/artifacts$/u, ardentTaskArtifactsSchema],
+  [/^artifacts\/[a-f0-9]{64}\/manifest$/u, ardentArtifactRecordSchema],
+  [/^development$/u, ardentDevelopmentPageSchema],
+  [/^tasks\/[^/]+\/recovery$/u, ardentTaskRecoverySchema],
+  [/^artifacts\/[a-f0-9]{64}\/renditions$/u, ardentArtifactRenditionsSchema],
+];
+/** Action answers, as the action route's note names them. */
+const ACTION_SCHEMAS: Record<string, z.ZodType> = {
+  'session-open': ardentServiceSessionSchema, 'task-submit': ardentTaskAdmissionSchema, 'mission-submit': ardentTaskAdmissionSchema,
+  'preview-submit': ardentTaskAdmissionSchema, 'task-pause': ardentTaskPauseStateSchema, 'task-resume': ardentTaskPauseStateSchema,
+  'development-note': ardentDevelopmentRecordSchema, 'identity-save': ardentIdentityFileSchema, 'skill-set': ardentConfigSavedSchema,
+  'config-save': ardentConfigSavedSchema, 'skill-install': ardentSkillInstallResultSchema, 'task-recovery': ardentTaskRecoverySchema,
+};
+
+/** The contract for a request, or why the request itself breaks it. */
+export function contractFor(method: string, path: string, body: unknown): ServedContract & { requestError?: string } {
+  const where = `${method} ${path}`;
+  const match = ROUTES.find(item => item.route.method === method && item.pattern.test(path));
+  // Studio calls only what a linked service identity may call; anything else answers 403 from real Magnus.
+  if (!match) return { where, requestError: 'not a route of ardentServiceRoutes' };
+  const route: ArdentServiceRoute = match.route;
+  const contract: ServedContract & { requestError?: string } = { where, envelope: route.response ?? undefined, events: route.events };
+  if (route.request) {
+    const parsed = route.request.safeParse(body ?? {});
+    if (!parsed.success) contract.requestError = z.prettifyError(parsed.error);
+  }
+  const resource = match.pattern.exec(path)?.groups?.resource;
+  if (resource !== undefined) contract.data = RESOURCE_SCHEMAS.find(([pattern]) => pattern.test(resource))?.[1];
+  if (route.path.endsWith('/action')) contract.data = ACTION_SCHEMAS[String((body as { action?: unknown } | undefined)?.action)];
+  if (route.path === '/ardent/installations') contract.data = z.array(ArdentFleetInstallationSchema);
+  if (route.path === '/ardent/installations/{nodeId}') contract.data = ArdentFleetInstallationSchema;
+  return contract;
+}
+
+function check(response: ServerResponse, value: unknown, schema: z.ZodType | undefined, what: string): void {
+  const contract = served.get(response);
+  if (!contract || !schema) return;
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) contract.report(`${contract.where} ${what}: ${z.prettifyError(parsed.error)}`);
+}
+
 const json = (response: ServerResponse, status: number, body: unknown) => {
   response.writeHead(status, { 'content-type': 'application/json' });
   response.end(JSON.stringify(body));
 };
-const ok = (response: ServerResponse, data: unknown, status = 200) => json(response, status, { success: true, data });
-const fail = (response: ServerResponse, status: number, code: string, message: string, details?: unknown) =>
+const ok = (response: ServerResponse, data: unknown, status = 200) => {
+  const contract = served.get(response);
+  check(response, { success: true, data }, contract?.envelope, 'answer');
+  check(response, data, contract?.data, 'answer data');
+  json(response, status, { success: true, data });
+};
+/** A server-sent event, checked against the route's event schema. */
+const sse = (response: ServerResponse, event: string, data: unknown, id?: number) => {
+  const events = served.get(response)?.events;
+  if (events) check(response, data, events[event] ?? z.never(), `event ${event}`);
+  response.write(`${id !== undefined ? `id: ${id}\n` : ''}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+};
+const fail = (response: ServerResponse, status: number, code: string, message: string, details?: unknown) => {
+  if (code === 'unsupported_capability') check(response, details, ardentUnsupportedCapabilityDetailsSchema, 'unsupported_capability details');
   json(response, status, { success: false, error: { code, message, ...(details !== undefined ? { details } : {}) } });
+};
 
 export class FakeMagnusServer {
   profiles: MagnusArdentProfile[] = [fakeProfile('node1', 'lead'), fakeProfile('node1', 'scout'), fakeProfile('node2', 'mapper')];
@@ -122,6 +202,13 @@ export class FakeMagnusServer {
   private readonly waiters: Array<() => void> = [];
   private server: Server | undefined;
   url = '';
+  /** Requests and answers that break the published Magnus contract (see contractFor). */
+  contractViolations: string[] = [];
+
+  /** Throws when anything the fake received or served broke the published Magnus contract. */
+  assertContract(): void {
+    if (this.contractViolations.length) throw new Error(`Magnus contract violations:\n${[...new Set(this.contractViolations)].join('\n')}`);
+  }
 
   async start(): Promise<this> {
     this.server = createServer((request, response) => { void this.handle(request, response).catch(error => fail(response, 500, 'INTERNAL', String(error))); });
@@ -348,11 +435,11 @@ export class FakeMagnusServer {
   }
 
   /** POST /ardent/agent-definitions/validate and …/install, as Magnus 3.3.0 answers them. */
-  private definition(response: ServerResponse, route: 'validate' | 'install', input: Record<string, unknown>, actingSubject: string | undefined): void {
+  private async definition(response: ServerResponse, route: 'validate' | 'install', input: Record<string, unknown>, actingSubject: string | undefined): Promise<void> {
     if (this.definitions === 'scoped') return fail(response, 403, 'FORBIDDEN', 'ardent-service credential is endpoint-scoped');
     if (this.definitions === 'missing') return fail(response, 404, 'NOT_FOUND', 'No such route');
     if (!actingSubject || !this.admins.has(actingSubject)) return fail(response, 403, 'ACTING_ADMIN_REQUIRED', 'The acting person is not a Magnus ADMIN');
-    const checked = verifyAgentDefinition(input.definition);
+    const checked = await verifyAgentDefinition(input.definition);
     if (!checked.ok) return fail(response, 422, checked.code, checked.detail);
     const nodeId = String(input.nodeId);
     if (this.unknownNodes.has(nodeId)) return fail(response, 404, 'NOT_FOUND', 'Managed node not found');
@@ -360,6 +447,7 @@ export class FakeMagnusServer {
     const problems = [...this.definitionProblems, ...checked.definition.requirements.bindings
       .filter(item => item.required && bindings[item.key] === undefined).map(item => ({ code: 'MISSING_BINDING', detail: `Bind ${item.key} (${item.kind})` }))];
     if (route === 'validate') return ok(response, { ok: problems.length === 0, problems });
+    check(response, { problems }, agentDefinitionPreflightSchema.pick({ problems: true }), 'PREFLIGHT_FAILED details');
     if (problems.length) return fail(response, 409, 'PREFLIGHT_FAILED', `The definition cannot be installed on this node: ${problems.map(item => item.code).join(', ')}`, { problems });
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -382,6 +470,9 @@ export class FakeMagnusServer {
     const body = raw !== undefined ? JSON.parse(raw) as Record<string, unknown> : undefined;
     const actingSubject = request.headers['x-acting-subject'] as string | undefined;
     this.calls.push({ method: request.method ?? 'GET', path: url.pathname, actingSubject, headers: request.headers, at: Date.now(), ...(body !== undefined ? { body, raw } : {}) });
+    const contract = contractFor(request.method ?? 'GET', url.pathname, body);
+    if (contract.requestError) this.contractViolations.push(`${contract.where} request: ${contract.requestError}`);
+    served.set(response, { ...contract, report: message => this.contractViolations.push(message) });
     if (request.headers.authorization !== 'Bearer fixture-service-token') return fail(response, 401, 'UNAUTHENTICATED', 'bad token');
     const path = url.pathname;
     if (this.fail) return fail(response, 503, 'DEPENDENCY_UNAVAILABLE', 'Magnus unavailable');
@@ -399,14 +490,14 @@ export class FakeMagnusServer {
       return ok(response, { operationId: id }, 202);
     }
     const definitionRoute = /^\/api\/v1\/ardent\/agent-definitions\/(validate|install)$/.exec(path);
-    if (request.method === 'POST' && definitionRoute) return this.definition(response, definitionRoute[1] as 'validate' | 'install', body ?? {}, actingSubject);
+    if (request.method === 'POST' && definitionRoute) return await this.definition(response, definitionRoute[1] as 'validate' | 'install', body ?? {}, actingSubject);
     const operation = /^\/api\/v1\/ardent\/agents\/operations\/([^/]+)(\/stream)?$/.exec(path);
     if (request.method === 'GET' && operation) {
       const current = this.operations.get(operation[1]!);
       if (!current) return fail(response, 404, 'NOT_FOUND', 'Unknown operation');
       if (!operation[2]) return ok(response, current);
       response.writeHead(200, { 'content-type': 'text/event-stream' });
-      const send = (event: string, data: unknown) => { response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+      const send = (event: string, data: unknown) => sse(response, event, data);
       let set = this.operationSubscribers.get(operation[1]!);
       if (!set) { set = new Set(); this.operationSubscribers.set(operation[1]!, set); }
       const subscriber: Subscriber = { send, end: () => { set.delete(subscriber); response.end(); } };
@@ -533,7 +624,7 @@ export class FakeMagnusServer {
     if (this.failStreams) return fail(response, 503, 'DEPENDENCY_UNAVAILABLE', 'Ardent stream unavailable');
     this.streamsOpened++;
     response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
-    const send = (event: string, data: unknown, id?: number) => { response.write(`${id !== undefined ? `id: ${id}\n` : ''}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+    const send = (event: string, data: unknown, id?: number) => sse(response, event, data, id);
     let set = this.subscribers.get(task.id);
     if (!set) { set = new Set(); this.subscribers.set(task.id, set); }
     const subscriber: Subscriber = { send, end: () => { set.delete(subscriber); clearTimeout(limit); response.end(); } };

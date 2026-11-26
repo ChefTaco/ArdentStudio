@@ -1,20 +1,20 @@
 // Portable agent definitions (hive-agent-definition/1) built from and imported into agent templates.
 //
-// The canonical JSON, digests, seal and verification are a port of @hivemagnus/magnus-contracts
-// `agent-definition` (Magnus 3.3.0, not yet published when this was written); test/definition.test.ts
-// checks them against fixtures that release's implementation produced. Once Studio depends on a
-// magnus-contracts release that exports them, this module can use those instead.
-import { createHash } from 'node:crypto';
+// The canonical JSON, digests, seal, verification and credential guard are those of
+// @hivemagnus/magnus-contracts `agent-definition`, so Studio and Magnus always agree on a digest.
+// test/definition.test.ts checks them against fixtures that Magnus 3.3.0 produced.
+import {
+  AGENT_DEFINITION_EXCLUDES, AGENT_DEFINITION_SCHEMA, credentialLikePaths, sealAgentDefinition, verifyAgentDefinition,
+  type AgentDefinition, type AgentDefinitionBody,
+} from '@hivemagnus/magnus-contracts/agent-definition';
 import type { z } from 'zod';
 import type { AgentTemplateBody } from '../db/repos/templates.js';
-import {
-  AGENT_DEFINITION_EXCLUDES, AGENT_DEFINITION_SCHEMA, agentDefinitionSchema, agentTemplateBodySchema, emberpathAliasSchema,
-  type agentDefinitionBodySchema, type definitionOmissionSchema, type integrationSchema,
-} from '../shared/browser.js';
-import { credentialLikePaths } from './secrets.js';
+import { agentTemplateBodySchema, emberpathAliasSchema, type definitionOmissionSchema, type integrationSchema } from '../shared/browser.js';
 
-export type AgentDefinition = z.infer<typeof agentDefinitionSchema>;
-export type AgentDefinitionBody = z.infer<typeof agentDefinitionBodySchema>;
+export {
+  agentDefinitionSha256, agentPersonaSha256, canonicalJson, credentialLikePaths, sealAgentDefinition, verifyAgentDefinition,
+  type AgentDefinition, type AgentDefinitionBody, type AgentDefinitionCheck,
+} from '@hivemagnus/magnus-contracts/agent-definition';
 export type DefinitionOmission = z.infer<typeof definitionOmissionSchema>;
 export interface DefinitionIgnored { path: string; reason: string }
 
@@ -42,57 +42,6 @@ export class DefinitionError extends Error {
   }
 }
 
-/** Canonical JSON: object keys sorted by code unit, no whitespace, undefined members dropped. Rejects non-JSON values. */
-export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value === 'boolean' || typeof value === 'string') return JSON.stringify(value);
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new TypeError('Canonical JSON has no non-finite numbers');
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) return `[${value.map(item => canonicalJson(item === undefined ? null : item)).join(',')}]`;
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    const keys = Object.keys(record).filter(key => record[key] !== undefined).sort();
-    return `{${keys.map(key => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`;
-  }
-  throw new TypeError(`Canonical JSON cannot hold a ${typeof value}`);
-}
-
-const sha256Hex = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
-
-export function agentPersonaSha256(persona: { soul_md: string; identity_md: string }): string {
-  return sha256Hex(canonicalJson({ soul_md: persona.soul_md, identity_md: persona.identity_md }));
-}
-
-/** The digest of a definition, computed without its `sha256` member (which may be absent). */
-export function agentDefinitionSha256(definition: AgentDefinitionBody | AgentDefinition): string {
-  const { sha256: _ignored, ...body } = definition as AgentDefinition;
-  return sha256Hex(canonicalJson(body));
-}
-
-/** Fill in both digests of a definition body. */
-export function sealAgentDefinition(body: AgentDefinitionBody): AgentDefinition {
-  const sealed = { ...body, persona: { ...body.persona, sha256: agentPersonaSha256(body.persona) } };
-  return { ...sealed, sha256: agentDefinitionSha256(sealed) };
-}
-
-export type AgentDefinitionCheck =
-  | { ok: true; definition: AgentDefinition }
-  | { ok: false; code: 'DEFINITION_INVALID' | 'DEFINITION_CONTAINS_CREDENTIAL'; detail: string; paths?: string[] };
-
-/** No credential-like string anywhere (even in a malformed definition), the shape, then both digests. */
-export function verifyAgentDefinition(raw: unknown): AgentDefinitionCheck {
-  const paths = credentialLikePaths(raw);
-  if (paths.length) return { ok: false, code: 'DEFINITION_CONTAINS_CREDENTIAL', detail: `Credential-like values at ${paths.slice(0, 10).join(', ')}`, paths };
-  const parsed = agentDefinitionSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { ok: false, code: 'DEFINITION_INVALID', detail: parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; ').slice(0, 500) };
-  }
-  if (agentPersonaSha256(parsed.data.persona) !== parsed.data.persona.sha256) return { ok: false, code: 'DEFINITION_INVALID', detail: 'persona.sha256 does not match the persona texts' };
-  if (agentDefinitionSha256(parsed.data) !== parsed.data.sha256) return { ok: false, code: 'DEFINITION_INVALID', detail: 'sha256 does not match the canonical definition' };
-  return { ok: true, definition: parsed.data };
-}
-
 const semver = (value: string) => /^(\d+)\.(\d+)\.(\d+)$/u.exec(value)?.slice(1).map(Number) as [number, number, number] | undefined;
 const newer = (left: [number, number, number], right: [number, number, number]) =>
   left[0] !== right[0] ? left[0] > right[0] : left[1] !== right[1] ? left[1] > right[1] : left[2] > right[2];
@@ -111,7 +60,7 @@ export interface TemplateVersionInput { template_id: string; version: number; cr
  * always has one digest. Throws DefinitionError for a version that cannot be a definition or would carry a
  * credential (checked over the whole answer, which is what gets shared).
  */
-export function buildTemplateDefinition(version: TemplateVersionInput): { definition: AgentDefinition; omitted: DefinitionOmission[] } {
+export async function buildTemplateDefinition(version: TemplateVersionInput): Promise<{ definition: AgentDefinition; omitted: DefinitionOmission[] }> {
   const { body } = version;
   if (!body.soul_md.trim() || !body.identity_md.trim()) throw new DefinitionError('DEFINITION_INCOMPLETE', 'A definition needs the template\'s soul and identity text; this version has an empty one');
   const omitted: DefinitionOmission[] = [];
@@ -158,10 +107,10 @@ export function buildTemplateDefinition(version: TemplateVersionInput): { defini
     },
     excludes: [...AGENT_DEFINITION_EXCLUDES],
   };
-  const definition = sealAgentDefinition(definitionBody);
+  const definition = await sealAgentDefinition(definitionBody);
   const leaked = credentialLikePaths({ definition, omitted });
   if (leaked.length) throw new DefinitionError('DEFINITION_CONTAINS_CREDENTIAL', `The definition would carry credential-like text at ${leaked.slice(0, 10).join(', ')}`, leaked.slice(0, 50));
-  const checked = verifyAgentDefinition(definition);
+  const checked = await verifyAgentDefinition(definition);
   if (!checked.ok) throw new DefinitionError('DEFINITION_INCOMPLETE', `This version cannot be a definition: ${checked.detail}`.slice(0, 500));
   return { definition: checked.definition, omitted };
 }

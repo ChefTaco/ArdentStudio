@@ -189,7 +189,10 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
   };
   return {
     dir, store, blobs, bus, app, magnus, magnusClient, conductor, importer, operations, live, hivemem, knowledge, keys, revoked, token, serviceToken, call,
-    close: async () => { await conductor.stop(); await importer.stop(); await operations.stop(); await magnus.close(); db.close(); rmSync(dir, { recursive: true, force: true }); },
+    close: async () => {
+      await conductor.stop(); await importer.stop(); await operations.stop(); await magnus.close(); db.close(); rmSync(dir, { recursive: true, force: true });
+      magnus.assertContract();
+    },
   };
 }
 

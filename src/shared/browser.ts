@@ -1469,8 +1469,9 @@ export const agentOperationResponseSchema = agentOperationSchema;
 
 // ── Agent definitions (hive-agent-definition/1) ──
 // One portable, complete agent definition, as Magnus 3.3.0 validates and installs it. This is the shape of
-// @hivemagnus/magnus-contracts `agent-definition` (Magnus 3.3.0), ported here until Studio depends on that
-// release. `sha256` is the SHA-256 of the canonical JSON (sorted keys, no whitespace) of the definition
+// @hivemagnus/magnus-contracts `agent-definition`, repeated here because this file imports only zod (HiveXUI
+// vendors it as one file); test/definition.test.ts fails when the two differ. The server verifies, seals and
+// digests definitions with magnus-contracts itself. `sha256` is the SHA-256 of the canonical JSON (sorted keys, no whitespace) of the definition
 // without `sha256`; `persona.sha256` that of `{ soul_md, identity_md }`. A definition never carries a
 // credential: secrets are named environment variables, installation resources are named bindings, and
 // history, memory, sessions and artifacts are always excluded.

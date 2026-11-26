@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- `@hivemagnus/magnus-contracts` moves from an exact 3.1.2 pin to `^3.3.6`. Agent definitions are now digested,
+  sealed, verified and checked for credentials with that package's `agent-definition` module, and the Magnus
+  3.3.0 answers (task recovery and its decision, artifact renditions, `unsupported_capability` details, definition
+  operations and the definition preflight) are validated with its `ardent-service` schemas. Studio's own copies
+  are gone. Studio still bounds recoveries and renditions to the sizes it stores, keeps preflight problem codes a
+  later Magnus may add, and checks only the frame of the task lineage, which the contract relays unchanged. The
+  browser contract keeps its zod-only copy of the definition shape for HiveXUI; a test fails when it differs
+  from magnus-contracts.
+- The fake Magnus in the tests checks every request Studio sends and every answer and stream event it serves
+  against the published magnus-contracts routes and schemas, so a Magnus shape change now fails Studio's tests.
+
 ## [0.5.1] - 2026-11-24
 
 Upgrading: replace the image; no migration and no settings change.

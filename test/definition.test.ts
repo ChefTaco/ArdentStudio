@@ -1,10 +1,12 @@
 import { readFileSync } from 'node:fs';
+import * as contract from '@hivemagnus/magnus-contracts/agent-definition';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import * as browser from '../src/shared/browser.js';
 import {
   agentDefinitionSha256, agentPersonaSha256, canonicalJson, DEFINITION_MIN_ARDENT, definitionRuntimeVersion, sealAgentDefinition, verifyAgentDefinition,
-  type AgentDefinition, type AgentDefinitionBody,
+  credentialLikePaths, type AgentDefinition, type AgentDefinitionBody,
 } from '../src/templates/definition.js';
-import { credentialLikePaths } from '../src/templates/secrets.js';
 import { createProject, createTestContext, json, waitFor, type TestContext } from './helpers.js';
 
 // Produced by sealAgentDefinition of @hivemagnus/magnus-contracts (Magnus 3.3.0) from the bodies in its own tests.
@@ -38,35 +40,47 @@ async function exported(id: string, version = 1) {
   return json<{ definition: AgentDefinition; omitted: Array<{ kind: string; name: string; reason: string }> }>(response);
 }
 
-describe('hive-agent-definition/1 port', () => {
-  it('seals and verifies exactly as magnus-contracts does', () => {
+describe('hive-agent-definition/1 from magnus-contracts', () => {
+  it('seals and verifies exactly as Magnus 3.3.0 did', async () => {
     expect(canonicalJson(fixture.canonical_sample.input)).toBe(fixture.canonical_sample.output);
     expect(canonicalJson({ b: [1, { d: 'x', c: undefined }], a: null })).toBe('{"a":null,"b":[1,{"d":"x"}]}');
     expect(() => canonicalJson({ a: Number.NaN })).toThrow();
-    const sealed = sealAgentDefinition(fixture.body);
+    const sealed = await sealAgentDefinition(fixture.body);
     expect(sealed).toEqual(fixture.sealed);
     const { sha256: _sha, ...rest } = sealed;
     expect(canonicalJson(rest)).toBe(fixture.canonical_body);
     expect(canonicalJson({ soul_md: fixture.body.persona.soul_md, identity_md: fixture.body.persona.identity_md })).toBe(fixture.persona_canonical);
-    expect(agentPersonaSha256(fixture.sealed.persona)).toBe(fixture.sealed.persona.sha256);
-    expect(agentDefinitionSha256(fixture.unicode)).toBe(fixture.unicode.sha256);
-    expect(verifyAgentDefinition(fixture.unicode)).toMatchObject({ ok: true });
+    expect(await agentPersonaSha256(fixture.sealed.persona)).toBe(fixture.sealed.persona.sha256);
+    expect(await agentDefinitionSha256(fixture.unicode)).toBe(fixture.unicode.sha256);
+    expect(await verifyAgentDefinition(fixture.unicode)).toMatchObject({ ok: true });
     // Key order does not matter.
-    expect(verifyAgentDefinition(Object.fromEntries(Object.entries(fixture.sealed).reverse()))).toEqual({ ok: true, definition: fixture.sealed });
+    expect(await verifyAgentDefinition(Object.fromEntries(Object.entries(fixture.sealed).reverse()))).toEqual({ ok: true, definition: fixture.sealed });
   });
 
-  it('refuses a changed definition, a changed persona, a fixed shape broken and credentials anywhere', () => {
-    expect(verifyAgentDefinition({ ...fixture.sealed, name: 'Other' })).toMatchObject({ ok: false, code: 'DEFINITION_INVALID' });
+  it('refuses a changed definition, a changed persona, a fixed shape broken and credentials anywhere', async () => {
+    expect(await verifyAgentDefinition({ ...fixture.sealed, name: 'Other' })).toMatchObject({ ok: false, code: 'DEFINITION_INVALID' });
     const persona = { ...fixture.sealed, persona: { ...fixture.sealed.persona, soul_md: '# Other\n' } };
-    expect(verifyAgentDefinition({ ...persona, sha256: agentDefinitionSha256(persona) })).toMatchObject({ ok: false, detail: expect.stringMatching(/persona\.sha256/) });
-    expect(verifyAgentDefinition({ ...fixture.sealed, excludes: ['history'] }).ok).toBe(false);
-    expect(verifyAgentDefinition({ ...fixture.sealed, history: [] }).ok).toBe(false);
+    expect(await verifyAgentDefinition({ ...persona, sha256: await agentDefinitionSha256(persona) })).toMatchObject({ ok: false, detail: expect.stringMatching(/persona\.sha256/) });
+    expect((await verifyAgentDefinition({ ...fixture.sealed, excludes: ['history'] })).ok).toBe(false);
+    expect((await verifyAgentDefinition({ ...fixture.sealed, history: [] })).ok).toBe(false);
     const jwt = ['eyJ', 'a'.repeat(12), '.eyJ', 'b'.repeat(12), '.', 'c'.repeat(12)].join('');
     const userinfo = ['https://', 'user', ':', 'pass', '@example.com/'].join('');
     expect(credentialLikePaths({ a: [`token ${github()}`], b: { c: jwt }, d: userinfo, e: 'plain text' })).toEqual(['$.a[0]', '$.b.c', '$.d']);
     expect(credentialLikePaths({ [github()]: 'x' })).toEqual(['$[key]']);
-    const leaked = verifyAgentDefinition({ ...fixture.body, persona: { ...fixture.body.persona, soul_md: `Bearer ${'z'.repeat(30)}` } });
+    const leaked = await verifyAgentDefinition({ ...fixture.body, persona: { ...fixture.body.persona, soul_md: `Bearer ${'z'.repeat(30)}` } });
     expect(leaked).toMatchObject({ ok: false, code: 'DEFINITION_CONTAINS_CREDENTIAL', paths: ['$.persona.soul_md'] });
+  });
+
+  it('has the browser contract copy of the shape exactly as magnus-contracts defines it', () => {
+    const schemaOf = (schema: z.ZodType) => z.toJSONSchema(schema, { unrepresentable: 'any' });
+    for (const name of ['agentDefinitionSchema', 'agentDefinitionBodySchema', 'agentDefinitionBindingsSchema', 'agentDefinitionBindingKeySchema'] as const) {
+      expect(schemaOf(browser[name]), name).toEqual(schemaOf(contract[name]));
+    }
+    expect(browser.AGENT_DEFINITION_SCHEMA).toBe(contract.AGENT_DEFINITION_SCHEMA);
+    expect(browser.AGENT_DEFINITION_EXCLUDES).toEqual(contract.AGENT_DEFINITION_EXCLUDES);
+    expect(browser.AGENT_DEFINITION_BINDING_KINDS).toEqual(contract.AGENT_DEFINITION_BINDING_KINDS);
+    expect(browser.AGENT_DEFINITION_PROBLEM_CODES).toEqual(contract.AGENT_DEFINITION_PROBLEM_CODES);
+    expect(browser.agentDefinitionSchema.safeParse(fixture.sealed).success).toBe(true);
   });
 
   it('names a runtime of the current Ardent major, or the later one a template asks for', () => {
@@ -81,7 +95,7 @@ describe('template definitions', () => {
     const seed = ctx.store.templates.list({ kind: 'agent', archived: 'false' })[0]!;
     const version = ctx.store.templates.version(seed.id, 1)!;
     const answer = await exported(seed.id);
-    expect(verifyAgentDefinition(answer.definition)).toEqual({ ok: true, definition: answer.definition });
+    expect(await verifyAgentDefinition(answer.definition)).toEqual({ ok: true, definition: answer.definition });
     expect(credentialLikePaths(answer)).toEqual([]);
     expect(answer.definition).toMatchObject({
       schema: 'hive-agent-definition/1', name: seed.name, created_at: version.created_at, source_template: { template_id: seed.id, version: 1 },
@@ -90,7 +104,7 @@ describe('template definitions', () => {
       requirements: { bindings: [{ key: 'hivemem', kind: 'hivemem', required: true }, { key: 'model', kind: 'emberpath_alias', required: true }], secrets: [] },
       excludes: ['history', 'memory', 'sessions', 'artifacts'],
     });
-    expect(answer.definition.persona).toMatchObject({ soul_md: version.kind === 'agent' ? version.body.soul_md : '', sha256: agentPersonaSha256(answer.definition.persona) });
+    expect(answer.definition.persona).toMatchObject({ soul_md: version.kind === 'agent' ? version.body.soul_md : '', sha256: await agentPersonaSha256(answer.definition.persona) });
     expect((await exported(seed.id)).definition.sha256).toBe(answer.definition.sha256);
   });
 
@@ -173,7 +187,7 @@ describe('definition import', () => {
     expect((await json(renamed)).error).toMatchObject({ code: 'DEFINITION_INVALID', message: expect.stringMatching(/sha256/) });
 
     const leakedBody = { ...definition, persona: { ...definition.persona, identity_md: `Use ${github()}` } };
-    const leaked = await ctx.call('POST', '/templates/import-definition', { body: { definition: sealAgentDefinition(leakedBody) } });
+    const leaked = await ctx.call('POST', '/templates/import-definition', { body: { definition: await sealAgentDefinition(leakedBody) } });
     expect(leaked.status).toBe(422);
     expect((await json(leaked)).error).toMatchObject({ code: 'DEFINITION_CONTAINS_CREDENTIAL', details: { paths: ['$.definition.persona.identity_md'] } });
     expect(JSON.stringify(await json(await ctx.call('GET', `/templates/${template.id}`)))).not.toContain(github());
