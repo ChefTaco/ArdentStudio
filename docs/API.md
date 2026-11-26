@@ -176,7 +176,8 @@ installs it: persona, runtime, reviewed extensions and HiveSkills releases by re
 configuration and the bindings and secrets a target must supply. It never carries a credential and
 always excludes history, memory, sessions and artifacts. `sha256` is the SHA-256 of its canonical JSON
 (sorted keys, no whitespace) without `sha256`; `persona.sha256` that of `{soul_md, identity_md}`.
-Studio ports the schema and digests from `@hivemagnus/magnus-contracts` (Magnus 3.3.0).
+Studio checks, seals and digests definitions with `@hivemagnus/magnus-contracts` itself (`agent-definition`,
+Magnus 3.3.0 and later); the browser contract repeats only the shape, and a test keeps the two equal.
 
 - **Build** (`POST /templates/:id/versions/:v/definition`, empty body) answers `{definition, omitted}`
   for an agent template version. Nothing is stored; `created_at` is the version's, so one version always
