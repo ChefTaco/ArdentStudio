@@ -6,8 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
-Needs Magnus 3.5.0 or later for Emberpath-alias agents: it takes the Emberpath client key, and an older Magnus
-refuses the new field. HiveXUI needs the new browser contract to send it.
+## [0.8.0] - 2026-11-27
+
+### Upgrade notes
+
+- Emberpath-alias agents (New Agent with an `emberpath_alias` model, and Create agent from definition for a
+  definition whose model is an Emberpath alias) need Magnus 3.5.0 or later: Magnus 3.5.0 takes the
+  write-only `emberpath_client_key` and requires it for an alias (`400 EMBERPATH_KEY_REQUIRED` on New
+  Agent, `SECRET_UNBOUND` in the definition preflight). An older Magnus refuses the new field; agents with
+  an OpenAI-compatible endpoint model keep working as before.
+- HiveXUI needs the new browser contract (`emberpath_client_key` on the three requests) to send the key;
+  older consoles keep working (the field is optional and additive).
+- No migrations: the database is unchanged and going back to 0.7.0 is safe. No settings change.
 
 ### Fixed
 

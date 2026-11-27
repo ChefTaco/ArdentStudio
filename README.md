@@ -15,12 +15,12 @@ A project has three areas:
 3. **Agent Studio**: agent tuning, previews, development records and **Deliverable Review**
    (verified deliverable revisions, anchored comments, revision requests, decisions and exports).
 
-The current release, 0.7.0, covers projects, reference files with HiveMem knowledge sync,
+The current release, 0.8.0, covers projects, reference files with HiveMem knowledge sync,
 templates and portable agent definitions, team assignment, agents through Magnus (Agent Studio
 drafts, streaming previews, apply, development records and New Agent), the conversation room with
 its conductor (workflows, execution references, task recovery and lineage, resumable artifact
 imports), Deliverable Review, optional per-project membership, purge of archived projects, the
-live project event stream and the suite audit export (`GET /api/ardentstudio/v1/audit/export`).
+Emberpath client key relay for Emberpath-alias agents (Magnus 3.5.0), the live project event stream and the suite audit export (`GET /api/ardentstudio/v1/audit/export`).
 [CHANGELOG.md](CHANGELOG.md) lists what each release changed.
 
 ## Requirements
@@ -133,8 +133,8 @@ Portable agent definitions (`hive-agent-definition/1`, Magnus 3.3.0, see [docs/A
 |---|---|
 | `POST /templates/:id/versions/:v/definition` | templates:read |
 | `POST /templates/import-definition` (`{definition, template_id?, base_version?, changelog?}`) | templates:write |
-| `POST /templates/:id/versions/:v/deploy-check` (`{node_id, bindings?}`) | agents:admin |
-| `POST /templates/:id/versions/:v/deploy` (`{node_id, profile, bindings, api_port?, project_id?, role_key?}`) | agents:admin |
+| `POST /templates/:id/versions/:v/deploy-check` (`{node_id, bindings?, emberpath_client_key?}`) | agents:admin |
+| `POST /templates/:id/versions/:v/deploy` (`{node_id, profile, bindings, emberpath_client_key?, api_port?, project_id?, role_key?}`) | agents:admin |
 
 `GET /api/ardentstudio/v1/audit/export` serves the audit log as suite `HiveAuditRecord` v1
 records for a collector such as Cindertrace. It needs the permission `ardentstudio:audit:read`,
