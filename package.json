@@ -1,6 +1,6 @@
 {
   "name": "@hivemagnus/ardent-studio",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Ardent Project Studio service: projects, team assignment, conversation room and deliverable review for Ardent agents managed by Magnus",
   "keywords": [
     "ardent",
