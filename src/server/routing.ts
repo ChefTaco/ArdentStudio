@@ -5,7 +5,10 @@ import type { Context, Hono } from 'hono';
 import { AccessDenied, type Authenticator, type Principal } from '../auth/authenticator.js';
 import type { ProjectAccess } from '../auth/project-access.js';
 import type { Store } from '../db/store.js';
-import { ARDENT_STUDIO_API_PREFIX, ardentStudioBrowserRoutes, IDEMPOTENCY_HEADER, idempotencyKeySchema, projectRoleOf, type ArdentStudioBrowserRoute, type ProjectScopedParam } from '../shared/browser.js';
+import {
+  ARDENT_STUDIO_API_PREFIX, ardentStudioBrowserRoutes, IDEMPOTENCY_HEADER, idempotencyKeySchema, projectRoleOf, WRITE_ONLY_REQUEST_FIELDS,
+  type ArdentStudioBrowserRoute, type ProjectScopedParam,
+} from '../shared/browser.js';
 import { requireProjectRole } from './deps.js';
 import type { AppEnv } from './env.js';
 import { ApiError } from './errors.js';
@@ -104,6 +107,18 @@ function fingerprintOf(...parts: string[]): string {
   return createHash('sha256').update(parts.join('\u0000')).digest('hex');
 }
 
+/**
+ * The body the idempotency fingerprint hashes. A write-only credential (an Emberpath client key) is replaced by a
+ * marker, so no digest of it is stored: the same request with another key replays, one without a key does not.
+ */
+function fingerprintBody(text: string, value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return text;
+  const record = value as Record<string, unknown>;
+  const present = WRITE_ONLY_REQUEST_FIELDS.filter(field => Object.hasOwn(record, field));
+  if (!present.length) return text;
+  return JSON.stringify({ ...record, ...Object.fromEntries(present.map(field => [field, '[write-only]'])) });
+}
+
 export function createRouter(app: Hono<AppEnv>, deps: { store: Store; authenticate: Authenticator; access: ProjectAccess }) {
   return function register(method: ArdentStudioBrowserRoute['method'], path: string, handler: RouteHandler): void {
     const route = routeDefinition(method, path);
@@ -131,7 +146,7 @@ export function createRouter(app: Hono<AppEnv>, deps: { store: Store; authentica
       let bodyText = '';
       if (route.requestBody === 'json') {
         const read = await readJsonBody(c);
-        bodyText = read.text;
+        bodyText = fingerprintBody(read.text, read.value);
         body = route.request ? route.request.parse(read.value) : read.value;
       } else if (route.requestBody === undefined && route.idempotent && (c.req.header('content-length') ?? '0') !== '0') {
         // Body-less mutations ignore any body, but a large one is refused rather than buffered.

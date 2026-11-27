@@ -18,6 +18,7 @@ import {
   type previewRequestSchema, type putAgentDraftRequestSchema, type putPresentationRequestSchema,
 } from '../../shared/browser.js';
 import { actorOf, requireProject, requireProjectRole, type RouteDeps } from '../deps.js';
+import { emberpathRefusal, forgetEmberpathKey } from '../emberpath-key.js';
 import { ApiError, notFound } from '../errors.js';
 import type { createRouter } from '../routing.js';
 
@@ -44,6 +45,8 @@ function requireRef(value: string | undefined): string {
 /** Magnus refusals keep their meaning; anything else is Magnus being unreachable. */
 function magnusError(error: unknown, upgradeCode = 'AGENT_UPGRADE_REQUIRED'): never {
   if (error instanceof MagnusError) {
+    const refused = emberpathRefusal(error);
+    if (refused) throw refused;
     if (error.code === 'AGENT_UPGRADE_REQUIRED') throw new ApiError(409, upgradeCode, error.message);
     if (error.status === 403) throw new ApiError(403, error.code, `Magnus refused: ${error.message}`);
     if (error.status === 409) throw new ApiError(409, error.code === 'CONFLICT' ? 'MAGNUS_CONFLICT' : error.code, error.message);
@@ -95,8 +98,9 @@ export function agentStudioRoutes(register: ReturnType<typeof createRouter>, dep
     try {
       accepted = await magnus.createAgent({ nodeId: input.node_id, profile: input.profile, ...(input.api_port !== undefined ? { apiPort: input.api_port } : {}),
         soul_md: soul, identity_md: identity, model: input.model, skills, hivemem: true,
-        ...(input.artifacts_max_bytes !== undefined ? { artifacts_max_bytes: input.artifacts_max_bytes } : {}) }, { actingSubject: actor.subject });
-    } catch (error) { magnusError(error); }
+        ...(input.artifacts_max_bytes !== undefined ? { artifacts_max_bytes: input.artifacts_max_bytes } : {}),
+        ...(input.emberpath_client_key !== undefined ? { emberpath_client_key: input.emberpath_client_key } : {}) }, { actingSubject: actor.subject });
+    } catch (error) { magnusError(error); } finally { forgetEmberpathKey(input); }
     const record = store.tx(() => {
       const created = store.agents.recordOperation({ id: accepted.operationId, agentRef: ref, projectId: project?.id ?? null, roleKey: input.role_key ?? null, createdBy: actor.userId });
       if (template && !store.agents.presentation(ref)) {

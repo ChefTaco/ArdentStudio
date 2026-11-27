@@ -2191,7 +2191,7 @@
           "ardentstudio:agents:admin"
         ],
         "x-idempotent": false,
-        "description": "Builds the version's definition and asks Magnus to validate it for the node and bindings as the acting person, whom Magnus requires to be a linked Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). Answers Magnus's preflight (MISSING_BINDING, SKILL_VERSION_UNAVAILABLE, EXTENSION_NOT_REVIEWED, RUNTIME_INCOMPATIBLE, CAPABILITY_MISSING, SECRET_UNBOUND). A Magnus without agent definitions (before 3.3.0) answers 409 MAGNUS_UPGRADE_REQUIRED; 404 NOT_FOUND for an unknown node.",
+        "description": "Builds the version's definition and asks Magnus to validate it for the node and bindings as the acting person, whom Magnus requires to be a linked Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). Answers Magnus's preflight (MISSING_BINDING, SKILL_VERSION_UNAVAILABLE, EXTENSION_NOT_REVIEWED, RUNTIME_INCOMPATIBLE, CAPABILITY_MISSING, SECRET_UNBOUND). An Emberpath-alias definition needs the write-only emberpath_client_key, which Magnus checks against Emberpath; without it the preflight reports SECRET_UNBOUND (Emberpath key missing). The key is never stored or returned. A Magnus without agent definitions (before 3.3.0) answers 409 MAGNUS_UPGRADE_REQUIRED; 404 NOT_FOUND for an unknown node.",
         "security": [
           {
             "oathweave": []
@@ -2280,7 +2280,7 @@
           "ardentstudio:agents:admin"
         ],
         "x-idempotent": true,
-        "description": "Create agent from definition: Magnus installs the version's definition as a new profile (a New Agent operation of kind definition) once its preflight passes, as the acting Magnus ADMIN. 409 PREFLIGHT_FAILED with error.details.problems creates nothing; 409 MAGNUS_UPGRADE_REQUIRED before Magnus 3.3.0. Progress is relayed as agent.operation.updated on project_id's stream.",
+        "description": "Create agent from definition: Magnus installs the version's definition as a new profile (a New Agent operation of kind definition) once its preflight passes, as the acting Magnus ADMIN. 409 PREFLIGHT_FAILED with error.details.problems creates nothing; 409 MAGNUS_UPGRADE_REQUIRED before Magnus 3.3.0. An Emberpath-alias definition needs the write-only emberpath_client_key (without it, or when Emberpath refuses it, 409 PREFLIGHT_FAILED with SECRET_UNBOUND; Magnus's EMBERPATH_* refusals keep their codes); it is never stored or returned. Progress is relayed as agent.operation.updated on project_id's stream.",
         "security": [
           {
             "oathweave": []
@@ -3113,7 +3113,7 @@
           "ardentstudio:agents:admin"
         ],
         "x-idempotent": true,
-        "description": "Magnus New Agent with the acting person: Magnus also requires that person to be a Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). The agent always gets HiveMem. Progress is relayed as agent.operation.updated on project_id's stream.",
+        "description": "Magnus New Agent with the acting person: Magnus also requires that person to be a Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). The agent always gets HiveMem. An emberpath_alias model needs the write-only emberpath_client_key: 400 EMBERPATH_KEY_REQUIRED without it, 409 EMBERPATH_NOT_EXPLICIT, 422 EMBERPATH_KEY_INVALID, EMBERPATH_KEY_FORBIDDEN or EMBERPATH_ALIAS_UNAVAILABLE; it is never stored or returned. Progress is relayed as agent.operation.updated on project_id's stream.",
         "security": [
           {
             "oathweave": []
@@ -9288,6 +9288,9 @@
           },
           "bindings": {
             "$ref": "#/components/schemas/AgentDefinitionBindings"
+          },
+          "emberpath_client_key": {
+            "$ref": "#/components/schemas/EmberpathClientKey"
           }
         },
         "required": [
@@ -9335,6 +9338,9 @@
             "type": "integer",
             "minimum": 1024,
             "maximum": 65535
+          },
+          "emberpath_client_key": {
+            "$ref": "#/components/schemas/EmberpathClientKey"
           },
           "project_id": {
             "$ref": "#/components/schemas/ProjectId"
@@ -9968,6 +9974,10 @@
       "EmberpathAlias": {
         "type": "string",
         "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$"
+      },
+      "EmberpathClientKey": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._~+/=-]{16,512}$"
       },
       "ErrorResponse": {
         "type": "object",
@@ -11252,6 +11262,9 @@
           },
           "model": {
             "$ref": "#/components/schemas/NewAgentModelInput"
+          },
+          "emberpath_client_key": {
+            "$ref": "#/components/schemas/EmberpathClientKey"
           },
           "skills": {
             "maxItems": 100,

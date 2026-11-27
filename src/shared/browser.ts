@@ -1523,6 +1523,15 @@ const credentialFreeUrl = (value: string) => {
     return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
   } catch { return false; }
 };
+/**
+ * An Emberpath client key (Magnus's ARDENT_EMBERPATH_CLIENT_KEY_PATTERN): 16 to 512 characters without
+ * whitespace. Write-only: Studio relays it to Magnus for one request and never stores, logs, audits or returns it.
+ */
+export const EMBERPATH_CLIENT_KEY_PATTERN = /^[A-Za-z0-9._~+/=-]{16,512}$/u;
+export const emberpathClientKeySchema = z.string().regex(EMBERPATH_CLIENT_KEY_PATTERN, 'Expected an Emberpath client key: 16 to 512 characters without whitespace');
+/** Request fields that carry a credential: never stored, and left out of the idempotency fingerprint. */
+export const WRITE_ONLY_REQUEST_FIELDS = ['emberpath_client_key'] as const;
+
 /** An Emberpath alias, or an OpenAI-compatible endpoint and model. Never credentials. */
 export const newAgentModelSchema = z.union([
   z.object({ emberpath_alias: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/) }).strict(),
@@ -1537,6 +1546,11 @@ export const newAgentRequestSchema = z.object({
   soul_md: z.string().min(1).max(131_072).optional(),
   identity_md: z.string().min(1).max(131_072).optional(),
   model: newAgentModelSchema,
+  /**
+   * The Emberpath client key the operator created in Emberpath, required with an emberpath_alias model (Magnus
+   * answers 400 EMBERPATH_KEY_REQUIRED without it). Relayed to Magnus, which delivers it to the new profile.
+   */
+  emberpath_client_key: emberpathClientKeySchema.optional(),
   skills: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,100}$/)).max(100).optional(),
   artifacts_max_bytes: z.number().int().min(1024).max(67_108_864).optional(),
   /** Relay the operation's progress to this project's stream. */
@@ -1689,6 +1703,11 @@ export const importDefinitionResponseSchema = z.object({
 export const definitionDeployCheckRequestSchema = z.object({
   node_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
   bindings: agentDefinitionBindingsSchema.optional(),
+  /**
+   * The Emberpath client key the install will deliver, so Magnus can check it against Emberpath. Without it, a
+   * definition whose model is an Emberpath alias (backend llamacpp) reports SECRET_UNBOUND (Emberpath key missing).
+   */
+  emberpath_client_key: emberpathClientKeySchema.optional(),
 }).strict();
 export const definitionDeployCheckResponseSchema = z.object({
   definition: sourceDefinitionSchema,
@@ -1701,6 +1720,11 @@ export const definitionDeployRequestSchema = z.object({
   profile: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
   bindings: agentDefinitionBindingsSchema,
   api_port: z.number().int().min(1024).max(65535).optional(),
+  /**
+   * The Emberpath client key for the definition's Emberpath alias, required for one: Magnus delivers it to the
+   * new profile and it satisfies the definition's model-key secret. Never stored or returned.
+   */
+  emberpath_client_key: emberpathClientKeySchema.optional(),
   /** Relay the operation's progress to this project's stream. */
   project_id: projectIdSchema.optional(),
   role_key: roleKeySchema.optional(),
@@ -1902,8 +1926,8 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
   { method: 'POST', path: '/templates/{templateId}/versions', requestBody: 'json', request: createTemplateVersionRequestSchema, response: templateDetailSchema, permissions: TEMPLATES_WRITE, idempotent: true, successStatus: 201, note: 'Versions are immutable. 409 when base_version is not the latest.' },
   { method: 'POST', path: '/templates/{templateId}/archive', requestBody: 'json', request: archiveTemplateRequestSchema, response: templateDetailSchema, permissions: TEMPLATES_WRITE, idempotent: true },
   { method: 'POST', path: '/templates/{templateId}/versions/{version}/definition', requestBody: 'json', request: buildDefinitionRequestSchema, response: buildDefinitionResponseSchema, permissions: TEMPLATES_READ, idempotent: false, note: 'Builds a sealed hive-agent-definition/1 from an agent template version: persona, pinned HiveSkills releases, Emberpath model alias, runtime and bindings. Nothing is stored and the same version always gives the same definition (created_at is the version\'s). Skills without a pinned version and digest, and a model that is not an alias, are listed in omitted. 422 NOT_AGENT_TEMPLATE, 422 DEFINITION_INCOMPLETE (empty soul or identity), 422 DEFINITION_CONTAINS_CREDENTIAL.' },
-  { method: 'POST', path: '/templates/{templateId}/versions/{version}/deploy-check', requestBody: 'json', request: definitionDeployCheckRequestSchema, response: definitionDeployCheckResponseSchema, permissions: AGENTS_ADMIN, idempotent: false, note: 'Builds the version\'s definition and asks Magnus to validate it for the node and bindings as the acting person, whom Magnus requires to be a linked Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). Answers Magnus\'s preflight (MISSING_BINDING, SKILL_VERSION_UNAVAILABLE, EXTENSION_NOT_REVIEWED, RUNTIME_INCOMPATIBLE, CAPABILITY_MISSING, SECRET_UNBOUND). A Magnus without agent definitions (before 3.3.0) answers 409 MAGNUS_UPGRADE_REQUIRED; 404 NOT_FOUND for an unknown node.' },
-  { method: 'POST', path: '/templates/{templateId}/versions/{version}/deploy', requestBody: 'json', request: definitionDeployRequestSchema, response: agentOperationResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, successStatus: 201, note: 'Create agent from definition: Magnus installs the version\'s definition as a new profile (a New Agent operation of kind definition) once its preflight passes, as the acting Magnus ADMIN. 409 PREFLIGHT_FAILED with error.details.problems creates nothing; 409 MAGNUS_UPGRADE_REQUIRED before Magnus 3.3.0. Progress is relayed as agent.operation.updated on project_id\'s stream.' },
+  { method: 'POST', path: '/templates/{templateId}/versions/{version}/deploy-check', requestBody: 'json', request: definitionDeployCheckRequestSchema, response: definitionDeployCheckResponseSchema, permissions: AGENTS_ADMIN, idempotent: false, note: 'Builds the version\'s definition and asks Magnus to validate it for the node and bindings as the acting person, whom Magnus requires to be a linked Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). Answers Magnus\'s preflight (MISSING_BINDING, SKILL_VERSION_UNAVAILABLE, EXTENSION_NOT_REVIEWED, RUNTIME_INCOMPATIBLE, CAPABILITY_MISSING, SECRET_UNBOUND). An Emberpath-alias definition needs the write-only emberpath_client_key, which Magnus checks against Emberpath; without it the preflight reports SECRET_UNBOUND (Emberpath key missing). The key is never stored or returned. A Magnus without agent definitions (before 3.3.0) answers 409 MAGNUS_UPGRADE_REQUIRED; 404 NOT_FOUND for an unknown node.' },
+  { method: 'POST', path: '/templates/{templateId}/versions/{version}/deploy', requestBody: 'json', request: definitionDeployRequestSchema, response: agentOperationResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, successStatus: 201, note: 'Create agent from definition: Magnus installs the version\'s definition as a new profile (a New Agent operation of kind definition) once its preflight passes, as the acting Magnus ADMIN. 409 PREFLIGHT_FAILED with error.details.problems creates nothing; 409 MAGNUS_UPGRADE_REQUIRED before Magnus 3.3.0. An Emberpath-alias definition needs the write-only emberpath_client_key (without it, or when Emberpath refuses it, 409 PREFLIGHT_FAILED with SECRET_UNBOUND; Magnus\'s EMBERPATH_* refusals keep their codes); it is never stored or returned. Progress is relayed as agent.operation.updated on project_id\'s stream.' },
   { method: 'POST', path: '/templates/import-definition', requestBody: 'json', request: importDefinitionRequestSchema, response: importDefinitionResponseSchema, permissions: TEMPLATES_WRITE, idempotent: true, successStatus: 201, note: 'Verifies a hive-agent-definition/1 (schema, both digests, credential guard: 422 DEFINITION_INVALID or DEFINITION_CONTAINS_CREDENTIAL) and stores it as a new immutable agent template version with source_definition {name, sha256}: of template_id, else of the definition\'s source_template when it exists here, else of a new template. The base is base_version, else the source_template version; a newer latest version answers 409 VERSION_CONFLICT. Fields a template cannot hold are listed in ignored.' },
 
   // Team assignment
@@ -1919,7 +1943,7 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
 
   // Agents
   { method: 'GET', path: '/agents', response: listAgentsResponseSchema, permissions: READ, idempotent: false, note: 'Magnus-managed Ardent profiles. When Magnus is unavailable the list is empty and magnus.state says so.' },
-  { method: 'POST', path: '/agents', requestBody: 'json', request: newAgentRequestSchema, response: agentOperationResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, successStatus: 201, note: 'Magnus New Agent with the acting person: Magnus also requires that person to be a Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). The agent always gets HiveMem. Progress is relayed as agent.operation.updated on project_id\'s stream.' },
+  { method: 'POST', path: '/agents', requestBody: 'json', request: newAgentRequestSchema, response: agentOperationResponseSchema, permissions: AGENTS_ADMIN, idempotent: true, successStatus: 201, note: 'Magnus New Agent with the acting person: Magnus also requires that person to be a Magnus ADMIN (403 ACTING_ADMIN_REQUIRED). The agent always gets HiveMem. An emberpath_alias model needs the write-only emberpath_client_key: 400 EMBERPATH_KEY_REQUIRED without it, 409 EMBERPATH_NOT_EXPLICIT, 422 EMBERPATH_KEY_INVALID, EMBERPATH_KEY_FORBIDDEN or EMBERPATH_ALIAS_UNAVAILABLE; it is never stored or returned. Progress is relayed as agent.operation.updated on project_id\'s stream.' },
   { method: 'GET', path: '/agents/operations/{operationId}', response: agentOperationResponseSchema, permissions: READ, idempotent: false, note: 'Operations started from Studio. Magnus\'s current view, or the last relayed one when Magnus is unreachable.' },
   { method: 'GET', path: '/agents/{agentRef}/presentation', response: presentationSchema, permissions: READ, idempotent: false },
   { method: 'PUT', path: '/agents/{agentRef}/presentation', requestBody: 'json', request: putPresentationRequestSchema, response: presentationSchema, permissions: WRITE, idempotent: true, note: 'Studio-only display name and portrait; the agent itself is unchanged.' },

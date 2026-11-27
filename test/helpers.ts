@@ -124,6 +124,9 @@ export class FakeHiveMem {
   };
 }
 
+/** A fake Emberpath client key (Magnus #164's pattern): New Agent and definition installs of an alias need one. */
+export const EMBERPATH_KEY = 'fixture-emberpath-client-key-0001';
+
 export class ManualClock implements Clock {
   constructor(public current = new Date('2026-11-08T12:00:00.000Z')) {}
   now(): Date { return new Date(this.current); }
@@ -176,7 +179,7 @@ export async function createTestContext(options: { clock?: Clock; maxBlobBytes?:
     follower: { pollMinMs: 20, pollMaxMs: 50, pollWindowMs: 300, reconnectMs: 10 }, ...options.conductor });
   const importer = attachReview({ store, blobs, magnus: magnusClient, conductor, logger: silentLogger, retryMs: 20, maxAttempts: 2 });
   importer.start();
-  const operations = new OperationRelay(store, magnusClient, silentLogger, { pollMs: 20, onFinished: () => agents.invalidate() });
+  const operations = new OperationRelay(store, magnusClient, options.logger ?? silentLogger, { pollMs: 20, onFinished: () => agents.invalidate() });
   const proposer = new TeamProposer(store, agents, conductor);
   const app = createApp({ operations, proposer, store, blobs, bus, authenticate, agents, hivemem, knowledge, logger: options.logger ?? silentLogger, conductor, live, magnus: magnusClient, docx: options.docx, people: options.people ?? LINKS,
     ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}), ...(options.streamRecheckMs ? { streamRecheckMs: options.streamRecheckMs } : {}) });
