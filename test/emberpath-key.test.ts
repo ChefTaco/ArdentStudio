@@ -3,10 +3,12 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { AGENT_DEFINITION_EMBERPATH_KEY_PATTERN } from '@hivemagnus/magnus-contracts/agent-definition';
+import { ARDENT_EMBERPATH_CLIENT_KEY_PATTERN } from '@hivemagnus/magnus-contracts/ardent-service';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createLogger } from '../src/logger.js';
 import { emberpathRefusal, forgetEmberpathKey } from '../src/server/emberpath-key.js';
-import { emberpathClientKeySchema } from '../src/shared/browser.js';
+import { EMBERPATH_CLIENT_KEY_PATTERN, emberpathClientKeySchema } from '../src/shared/browser.js';
 import { createProject, createTestContext, EMBERPATH_KEY, json, waitFor, type TestContext } from './helpers.js';
 
 let ctx: TestContext;
@@ -31,6 +33,13 @@ const keyOf = (call: { body?: unknown }) => (call.body as { emberpath_client_key
 const sentTo = (path: string) => ctx.magnus.calls.filter(call => call.method === 'POST' && call.path === path);
 
 describe('Emberpath client key', () => {
+  it('keeps the browser contract pattern equal to the published Magnus contract', () => {
+    // The browser contract imports only zod, so it repeats Magnus's pattern; it must not drift from magnus-contracts.
+    expect(EMBERPATH_CLIENT_KEY_PATTERN.source).toBe(ARDENT_EMBERPATH_CLIENT_KEY_PATTERN.source);
+    expect(EMBERPATH_CLIENT_KEY_PATTERN.flags).toBe(ARDENT_EMBERPATH_CLIENT_KEY_PATTERN.flags);
+    expect(AGENT_DEFINITION_EMBERPATH_KEY_PATTERN.source).toBe(ARDENT_EMBERPATH_CLIENT_KEY_PATTERN.source);
+  });
+
   it('has the pattern Magnus checks, and is refused malformed without echoing it or calling Magnus', async () => {
     for (const good of [EMBERPATH_KEY, 'a'.repeat(16), `${'A1._~+/=-'.repeat(56)}abcdefgh`]) expect(emberpathClientKeySchema.safeParse(good).success, good.slice(0, 20)).toBe(true);
     for (const bad of ['short-key', 'a'.repeat(513), 'fixture key with spaces', `${EMBERPATH_KEY}\n`, 'fixture-emberpath-key-ü-0001']) {

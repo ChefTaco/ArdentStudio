@@ -72,21 +72,9 @@ const ACTION_SCHEMAS: Record<string, z.ZodType> = {
   'config-save': ardentConfigSavedSchema, 'skill-install': ardentSkillInstallResultSchema, 'task-recovery': ardentTaskRecoverySchema,
 };
 
-/**
- * Requests that take Magnus #164's write-only emberpath_client_key. The published magnus-contracts does not have the
- * field yet, so the fake checks it against Magnus's pattern and the rest of the body against the published schema.
- */
-const EMBERPATH_KEY_ROUTES = new Set(['POST /api/v1/ardent/agents', 'POST /api/v1/ardent/agent-definitions/validate', 'POST /api/v1/ardent/agent-definitions/install']);
-const EMBERPATH_KEY_PATTERN = /^[A-Za-z0-9._~+/=-]{16,512}$/u;
-
 /** The contract for a request, or why the request itself breaks it. */
 export function contractFor(method: string, path: string, body: unknown): ServedContract & { requestError?: string } {
   const where = `${method} ${path}`;
-  if (EMBERPATH_KEY_ROUTES.has(where) && body && typeof body === 'object' && 'emberpath_client_key' in body) {
-    const { emberpath_client_key: key, ...rest } = body as Record<string, unknown>;
-    const contract = contractFor(method, path, rest);
-    return typeof key === 'string' && EMBERPATH_KEY_PATTERN.test(key) ? contract : { ...contract, requestError: 'emberpath_client_key: not an Emberpath client key' };
-  }
   const match = ROUTES.find(item => item.route.method === method && item.pattern.test(path));
   // Studio calls only what a linked service identity may call; anything else answers 403 from real Magnus.
   if (!match) return { where, requestError: 'not a route of ardentServiceRoutes' };
