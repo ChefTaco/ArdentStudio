@@ -307,7 +307,7 @@ Magnus 3.3.0 and later); the browser contract repeats only the shape, and a test
   when the key may not use the alias), and the deploy answers `409 PREFLIGHT_FAILED`. The key is
   write-only: Studio never stores, logs, audits or returns it, and the idempotency fingerprint leaves it
   out (the same deploy with another key replays). Magnus's own `EMBERPATH_*` refusals keep their status
-  and code. It needs the Magnus release after 3.4.1 (Magnus #164); an older Magnus refuses the field.
+  and code. It needs Magnus 3.5.0 or later; an older Magnus refuses the field.
 - **Create agent from definition** (`POST /templates/:id/versions/:v/deploy`, `{node_id, profile,
   bindings, emberpath_client_key?, api_port?, project_id?, role_key?}`) has Magnus install the definition as a new profile
   (`POST /ardent/agent-definitions/install`), a New Agent operation of kind `definition` that starts only

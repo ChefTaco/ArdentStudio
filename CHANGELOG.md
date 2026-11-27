@@ -6,8 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
-Needs the Magnus release after 3.4.1 (Magnus #164 and #165), which takes the Emberpath client key; an older
-Magnus refuses the new field. HiveXUI needs the new browser contract to send it.
+Needs Magnus 3.5.0 or later for Emberpath-alias agents: it takes the Emberpath client key, and an older Magnus
+refuses the new field. HiveXUI needs the new browser contract to send it.
 
 ### Fixed
 
@@ -20,8 +20,13 @@ Magnus refuses the new field. HiveXUI needs the new browser contract to send it.
   idempotency fingerprint (the same request with another key replays). Magnus's `EMBERPATH_*` refusals
   (`EMBERPATH_KEY_REQUIRED`, `EMBERPATH_KEY_INVALID`, `EMBERPATH_KEY_FORBIDDEN`,
   `EMBERPATH_ALIAS_UNAVAILABLE`, `EMBERPATH_NOT_EXPLICIT`, `EMBERPATH_UNAVAILABLE`) keep their status and
-  code instead of becoming `MAGNUS_REJECTED` or `MAGNUS_UNAVAILABLE`. `@hivemagnus/magnus-contracts` does
-  not publish the field yet, so Studio adds it to those requests itself until that Magnus release.
+  code instead of becoming `MAGNUS_REJECTED` or `MAGNUS_UNAVAILABLE`.
+
+### Changed
+
+- `@hivemagnus/magnus-contracts` is now `^3.5.0`, which publishes `emberpath_client_key` on New Agent and on
+  definition validate and install. Studio sends those requests through the published schemas instead of adding
+  the field itself, and a test keeps the browser contract's key pattern equal to Magnus's.
 
 ## [0.7.0] - 2026-11-26
 
