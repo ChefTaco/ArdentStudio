@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { configuredSkills } from '../src/agents/config-edit.js';
 import { parseSse, type SseMessage } from '../src/clients/sse.js';
 import { ARDENT_STUDIO_API_PREFIX } from '../src/shared/browser.js';
-import { createProject, createTestContext, json, profile, publishTeam, waitFor, type TestContext } from './helpers.js';
+import { createProject, createTestContext, EMBERPATH_KEY, json, profile, publishTeam, waitFor, type TestContext } from './helpers.js';
 
 let ctx: TestContext;
 afterEach(async () => { await ctx?.close(); });
@@ -241,7 +241,7 @@ describe('New Agent', () => {
     const refs = async () => (await json(await ctx.call('GET', '/agents'))).agents.map((agent: { agent_ref: string }) => agent.agent_ref) as string[];
     expect(await refs()).not.toContain('node3~cartographer');
     const operation = await json(await ctx.call('POST', '/agents', { body: { node_id: 'node3', profile: 'cartographer', soul_md: 'S', identity_md: 'I',
-      model: { emberpath_alias: 'fixture' }, project_id: project.id } }));
+      model: { emberpath_alias: 'fixture' }, emberpath_client_key: EMBERPATH_KEY, project_id: project.id } }));
     await waitFor(() => ctx.magnus.calls.some(call => call.path.endsWith(`/operations/${operation.id}/stream`)));
     ctx.magnus.profiles = [...ctx.magnus.profiles, profile('node3', 'cartographer')];
     expect(await refs()).not.toContain('node3~cartographer');
@@ -256,14 +256,14 @@ describe('New Agent', () => {
     const template = ctx.store.templates.list({ kind: 'agent', archived: 'false' })[0]!;
     const version = ctx.store.templates.version(template.id, 1)!;
     ctx.magnus.admins.clear();
-    const refused = await ctx.call('POST', '/agents', { body: { node_id: 'node3', profile: 'cartographer', template: { template_id: template.id, version: 1 }, model: { emberpath_alias: 'fixture' } } });
+    const refused = await ctx.call('POST', '/agents', { body: { node_id: 'node3', profile: 'cartographer', template: { template_id: template.id, version: 1 }, model: { emberpath_alias: 'fixture' }, emberpath_client_key: EMBERPATH_KEY } });
     expect(refused.status).toBe(403);
     expect((await json(refused)).error.code).toBe('ACTING_ADMIN_REQUIRED');
     ctx.magnus.admins.add('subject-operator');
-    expect((await ctx.call('POST', '/agents', { body: { node_id: 'node3', profile: 'blank', model: { emberpath_alias: 'fixture' } } })).status).toBe(422);
+    expect((await ctx.call('POST', '/agents', { body: { node_id: 'node3', profile: 'blank', model: { emberpath_alias: 'fixture' }, emberpath_client_key: EMBERPATH_KEY } })).status).toBe(422);
     expect((await ctx.call('POST', '/agents', { body: { node_id: 'node3', profile: 'x', soul_md: 'S', identity_md: 'I', model: { base_url: 'https://user:pw@llm.example.com', model: 'm' } } })).status).toBe(400);
 
-    const created = await ctx.call('POST', '/agents', { body: { node_id: 'node3', profile: 'cartographer', template: { template_id: template.id, version: 1 }, model: { emberpath_alias: 'fixture' },
+    const created = await ctx.call('POST', '/agents', { body: { node_id: 'node3', profile: 'cartographer', template: { template_id: template.id, version: 1 }, model: { emberpath_alias: 'fixture' }, emberpath_client_key: EMBERPATH_KEY,
       project_id: project.id, role_key: 'mapper' } });
     expect(created.status).toBe(201);
     const operation = await json(created);
@@ -271,7 +271,7 @@ describe('New Agent', () => {
     const request = ctx.magnus.calls.find(call => call.method === 'POST' && call.path === '/api/v1/ardent/agents')!;
     const body = version.kind === 'agent' ? version.body : undefined;
     expect(request.actingSubject).toBe('subject-operator');
-    expect(request.body).toMatchObject({ nodeId: 'node3', profile: 'cartographer', soul_md: body!.soul_md, identity_md: body!.identity_md, hivemem: true, model: { emberpath_alias: 'fixture' } });
+    expect(request.body).toMatchObject({ nodeId: 'node3', profile: 'cartographer', soul_md: body!.soul_md, identity_md: body!.identity_md, hivemem: true, model: { emberpath_alias: 'fixture' }, emberpath_client_key: EMBERPATH_KEY });
     expect(ctx.store.agents.presentation('node3~cartographer')).toMatchObject({ display_name: body!.name, portrait: body!.avatar_preset });
 
     await waitFor(() => ctx.magnus.calls.some(call => call.path.endsWith(`/operations/${operation.id}/stream`)));

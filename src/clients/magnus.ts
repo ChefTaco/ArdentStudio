@@ -64,6 +64,7 @@ import {
   type ArdentTaskRecoveryDecision,
 } from '@hivemagnus/magnus-contracts/ardent-service';
 import { z } from 'zod';
+import { emberpathClientKeySchema } from '../shared/browser.js';
 import { parseSse, type SseMessage } from './sse.js';
 import type { ServiceTokenProvider } from './service-token.js';
 import { trimTrailingSlashes } from '../url.js';
@@ -252,13 +253,20 @@ export type ArdentTeamMission = z.infer<typeof ardentTeamMissionSchema>;
 export type ArdentContextItem = z.infer<typeof ardentContextItemSchema>;
 export type ArdentDevelopmentRecord = z.infer<typeof ardentDevelopmentRecordSchema>;
 export type ArdentTaskEvent = z.infer<typeof ardentTaskJournalEventSchema>;
-export type NewAgentRequest = z.input<typeof ardentAgentDeployRequestSchema>;
+/**
+ * The Emberpath client key Magnus takes on New Agent and on definition validate and install (Magnus #164). The
+ * published @hivemagnus/magnus-contracts does not have the field yet, so Studio adds it to those requests itself
+ * (with its own pattern, the same as Magnus's) until the Magnus release that publishes it. Never stored or logged.
+ */
+export interface EmberpathClientKey { emberpath_client_key?: string | undefined }
+const withEmberpathKey = (key: string | undefined) => key !== undefined ? { emberpath_client_key: emberpathClientKeySchema.parse(key) } : {};
+export type NewAgentRequest = z.input<typeof ardentAgentDeployRequestSchema> & EmberpathClientKey;
 /** A New Agent, Enable HiveMem or agent definition (Magnus 3.3.0, request.definition names it) operation. */
 export type MagnusAgentOperation = z.infer<typeof ardentAgentOperationSchema>;
 
 /** Magnus 3.3.0 agent definitions (POST /ardent/agent-definitions/validate and …/install). Both need an acting Magnus ADMIN. */
-export interface DefinitionValidateRequest { definition: unknown; nodeId: string; bindings?: Record<string, string> | undefined }
-export interface DefinitionInstallRequest { definition: unknown; nodeId: string; name: string; bindings: Record<string, string>; apiPort?: number | undefined }
+export interface DefinitionValidateRequest extends EmberpathClientKey { definition: unknown; nodeId: string; bindings?: Record<string, string> | undefined }
+export interface DefinitionInstallRequest extends EmberpathClientKey { definition: unknown; nodeId: string; name: string; bindings: Record<string, string>; apiPort?: number | undefined }
 /** The magnus-contracts preflight report, with problem codes a later Magnus may add kept as text. */
 export const definitionPreflightSchema = agentDefinitionPreflightSchema.extend({
   problems: z.array(agentDefinitionProblemSchema.extend({ code: z.string().max(64) })).max(200),
@@ -556,14 +564,15 @@ export class MagnusClient {
   /** Magnus New Agent deploy operation. Magnus runs it only when the acting person is a Magnus ADMIN. */
   async createAgent(body: NewAgentRequest, context: CallContext): Promise<{ operationId: string }> {
     if (!context.actingSubject) throw new MagnusError('New Agent needs the acting person', 400, 'ACTING_SUBJECT_REQUIRED');
-    return operationAcceptedSchema.parse(await this.json('POST', '/api/v1/ardent/agents', context, ardentAgentDeployRequestSchema.parse(body)));
+    const { emberpath_client_key: key, ...rest } = body;
+    return operationAcceptedSchema.parse(await this.json('POST', '/api/v1/ardent/agents', context, { ...ardentAgentDeployRequestSchema.parse(rest), ...withEmberpathKey(key) }));
   }
 
   /** Magnus's preflight of an agent definition for a node and bindings (Magnus 3.3.0). Needs an acting ADMIN. */
   async validateDefinition(body: DefinitionValidateRequest, context: CallContext): Promise<DefinitionPreflight> {
     if (!context.actingSubject) throw new MagnusError('Validating a definition needs the acting person', 400, 'ACTING_SUBJECT_REQUIRED');
     return definitionPreflightSchema.parse(await this.json('POST', '/api/v1/ardent/agent-definitions/validate', context,
-      { definition: body.definition, nodeId: body.nodeId, ...(body.bindings !== undefined ? { bindings: body.bindings } : {}) }));
+      { definition: body.definition, nodeId: body.nodeId, ...(body.bindings !== undefined ? { bindings: body.bindings } : {}), ...withEmberpathKey(body.emberpath_client_key) }));
   }
 
   /**
@@ -573,7 +582,8 @@ export class MagnusClient {
   async installDefinition(body: DefinitionInstallRequest, context: CallContext): Promise<{ operationId: string }> {
     if (!context.actingSubject) throw new MagnusError('Installing a definition needs the acting person', 400, 'ACTING_SUBJECT_REQUIRED');
     return operationAcceptedSchema.parse(await this.json('POST', '/api/v1/ardent/agent-definitions/install', context,
-      { definition: body.definition, nodeId: body.nodeId, name: body.name, bindings: body.bindings, ...(body.apiPort !== undefined ? { apiPort: body.apiPort } : {}) }));
+      { definition: body.definition, nodeId: body.nodeId, name: body.name, bindings: body.bindings, ...(body.apiPort !== undefined ? { apiPort: body.apiPort } : {}),
+        ...withEmberpathKey(body.emberpath_client_key) }));
   }
 
   /** Step receipts of a New Agent or Enable HiveMem operation. */

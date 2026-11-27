@@ -130,6 +130,13 @@ describe('Magnus client', () => {
     await expect(client.createAgent(deploy, {})).rejects.toThrow(/acting person/);
     expect(await client.createAgent(deploy, { actingSubject: 'subject-operator' })).toEqual({ operationId: 'op-1' });
     expect(calls.at(-1)!.url).toBe('https://magnus.example.com/api/v1/ardent/agents');
+    // Magnus #164's write-only Emberpath client key goes on as it came, and a malformed one never leaves.
+    await client.createAgent({ ...deploy, emberpath_client_key: 'fixture-emberpath-client-key-0001' }, { actingSubject: 'subject-operator' });
+    expect(JSON.parse(String(calls.at(-1)!.init.body))).toMatchObject({ model: { emberpath_alias: 'fixture' }, emberpath_client_key: 'fixture-emberpath-client-key-0001' });
+    expect(JSON.parse(String(calls.at(-2)!.init.body))).not.toHaveProperty('emberpath_client_key');
+    const sentBefore = calls.length;
+    await expect(client.createAgent({ ...deploy, emberpath_client_key: 'not a key' }, { actingSubject: 'subject-operator' })).rejects.toThrow();
+    expect(calls).toHaveLength(sentBefore);
     await expect(client.createAgent({ ...deploy, model: { base_url: 'https://user:secret@llm.example.com', model: 'm' } }, { actingSubject: 'subject-operator' })).rejects.toThrow();
     expect(STUDIO_ACTIONS).toEqual(['session-open', 'mission-submit', 'task-pause', 'task-resume', 'preview-submit', 'development-note', 'skill-install']);
   });

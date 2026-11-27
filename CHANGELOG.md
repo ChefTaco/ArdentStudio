@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+Needs the Magnus release after 3.4.1 (Magnus #164 and #165), which takes the Emberpath client key; an older
+Magnus refuses the new field. HiveXUI needs the new browser contract to send it.
+
+### Fixed
+
+- Create agent from definition and New Agent gave an Emberpath-alias agent no Emberpath client key, so the
+  deploy check reported `SECRET_UNBOUND` (Emberpath key missing) and the deploy failed. `POST
+  /templates/{id}/versions/{v}/deploy-check`, `POST /templates/{id}/versions/{v}/deploy` and `POST /agents`
+  take an optional, write-only `emberpath_client_key` (Magnus's pattern: 16 to 512 characters without
+  whitespace) and relay it to Magnus's definition validate and install and New Agent. Studio never stores,
+  logs, audits or returns it, drops it from the request once Magnus has had it, and leaves it out of the
+  idempotency fingerprint (the same request with another key replays). Magnus's `EMBERPATH_*` refusals
+  (`EMBERPATH_KEY_REQUIRED`, `EMBERPATH_KEY_INVALID`, `EMBERPATH_KEY_FORBIDDEN`,
+  `EMBERPATH_ALIAS_UNAVAILABLE`, `EMBERPATH_NOT_EXPLICIT`, `EMBERPATH_UNAVAILABLE`) keep their status and
+  code instead of becoming `MAGNUS_REJECTED` or `MAGNUS_UNAVAILABLE`. `@hivemagnus/magnus-contracts` does
+  not publish the field yet, so Studio adds it to those requests itself until that Magnus release.
+
 ## [0.7.0] - 2026-11-26
 
 Upgrading: back up the data volume first. Migration 12 (`project_membership_purge`) runs on the first start

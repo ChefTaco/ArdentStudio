@@ -13,6 +13,7 @@ import {
   buildTemplateDefinition, credentialLikePaths, DefinitionError, templateBodyFromDefinition, verifyAgentDefinition, type AgentDefinition,
 } from '../../templates/definition.js';
 import { actorOf, requireProject, requireProjectRole, type RouteDeps } from '../deps.js';
+import { emberpathRefusal, forgetEmberpathKey } from '../emberpath-key.js';
 import { ApiError, notFound } from '../errors.js';
 import type { createRouter } from '../routing.js';
 import { checkTemplateBody, requireTemplate } from './templates.js';
@@ -29,6 +30,8 @@ function definitionError(error: DefinitionError): ApiError {
  */
 function magnusDefinitionError(error: unknown): never {
   if (error instanceof MagnusError) {
+    const refused = emberpathRefusal(error);
+    if (refused) throw refused;
     if (error.status === 404 && error.message === 'Managed node not found') throw new ApiError(404, 'NOT_FOUND', 'Node not found in Magnus');
     if (error.status === 404 || (error.status === 403 && error.code === 'FORBIDDEN')) throw new ApiError(409, 'MAGNUS_UPGRADE_REQUIRED', MAGNUS_TOO_OLD);
     if (error.status === 403) throw new ApiError(403, error.code, `Magnus refused: ${error.message}`);
@@ -71,8 +74,9 @@ export function definitionRoutes(register: ReturnType<typeof createRouter>, deps
     const { definition, omitted } = await versionDefinition(params);
     let preflight;
     try {
-      preflight = await magnus.validateDefinition({ definition, nodeId: input.node_id, bindings: input.bindings }, { actingSubject: actor.subject });
-    } catch (error) { magnusDefinitionError(error); }
+      preflight = await magnus.validateDefinition({ definition, nodeId: input.node_id, bindings: input.bindings, emberpath_client_key: input.emberpath_client_key },
+        { actingSubject: actor.subject });
+    } catch (error) { magnusDefinitionError(error); } finally { forgetEmberpathKey(input); }
     return { body: { definition: { name: definition.name, sha256: definition.sha256 }, omitted, preflight } };
   });
 
@@ -85,9 +89,9 @@ export function definitionRoutes(register: ReturnType<typeof createRouter>, deps
     const { version, definition } = await versionDefinition(params);
     let accepted: { operationId: string };
     try {
-      accepted = await magnus.installDefinition({ definition, nodeId: input.node_id, name: input.profile, bindings: input.bindings, apiPort: input.api_port },
-        { actingSubject: actor.subject });
-    } catch (error) { magnusDefinitionError(error); }
+      accepted = await magnus.installDefinition({ definition, nodeId: input.node_id, name: input.profile, bindings: input.bindings, apiPort: input.api_port,
+        emberpath_client_key: input.emberpath_client_key }, { actingSubject: actor.subject });
+    } catch (error) { magnusDefinitionError(error); } finally { forgetEmberpathKey(input); }
     const ref = `${input.node_id}~${input.profile}`;
     const template = version.body as AgentTemplateBody;
     const record = store.tx(() => {

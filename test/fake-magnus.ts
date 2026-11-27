@@ -72,9 +72,21 @@ const ACTION_SCHEMAS: Record<string, z.ZodType> = {
   'config-save': ardentConfigSavedSchema, 'skill-install': ardentSkillInstallResultSchema, 'task-recovery': ardentTaskRecoverySchema,
 };
 
+/**
+ * Requests that take Magnus #164's write-only emberpath_client_key. The published magnus-contracts does not have the
+ * field yet, so the fake checks it against Magnus's pattern and the rest of the body against the published schema.
+ */
+const EMBERPATH_KEY_ROUTES = new Set(['POST /api/v1/ardent/agents', 'POST /api/v1/ardent/agent-definitions/validate', 'POST /api/v1/ardent/agent-definitions/install']);
+const EMBERPATH_KEY_PATTERN = /^[A-Za-z0-9._~+/=-]{16,512}$/u;
+
 /** The contract for a request, or why the request itself breaks it. */
 export function contractFor(method: string, path: string, body: unknown): ServedContract & { requestError?: string } {
   const where = `${method} ${path}`;
+  if (EMBERPATH_KEY_ROUTES.has(where) && body && typeof body === 'object' && 'emberpath_client_key' in body) {
+    const { emberpath_client_key: key, ...rest } = body as Record<string, unknown>;
+    const contract = contractFor(method, path, rest);
+    return typeof key === 'string' && EMBERPATH_KEY_PATTERN.test(key) ? contract : { ...contract, requestError: 'emberpath_client_key: not an Emberpath client key' };
+  }
   const match = ROUTES.find(item => item.route.method === method && item.pattern.test(path));
   // Studio calls only what a linked service identity may call; anything else answers 403 from real Magnus.
   if (!match) return { where, requestError: 'not a route of ardentServiceRoutes' };
@@ -197,6 +209,8 @@ export class FakeMagnusServer {
   definitionProblems: Array<{ code: string; detail: string }> = [];
   /** Nodes Magnus does not manage (404 "Managed node not found"). */
   unknownNodes = new Set<string>();
+  /** Emberpath client keys Emberpath refuses (Magnus #164), with the refusal Magnus answers. */
+  emberpathRefusals = new Map<string, { status: number; code: string; message: string }>();
   private readonly operationSubscribers = new Map<string, Set<Subscriber>>();
   private readonly subscribers = new Map<string, Set<Subscriber>>();
   private readonly waiters: Array<() => void> = [];
@@ -446,6 +460,14 @@ export class FakeMagnusServer {
     const bindings = (input.bindings ?? {}) as Record<string, string>;
     const problems = [...this.definitionProblems, ...checked.definition.requirements.bindings
       .filter(item => item.required && bindings[item.key] === undefined).map(item => ({ code: 'MISSING_BINDING', detail: `Bind ${item.key} (${item.kind})` }))];
+    // Magnus #164: a llamacpp definition's model is an Emberpath alias, which needs the client key, checked with Emberpath.
+    const key = input.emberpath_client_key as string | undefined;
+    if (checked.definition.config.execution.backend === 'llamacpp') {
+      const refused = key !== undefined ? this.emberpathRefusals.get(key) : undefined;
+      if (key === undefined) problems.push({ code: 'SECRET_UNBOUND', detail: 'Emberpath key missing: give emberpath_client_key, the client key created in Emberpath' });
+      else if (refused) problems.push(refused.code === 'EMBERPATH_ALIAS_UNAVAILABLE'
+        ? { code: 'MISSING_BINDING', detail: `model: ${refused.message}` } : { code: 'SECRET_UNBOUND', detail: `emberpath_client_key: ${refused.message}` });
+    }
     if (route === 'validate') return ok(response, { ok: problems.length === 0, problems });
     check(response, { problems }, agentDefinitionPreflightSchema.pick({ problems: true }), 'PREFLIGHT_FAILED details');
     if (problems.length) return fail(response, 409, 'PREFLIGHT_FAILED', `The definition cannot be installed on this node: ${problems.map(item => item.code).join(', ')}`, { problems });
@@ -482,6 +504,13 @@ export class FakeMagnusServer {
       if (!actingSubject || !this.admins.has(actingSubject)) return fail(response, 403, 'ACTING_ADMIN_REQUIRED', 'The acting person is not a Magnus ADMIN');
       const input = body as Record<string, unknown>;
       if (this.profiles.some(item => item.nodeId === input.nodeId && item.id === input.profile)) return fail(response, 409, 'CONFLICT', 'The profile exists');
+      // Magnus #164: an Emberpath alias needs the client key, which Emberpath may refuse.
+      const key = input.emberpath_client_key as string | undefined;
+      if ((input.model as { emberpath_alias?: unknown } | undefined)?.emberpath_alias !== undefined) {
+        if (key === undefined) return fail(response, 400, 'EMBERPATH_KEY_REQUIRED', 'Emberpath key missing: give emberpath_client_key, the client key created in Emberpath');
+        const refused = this.emberpathRefusals.get(key);
+        if (refused) return fail(response, refused.status, refused.code, refused.message);
+      }
       const id = randomUUID();
       const now = new Date().toISOString();
       this.operations.set(id, { id, kind: 'deploy', nodeId: input.nodeId, profile: input.profile, status: 'running', error: null, createdBy: 'operator', attempts: 1,

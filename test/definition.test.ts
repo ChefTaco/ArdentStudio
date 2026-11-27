@@ -7,7 +7,7 @@ import {
   agentDefinitionSha256, agentPersonaSha256, canonicalJson, DEFINITION_MIN_ARDENT, definitionRuntimeVersion, sealAgentDefinition, verifyAgentDefinition,
   credentialLikePaths, type AgentDefinition, type AgentDefinitionBody,
 } from '../src/templates/definition.js';
-import { createProject, createTestContext, json, waitFor, type TestContext } from './helpers.js';
+import { createProject, createTestContext, EMBERPATH_KEY, json, waitFor, type TestContext } from './helpers.js';
 
 // Produced by sealAgentDefinition of @hivemagnus/magnus-contracts (Magnus 3.3.0) from the bodies in its own tests.
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/agent-definition-v1.json', import.meta.url), 'utf8')) as {
@@ -212,18 +212,21 @@ describe('create agent from definition', () => {
     const { definition } = await exported(template.id);
     const check = (body: Record<string, unknown>) => ctx.call('POST', `/templates/${template.id}/versions/1/deploy-check`, { body });
 
-    const passed = await check({ node_id: 'node3', bindings: ALL_BOUND });
+    const passed = await check({ node_id: 'node3', bindings: ALL_BOUND, emberpath_client_key: EMBERPATH_KEY });
     expect(passed.status).toBe(200);
     expect(await json(passed)).toMatchObject({ definition: { name: 'Archivist', sha256: definition.sha256 }, preflight: { ok: true, problems: [] }, omitted: [{ name: 'summarize' }, { name: 'filing' }] });
     const sent = ctx.magnus.calls.find(call => call.path === '/api/v1/ardent/agent-definitions/validate')!;
     expect(sent.actingSubject).toBe('subject-operator');
-    expect(sent.body).toEqual({ definition, nodeId: 'node3', bindings: ALL_BOUND });
+    expect(sent.body).toEqual({ definition, nodeId: 'node3', bindings: ALL_BOUND, emberpath_client_key: EMBERPATH_KEY });
 
     ctx.magnus.definitionProblems = [{ code: 'SKILL_VERSION_UNAVAILABLE', detail: 'web-research@1.2.0 is not in the catalog' }];
     expect((await json(await check({ node_id: 'node3' }))).preflight).toEqual({ ok: false, problems: [
       { code: 'SKILL_VERSION_UNAVAILABLE', detail: 'web-research@1.2.0 is not in the catalog' },
       { code: 'MISSING_BINDING', detail: 'Bind hivemem (hivemem)' }, { code: 'MISSING_BINDING', detail: 'Bind hiveskills (hiveskills)' },
+      { code: 'SECRET_UNBOUND', detail: expect.stringMatching(/^Emberpath key missing/) },
     ] });
+    // Without a key, nothing is sent for one.
+    expect(ctx.magnus.calls.filter(call => call.path === '/api/v1/ardent/agent-definitions/validate').at(-1)!.body).not.toHaveProperty('emberpath_client_key');
 
     ctx.magnus.unknownNodes.add('node9');
     expect((await check({ node_id: 'node9' })).status).toBe(404);
@@ -249,15 +252,17 @@ describe('create agent from definition', () => {
 
     const blocked = await deploy({ node_id: 'node3', profile: 'archivist', bindings: { hivemem: 'default' } });
     expect(blocked.status).toBe(409);
-    expect((await json(blocked)).error).toMatchObject({ code: 'PREFLIGHT_FAILED', details: { problems: [{ code: 'MISSING_BINDING', detail: 'Bind hiveskills (hiveskills)' }] } });
+    expect((await json(blocked)).error).toMatchObject({ code: 'PREFLIGHT_FAILED', details: { problems: [
+      { code: 'MISSING_BINDING', detail: 'Bind hiveskills (hiveskills)' }, { code: 'SECRET_UNBOUND', detail: expect.stringMatching(/^Emberpath key missing/) }] } });
     expect(ctx.magnus.operations.size).toBe(0);
 
-    const created = await deploy({ node_id: 'node3', profile: 'archivist', bindings: ALL_BOUND, project_id: project.id, role_key: 'archivist' });
+    const created = await deploy({ node_id: 'node3', profile: 'archivist', bindings: ALL_BOUND, emberpath_client_key: EMBERPATH_KEY, project_id: project.id, role_key: 'archivist' });
     expect(created.status).toBe(201);
     const operation = await json(created);
     expect(operation).toMatchObject({ agent_ref: 'node3~archivist', kind: 'definition', status: 'running', project_id: project.id });
     const sent = ctx.magnus.calls.filter(call => call.path === '/api/v1/ardent/agent-definitions/install').at(-1)!;
-    expect(sent.body).toMatchObject({ nodeId: 'node3', name: 'archivist', bindings: ALL_BOUND, definition: { name: 'Archivist', source_template: { template_id: template.id, version: 1 } } });
+    expect(sent.body).toMatchObject({ nodeId: 'node3', name: 'archivist', bindings: ALL_BOUND, emberpath_client_key: EMBERPATH_KEY,
+      definition: { name: 'Archivist', source_template: { template_id: template.id, version: 1 } } });
     expect(ctx.store.agents.presentation('node3~archivist')).toMatchObject({ display_name: 'Archivist' });
 
     await waitFor(() => ctx.magnus.calls.some(call => call.path.endsWith(`/operations/${operation.id}/stream`)));
@@ -265,6 +270,6 @@ describe('create agent from definition', () => {
     await waitFor(() => ctx.store.agents.operation(operation.id)!.status === 'succeeded');
     expect(await json(await ctx.call('GET', `/agents/operations/${operation.id}`))).toMatchObject({ kind: 'definition', status: 'succeeded' });
     ctx.magnus.definitions = 'scoped';
-    expect((await json(await deploy({ node_id: 'node3', profile: 'other', bindings: ALL_BOUND }))).error.code).toBe('MAGNUS_UPGRADE_REQUIRED');
+    expect((await json(await deploy({ node_id: 'node3', profile: 'other', bindings: ALL_BOUND, emberpath_client_key: EMBERPATH_KEY }))).error.code).toBe('MAGNUS_UPGRADE_REQUIRED');
   });
 });

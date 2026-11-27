@@ -290,7 +290,8 @@ Magnus 3.3.0 and later); the browser contract repeats only the shape, and a test
   skills. What a template cannot hold (extensions, runtime capabilities, execution and artifact limits,
   secrets, channel and peer bindings) is listed in `ignored` (`{path, reason}`). The answer is `{template,
   version, created, source_definition, ignored}`.
-- **Deploy check** (`POST /templates/:id/versions/:v/deploy-check`, `{node_id, bindings?}`) builds the
+- **Deploy check** (`POST /templates/:id/versions/:v/deploy-check`, `{node_id, bindings?,
+  emberpath_client_key?}`) builds the
   version's definition and asks Magnus (`POST /ardent/agent-definitions/validate`) as the acting
   person, whom Magnus requires to be a linked Magnus ADMIN. The answer is `{definition: {name, sha256},
   omitted, preflight: {ok, problems: [{code, detail}]}}` with Magnus's codes (`MISSING_BINDING`,
@@ -298,8 +299,17 @@ Magnus 3.3.0 and later); the browser contract repeats only the shape, and a test
   `SECRET_UNBOUND`). Bindings are `{key: target}`: `hivemem` to `default` or the workspace, `model` to an
   Emberpath alias, `hiveskills` to `default`. A Magnus without agent definitions (before 3.3.0) answers
   `409 MAGNUS_UPGRADE_REQUIRED`; an unknown node `404`.
+- **Emberpath client key.** A definition whose model is an Emberpath alias (backend `llamacpp`) needs the
+  client key the operator created in Emberpath, as `emberpath_client_key` (16 to 512 characters without
+  whitespace) on the deploy check and the deploy. Studio relays it to Magnus, which checks it with
+  Emberpath and delivers it to the new profile. Without it the preflight reports `SECRET_UNBOUND`
+  (`Emberpath key missing`); a key Emberpath refuses is reported as `SECRET_UNBOUND` too (`MISSING_BINDING`
+  when the key may not use the alias), and the deploy answers `409 PREFLIGHT_FAILED`. The key is
+  write-only: Studio never stores, logs, audits or returns it, and the idempotency fingerprint leaves it
+  out (the same deploy with another key replays). Magnus's own `EMBERPATH_*` refusals keep their status
+  and code. It needs the Magnus release after 3.4.1 (Magnus #164); an older Magnus refuses the field.
 - **Create agent from definition** (`POST /templates/:id/versions/:v/deploy`, `{node_id, profile,
-  bindings, api_port?, project_id?, role_key?}`) has Magnus install the definition as a new profile
+  bindings, emberpath_client_key?, api_port?, project_id?, role_key?}`) has Magnus install the definition as a new profile
   (`POST /ardent/agent-definitions/install`), a New Agent operation of kind `definition` that starts only
   when the preflight passes: otherwise `409 PREFLIGHT_FAILED` with `error.details.problems` and nothing is
   created. The answer and the `agent.operation.updated` events are those of New Agent.
@@ -409,8 +419,12 @@ Agent Studio (`:ref` is `<nodeId>~<profile>`):
   `relay_to_agent` is also recorded in the agent's history as an operator note.
 - **New Agent** (`POST /agents`) asks Magnus to deploy a new Ardent profile as the acting person
   (Magnus requires a Magnus ADMIN: `403 ACTING_ADMIN_REQUIRED`), always with HiveMem. An agent
-  template version fills the soul, identity, local skills and Studio portrait. Progress is relayed
-  as `agent.operation.updated` on the `project_id` stream; `GET /agents/operations/:id` reads it.
+  template version fills the soul, identity, local skills and Studio portrait. An `emberpath_alias`
+  model needs the write-only `emberpath_client_key` (see the Emberpath client key above): Magnus
+  answers `400 EMBERPATH_KEY_REQUIRED` without it, `409 EMBERPATH_NOT_EXPLICIT`, or `422
+  EMBERPATH_KEY_INVALID`, `EMBERPATH_KEY_FORBIDDEN` or `EMBERPATH_ALIAS_UNAVAILABLE`, which Studio passes
+  on. Progress is relayed as `agent.operation.updated` on the `project_id` stream;
+  `GET /agents/operations/:id` reads it.
 
 ## Room
 
