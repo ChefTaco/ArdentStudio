@@ -87,7 +87,7 @@ when a required setting is missing or unsafe.
 | `OATHWEAVE_USERINFO_URL` | yes | | Oathweave userinfo (HTTPS), for session revocation. |
 | `OATHWEAVE_NATIVE_ISSUERS` | no | | Comma-separated Oathweave native issuer ids (its `JWT_ISSUER`). Service tokens they sign are accepted on the audit export only. |
 | `ARDENT_STUDIO_OATHWEAVE_IDENTITIES_JSON` | yes | | Explicit account links; see [docs/OATHWEAVE.md](docs/OATHWEAVE.md). |
-| `ARDENT_STUDIO_OATHWEAVE_TOKEN_URL` | yes | | Oathweave token endpoint for `client_credentials`. |
+| `ARDENT_STUDIO_OATHWEAVE_TOKEN_URL` | yes | | Oathweave token endpoint for `client_credentials`. HTTPS only, also on loopback. |
 | `ARDENT_STUDIO_MAGNUS_URL` | yes | | Magnus control API origin. |
 | `ARDENT_STUDIO_MAGNUS_CLIENT_ID` | yes | | Machine client for the audience `magnus`. |
 | `ARDENT_STUDIO_MAGNUS_CLIENT_SECRET` | yes (secret) | | Its secret. |
@@ -97,7 +97,7 @@ when a required setting is missing or unsafe.
 | `ARDENT_STUDIO_HIVEMEM_CLIENT_SECRET` | yes (secret) | | Its secret. |
 | `ARDENT_STUDIO_HIVEMEM_SCOPE` | | `hivemem:workspaces:write hivemem:memories:write` | Token scope. |
 | `ARDENT_STUDIO_CHATTERMOST_WEBHOOK_URL` | (secret) | | Optional incoming-webhook URL for announcements. |
-| `ARDENT_STUDIO_ALLOW_PLAINTEXT_SERVICES` | | `false` | Allow `http://` service URLs off loopback (isolated container networks only). |
+| `ARDENT_STUDIO_ALLOW_PLAINTEXT_SERVICES` | | `false` | Allow `http://` service URLs off loopback (isolated container networks only). Never applies to Oathweave URLs. |
 
 Service URLs must use HTTPS except on loopback. For a private CA, set `NODE_EXTRA_CA_CERTS`.
 

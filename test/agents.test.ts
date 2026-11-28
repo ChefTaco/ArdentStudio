@@ -70,6 +70,21 @@ describe('health', () => {
     ]));
   });
 
+  it('shares one readiness run between concurrent requests', async () => {
+    ctx = await createTestContext();
+    const health = ctx.hivemem.health.bind(ctx.hivemem);
+    let runs = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    ctx.hivemem.health = async () => { runs++; await gate; return health(); };
+    const answers = Array.from({ length: 5 }, () => ctx.call('GET', '/health/ready', { token: null }));
+    await new Promise(resolve => setTimeout(resolve, 10));
+    release!();
+    const responses = await Promise.all(answers);
+    expect(responses.map(response => response.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(runs).toBe(1);
+  });
+
   it('keeps the published readiness body exactly', async () => {
     ctx = await createTestContext();
     const body: unknown = await (await ctx.call('GET', '/health/ready', { token: null })).json();

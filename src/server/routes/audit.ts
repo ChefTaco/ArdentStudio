@@ -5,5 +5,8 @@ import type { AppDeps } from '../deps.js';
 import type { createRouter } from '../routing.js';
 
 export function auditRoutes(register: ReturnType<typeof createRouter>, deps: AppDeps): void {
-  register('GET', '/audit/export', c => ({ body: exportAuditPage(deps.store.audit, new URL(c.req.url).searchParams) }));
+  register('GET', '/audit/export', c => ({
+    body: exportAuditPage(deps.store.audit, new URL(c.req.url).searchParams,
+      count => deps.logger.warn('Audit rows skipped from the export: their records are not valid', { count })),
+  }));
 }

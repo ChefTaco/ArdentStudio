@@ -59,8 +59,9 @@ Oathweave binds each machine client to one audience, so ArdentStudio uses two:
 Declare them in Oathweave's `IAM_MACHINE_CLIENT_POLICIES` with their audience and permissions, and
 give ArdentStudio their secrets (`ARDENT_STUDIO_MAGNUS_CLIENT_SECRET`,
 `ARDENT_STUDIO_HIVEMEM_CLIENT_SECRET`) and the token endpoint
-(`ARDENT_STUDIO_OATHWEAVE_TOKEN_URL`). ArdentStudio fetches a short-lived token on first use and
-replaces it before it expires; nothing renews it by hand.
+(`ARDENT_STUDIO_OATHWEAVE_TOKEN_URL`, HTTPS only: the client secret is sent to it). ArdentStudio fetches a
+short-lived token on first use and replaces it before it expires; nothing renews it by hand. When Magnus or
+HiveMem answers 401, Studio drops the cached token and retries once with a new one.
 
 - **Magnus** links the client to a Magnus service user that may use the Studio routes. For work a
   person asked for, ArdentStudio forwards the person's Oathweave subject in `x-acting-subject`;

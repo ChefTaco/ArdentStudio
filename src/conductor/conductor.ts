@@ -13,7 +13,7 @@ import {
   ARDENT_LINEAGE_CAPABILITY, ARDENT_RUNTIME_LEVELS, ARDENT_STUDIO_CAPABILITY, ARDENT_UNSUPPORTED_CAPABILITY, ardentTaskRecoverySchema, MagnusError, parseAgentRef,
   type ArdentContextItem, type ArdentProfileRuntime, type ArdentTaskEvent, type ArdentTaskRecovery, type ArdentTaskRecoveryDecision, type ArdentTeamMission, type MagnusClient,
 } from '../clients/magnus.js';
-import { ServiceTokenError } from '../clients/service-token.js';
+import { isServiceTokenError } from '../clients/service-token.js';
 import type { BlobStore } from '../blobs/store.js';
 import { hivememProjectId, type Project } from '../db/repos/projects.js';
 import type { Conversation, Discussion, Message, MessageAuthor } from '../db/repos/room.js';
@@ -128,7 +128,7 @@ export function ardentIdempotencyKey(taskId: string): string {
 }
 
 function transient(error: unknown): boolean {
-  if (error instanceof ServiceTokenError) return true;
+  if (isServiceTokenError(error)) return true;
   if (error instanceof MagnusError) {
     // Magnus runs one managed command per node at a time and refuses another with this conflict
     // before anything is admitted, so the same frozen body is safe to send again.

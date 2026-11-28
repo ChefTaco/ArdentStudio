@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ChatterMostClient } from '../src/clients/chattermost.js';
 import { HiveMemClient, HiveMemError } from '../src/clients/hivemem.js';
 import { ACTING_SUBJECT_HEADER, MagnusClient, MagnusError, parseAgentRef, STUDIO_ACTIONS } from '../src/clients/magnus.js';
-import { ServiceTokenProvider } from '../src/clients/service-token.js';
+import { isServiceTokenError, ServiceTokenProvider } from '../src/clients/service-token.js';
 import { parseSse } from '../src/clients/sse.js';
 import { profile } from './helpers.js';
 
@@ -55,6 +55,30 @@ describe('service tokens', () => {
     expect(calls).toHaveLength(1);
     now += 6_000;
     await expect(provider.token()).rejects.toThrow(/HTTP 401/);
+    expect(isServiceTokenError(error)).toBe(true);
+    expect(JSON.stringify(error)).not.toContain('fixture-secret');
+  });
+
+  it('refuse a plain HTTP token URL', () => {
+    const { fetcher } = recorder(() => Response.json({ access_token: 'fixture-token' }));
+    for (const tokenUrl of ['http://identity.example.com/api/v1/oauth/token', 'http://127.0.0.1:4200/api/v1/oauth/token']) {
+      expect(() => new ServiceTokenProvider({ tokenUrl, clientId: 'c', clientSecret: 'fixture-secret', fetch: fetcher })).toThrow(/https/);
+    }
+    expect(() => new ServiceTokenProvider({ tokenUrl: 'http://127.0.0.1:4200/api/v1/oauth/token', clientId: 'c', clientSecret: 'fixture-secret', fetch: fetcher, allowInsecureLoopback: true })).not.toThrow();
+  });
+
+  it('share one request between concurrent callers and refuse an oversized response', async () => {
+    let release: (() => void) | undefined;
+    const { calls, fetcher } = recorder(() => new Promise<Response>(resolve => { release = () => resolve(Response.json({ access_token: 'fixture-token', expires_in: 300 })); }));
+    const provider = new ServiceTokenProvider({ tokenUrl: TOKEN_URL, clientId: 'c', clientSecret: 'fixture-secret', fetch: fetcher });
+    const waiting = Promise.all([provider.token(), provider.token()]);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    release!();
+    expect(await waiting).toEqual(['fixture-token', 'fixture-token']);
+    expect(calls).toHaveLength(1);
+    const big = recorder(() => Response.json({ access_token: 'x'.repeat(70 * 1024) }));
+    const bounded = new ServiceTokenProvider({ tokenUrl: TOKEN_URL, clientId: 'c', clientSecret: 'fixture-secret', fetch: big.fetcher });
+    await expect(bounded.token()).rejects.toThrow('Oathweave token response is malformed');
   });
 });
 
