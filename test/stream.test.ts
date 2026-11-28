@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseSse, type SseMessage } from '../src/clients/sse.js';
+import { parseSseStream, type SseEvent } from '@hivemagnus/hive-common/sse';
 import { STREAM_QUEUE_MAX } from '../src/server/routes/stream.js';
 import { ARDENT_STUDIO_API_PREFIX } from '../src/shared/browser.js';
 import { createProject, createTestContext, ManualClock, type TestContext } from './helpers.js';
@@ -13,12 +13,12 @@ async function connect(projectId: string, query = '', token?: string, headers: R
   const response = await ctx.app.request(`${ARDENT_STUDIO_API_PREFIX}/projects/${projectId}/stream${query}`, {
     headers: { ...headers, authorization: `Bearer ${token ?? await ctx.token()}` }, signal: controller.signal,
   });
-  const iterator = parseSse(response.body!)[Symbol.asyncIterator]();
+  const iterator = parseSseStream(response.body!, { requireData: true })[Symbol.asyncIterator]();
   const close = () => controller.abort();
   open.push(close);
   return {
     response,
-    next: async (): Promise<SseMessage | undefined> => {
+    next: async (): Promise<SseEvent | undefined> => {
       const result = await Promise.race([iterator.next(), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('stream timeout')), 3000))]);
       return result.done ? undefined : result.value;
     },

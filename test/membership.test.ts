@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseSse, type SseMessage } from '../src/clients/sse.js';
+import { parseSseStream, type SseEvent } from '@hivemagnus/hive-common/sse';
 import { ARDENT_STUDIO_API_PREFIX, PEOPLE_SEARCH_LIMIT, projectMembersResponseSchema } from '../src/shared/browser.js';
 import { createProject, createTestContext, json, LINKS, NOT_ADMIN, profile, publishTeam, type TestContext } from './helpers.js';
 
@@ -29,10 +29,10 @@ async function connect(projectId: string, token: string) {
   const close = () => controller.abort();
   open.push(close);
   if (response.status !== 200) return { response, next: async () => undefined };
-  const iterator = parseSse(response.body!)[Symbol.asyncIterator]();
+  const iterator = parseSseStream(response.body!, { requireData: true })[Symbol.asyncIterator]();
   return {
     response,
-    next: async (): Promise<SseMessage | undefined> => {
+    next: async (): Promise<SseEvent | undefined> => {
       const result = await Promise.race([iterator.next(), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('stream timeout')), 3000))]);
       return result.done ? undefined : result.value;
     },

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configuredSkills } from '../src/agents/config-edit.js';
-import { parseSse, type SseMessage } from '../src/clients/sse.js';
+import { parseSseStream, type SseEvent } from '@hivemagnus/hive-common/sse';
 import { ARDENT_STUDIO_API_PREFIX } from '../src/shared/browser.js';
 import { createProject, createTestContext, EMBERPATH_KEY, json, profile, publishTeam, waitFor, type TestContext } from './helpers.js';
 
@@ -17,8 +17,8 @@ async function preview(body: Record<string, unknown>, key?: string) {
     method: 'POST', signal: controller.signal, body: JSON.stringify(body),
     headers: { authorization: `Bearer ${await ctx.token()}`, 'content-type': 'application/json', ...(key ? { 'x-idempotency-key': key } : {}) },
   });
-  const events: SseMessage[] = [];
-  const reading = response.status === 200 ? (async () => { for await (const event of parseSse(response.body!)) events.push(event); })() : Promise.resolve();
+  const events: SseEvent[] = [];
+  const reading = response.status === 200 ? (async () => { for await (const event of parseSseStream(response.body!, { requireData: true })) events.push(event); })() : Promise.resolve();
   return { response, events, reading, close: () => controller.abort() };
 }
 

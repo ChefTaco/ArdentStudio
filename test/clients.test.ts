@@ -4,9 +4,8 @@ import { ardentServiceActionRequestSchema, ardentServiceRoutes } from '@hivemagn
 import { describe, expect, it } from 'vitest';
 import { ChatterMostClient } from '../src/clients/chattermost.js';
 import { HiveMemClient, HiveMemError } from '../src/clients/hivemem.js';
-import { ACTING_SUBJECT_HEADER, MagnusClient, MagnusError, parseAgentRef, STUDIO_ACTIONS } from '../src/clients/magnus.js';
+import { ACTING_SUBJECT_HEADER, MAX_SSE_EVENT_BYTES, MagnusClient, MagnusError, parseAgentRef, STUDIO_ACTIONS } from '../src/clients/magnus.js';
 import { isServiceTokenError, ServiceTokenProvider } from '../src/clients/service-token.js';
-import { parseSse } from '../src/clients/sse.js';
 import { profile } from './helpers.js';
 
 type Call = { url: string; init: RequestInit };
@@ -20,7 +19,6 @@ function recorder(answer: (call: Call, index: number) => Response | Promise<Resp
   return { calls, fetcher };
 }
 const headers = (call: Call) => new Headers(call.init.headers);
-const stream = (text: string) => new Response(text).body!;
 const TOKEN_URL = 'https://identity.example.com/api/v1/oauth/token';
 const fixedTokens = { token: async () => 'fixture-service-token', invalidate: () => undefined };
 const TASK = '11111111-1111-4111-8111-111111111111';
@@ -359,28 +357,57 @@ describe('ChatterMost client', () => {
   });
 });
 
-describe('SSE parser', () => {
-  it('handles multi-line data, comments, ids and CRLF, and drops an unterminated event', async () => {
-    const events = [];
-    for await (const event of parseSse(stream(': hello\r\nevent: a\r\ndata: one\r\ndata: two\r\nid: 7\r\n\r\ndata: plain\n\nevent: cut\ndata: x'))) events.push(event);
-    expect(events).toEqual([{ event: 'a', data: 'one\ntwo', id: '7' }, { event: 'message', data: 'plain' }]);
+describe('Magnus event streams', () => {
+  const magnusStream = (body: BodyInit | ReadableStream<Uint8Array>, init: ResponseInit = {}) => {
+    const { calls, fetcher } = recorder(() => new Response(body, { headers: { 'content-type': 'text/event-stream' }, ...init }));
+    return { calls, client: new MagnusClient({ baseUrl: 'https://magnus.example.com', tokens: fixedTokens, fetch: fetcher }) };
+  };
+  const drain = async (events: AsyncIterable<unknown>) => { const seen = []; for await (const event of events) seen.push(event); return seen; };
+
+  it('handle multi-line data, comments, ids and CRLF, and drop data-less and unterminated events', async () => {
+    const { client } = magnusStream(': hello\r\nevent: a\r\ndata: one\r\ndata: two\r\nid: 7\r\n\r\nid: 8\n\nevent: empty\n\ndata: plain\n\nevent: cut\ndata: x');
+    expect(await drain(client.streamTask('node1~lead', TASK))).toEqual([{ event: 'a', data: 'one\ntwo', id: '7' }, { event: 'message', data: 'plain' }]);
   });
 
-  it('keeps an event whole when a chunk ends between CR and LF', async () => {
+  it('keep an event whole when a chunk ends between CR and LF', async () => {
     const encoder = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
-        for (const part of ['event: a\r', '\ndata: one\r', '\n\r', '\nevent: b\rdata: two\r\r']) controller.enqueue(encoder.encode(part));
+        for (const part of ['event: operation\r', '\ndata: one\r', '\n\r', '\nevent: done\rdata: two\r\r']) controller.enqueue(encoder.encode(part));
         controller.close();
       },
     });
-    const events = [];
-    for await (const event of parseSse(body)) events.push(event);
-    expect(events).toEqual([{ event: 'a', data: 'one' }, { event: 'b', data: 'two' }]);
+    const { client } = magnusStream(body);
+    expect(await drain(client.streamAgentOperation('op-1'))).toEqual([{ event: 'operation', data: 'one' }, { event: 'done', data: 'two' }]);
   });
 
-  it('refuses an oversized event', async () => {
-    const run = async () => { for await (const _event of parseSse(stream(`data: ${'x'.repeat(100)}\n\n`), 10)) { /* drain */ } };
-    await expect(run()).rejects.toThrow(/size limit/);
+  it('accept an event of 4 MiB and refuse a larger one', async () => {
+    const at = (size: number) => magnusStream(`data: ${'x'.repeat(size - 'data: '.length - 1)}\n\n`).client;
+    expect(await drain(at(MAX_SSE_EVENT_BYTES).streamTask('node1~lead', TASK))).toHaveLength(1);
+    await expect(drain(at(MAX_SSE_EVENT_BYTES + 1).streamTask('node1~lead', TASK))).rejects.toThrow(/larger than the limit/);
+  });
+
+  it('stop reading and cancel the body when the caller aborts', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode('event: task.delta\ndata: {}\n\n')); },
+      cancel() { cancelled = true; },
+    });
+    const { client } = magnusStream(body);
+    const abort = new AbortController();
+    const iterator = client.streamTask('node1~lead', TASK, { signal: abort.signal })[Symbol.asyncIterator]();
+    expect((await iterator.next()).value).toEqual({ event: 'task.delta', data: '{}' });
+    const pending = iterator.next();
+    abort.abort(new Error('stopped'));
+    await expect(pending).rejects.toThrow('stopped');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(cancelled).toBe(true);
+  });
+
+  it('keep Magnus errors for a refused stream', async () => {
+    const { client } = magnusStream(JSON.stringify({ success: false, error: { code: 'NOT_FOUND', message: 'No such task' } }), { status: 404, headers: { 'content-type': 'application/json' } });
+    const error = await drain(client.streamTask('node1~lead', TASK)).then(() => new Error('unexpected success'), (caught: unknown) => caught as Error);
+    expect(error).toBeInstanceOf(MagnusError);
+    expect(error).toMatchObject({ status: 404 });
   });
 });

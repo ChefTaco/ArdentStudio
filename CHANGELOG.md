@@ -18,7 +18,24 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- `@hivemagnus/hive-common` is now `^0.10.0`.
+- `@hivemagnus/hive-common` is now `^0.11.1`.
+- Magnus event streams (task streams and New Agent operation streams) are read with the suite's
+  parser (`/sse` `parseSseStream()`, 4 MiB per event, events with data only, as before); Studio's own
+  parser (`src/clients/sse.ts`) is gone. The follower, the preview stream and the operation watcher keep
+  their own reconnect and polling, and Magnus errors are reported as before. Differences:
+  - The 4 MiB limit counts the UTF-8 bytes of the event's lines (field names included), not the
+    characters of its values, so an event near the limit with non-ASCII text is refused sooner.
+  - An oversized event fails with `The event stream sent an event larger than the limit` (it was
+    `Server-sent event exceeds the size limit`); an agent preview shows that text in `preview.error`.
+  - Stopping a follower, a preview or the service ends a read at once and cancels the Magnus response
+    body, also when the connection ignores the abort.
+- The audit export reads `after` and `limit` with the suite's `parseAuditExportQuery()`, which now reads
+  Studio's `{ id }` cursor itself, and pages are built by `auditExportPage()` with Studio's cursor
+  encoder, so Studio keeps issuing `{ id }` cursors byte for byte. Studio's own cursor decoding is gone;
+  it still refuses a string id or a time-ordered `{ t, i }` cursor with 400.
+- Audit details are redacted with HiveCommon 0.11.0's rule: a `name=value` or `name: value` pair whose
+  name ends in a secret word (`NODE_TOKEN=x`, `db_password: x`) in a detail string is exported as
+  `[REDACTED]`. Studio records no such values today.
 - The Oathweave service token client is the suite's shared provider (`/oathweave`
   `createServiceTokenProvider()`), behind the same `ServiceTokenProvider` class and settings. Same cache,
   refresh, 5 s failure backoff and error messages; the token response is now read with a 64 KiB bound, and a
