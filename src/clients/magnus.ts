@@ -26,6 +26,7 @@
 import { formatTraceparent, generateRequestId, generateTraceparent, HIVE_HEADERS, outboundHeaders } from '@hivemagnus/hive-common/context';
 import { EXECUTION_HEADER, executionHeaders, type ExecutionContext } from '@hivemagnus/hive-common/execution';
 import { retryAfterFromHeaders } from '@hivemagnus/hive-common/retry';
+import { parseSseStream, type ParseSseStreamOptions, type SseEvent } from '@hivemagnus/hive-common/sse';
 import {
   agentDefinitionInstallRequestSchema, agentDefinitionPreflightSchema, agentDefinitionProblemSchema, agentDefinitionValidateRequestSchema,
 } from '@hivemagnus/magnus-contracts/agent-definition';
@@ -66,7 +67,6 @@ import {
   type ArdentTaskRecoveryDecision,
 } from '@hivemagnus/magnus-contracts/ardent-service';
 import { z } from 'zod';
-import { parseSse, type SseMessage } from './sse.js';
 import type { ServiceTokenProvider } from './service-token.js';
 import { trimTrailingSlashes } from '../url.js';
 
@@ -79,6 +79,17 @@ export {
 export { ARDENT_CONTEXT_ITEMS_MAX_BYTES } from '@hivemagnus/magnus-contracts/browser';
 
 export const ACTING_SUBJECT_HEADER = ARDENT_ACTING_SUBJECT_HEADER;
+
+/** The largest server-sent event Studio reads from a Magnus stream. */
+export const MAX_SSE_EVENT_BYTES = 4 * 1024 * 1024;
+
+/**
+ * How Studio reads a Magnus event stream: events with data only (as EventSource), bounded, and
+ * stopped (body cancelled) when the caller's signal aborts.
+ */
+function sseOptions(signal: AbortSignal | undefined): ParseSseStreamOptions {
+  return { maxEventBytes: MAX_SSE_EVENT_BYTES, requireData: true, ...(signal ? { signal } : {}) };
+}
 
 export class MagnusError extends Error {
   override name = 'MagnusError';
@@ -553,13 +564,13 @@ export class MagnusClient {
    * Magnus). Yields task.event (resumable, id = journal sequence), task.text, task.delta and
    * task.done. Ardent ends a stream after 60 seconds; reconnect with `after`.
    */
-  async *streamTask(ref: string, taskId: string, options: CallContext & { after?: number } = {}): AsyncGenerator<SseMessage> {
+  async *streamTask(ref: string, taskId: string, options: CallContext & { after?: number } = {}): AsyncGenerator<SseEvent> {
     const { nodeId, profile } = parseAgentRef(ref);
     const query = options.after !== undefined ? `?after=${options.after}` : '';
     const response = await this.send('GET', `/api/v1/ardent/installations/${nodeId}/profiles/${profile}/tasks/${uuid(taskId)}/stream${query}`,
       options, undefined, { accept: 'text/event-stream' }, 0);
     if (!response.ok || !response.body) await this.fail(response);
-    yield* parseSse(response.body!);
+    yield* parseSseStream(response.body!, sseOptions(options.signal));
   }
 
   /** Magnus New Agent deploy operation. Magnus runs it only when the acting person is a Magnus ADMIN. */
@@ -591,10 +602,10 @@ export class MagnusClient {
   }
 
   /** Live operation updates: `operation` events, then one `done`. */
-  async *streamAgentOperation(operationId: string, options: CallContext = {}): AsyncGenerator<SseMessage> {
+  async *streamAgentOperation(operationId: string, options: CallContext = {}): AsyncGenerator<SseEvent> {
     const response = await this.send('GET', `/api/v1/ardent/agents/operations/${operationIdOf(operationId)}/stream`, options, undefined, { accept: 'text/event-stream' }, 0);
     if (!response.ok || !response.body) await this.fail(response);
-    yield* parseSse(response.body!);
+    yield* parseSseStream(response.body!, sseOptions(options.signal));
   }
 
   /** Resume a failed operation from its first unfinished step. Needs an acting ADMIN. */

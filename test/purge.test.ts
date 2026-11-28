@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseSse } from '../src/clients/sse.js';
+import { parseSseStream } from '@hivemagnus/hive-common/sse';
 import { ARDENT_STUDIO_API_PREFIX, purgeProjectResponseSchema } from '../src/shared/browser.js';
 import { createProject, createTestContext, json, ManualClock, NOT_ADMIN, type TestContext } from './helpers.js';
 
@@ -136,7 +136,7 @@ describe('project purge', () => {
 
     const controller = new AbortController();
     const opened = await ctx.app.request(`${ARDENT_STUDIO_API_PREFIX}/projects/${project.id}/stream`, { headers: { authorization: `Bearer ${await ctx.token()}` }, signal: controller.signal });
-    const iterator = parseSse(opened.body!)[Symbol.asyncIterator]();
+    const iterator = parseSseStream(opened.body!, { requireData: true })[Symbol.asyncIterator]();
     expect((await purge(project.id, 'Streamed')).status).toBe(200);
     const message = await Promise.race([iterator.next(), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('stream timeout')), 3000))]);
     expect(message.value).toMatchObject({ event: 'project.purged' });

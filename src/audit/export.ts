@@ -1,11 +1,15 @@
 // The suite audit export: Studio's append-only audit table as HiveAuditRecord v1, oldest first,
 // keyset-paged on the table's monotonic id. Details are flattened to scalars, redacted with the
 // suite's log redaction and capped at 4 KB; they never hold secrets or file contents. Details,
-// action names, record ids, strict record validation and page building are the suite's shared
-// audit kit (@hivemagnus/hive-common/audit); the cursor keeps Studio's own `{ id }` form.
-import { auditAction, auditDetails, auditExportPage, auditRecordId, decodeAuditCursor, type HiveAuditRecord as SharedAuditRecord, type HiveAuditScalar } from '@hivemagnus/hive-common/audit';
-import { decodeCursor, encodeCursor, parseFeedQuery } from '@hivemagnus/hive-common/events';
+// action names, record ids, the export query and cursor reading, strict record validation and
+// page building are the suite's shared audit kit (@hivemagnus/hive-common/audit); Studio keeps
+// issuing its own `{ id }` cursor form, byte for byte, because collectors store it.
+import {
+  auditAction, auditDetails, auditExportPage, auditRecordId, parseAuditExportQuery,
+  type AuditCursorPosition, type HiveAuditRecord as SharedAuditRecord, type HiveAuditScalar,
+} from '@hivemagnus/hive-common/audit';
 import { HiveError } from '@hivemagnus/hive-common/errors';
+import { encodeCursor } from '@hivemagnus/hive-common/events';
 import type { AuditEntry, AuditRepository } from '../db/repos/audit.js';
 import { agentRefSchema, type HiveAuditRecord } from '../shared/browser.js';
 
@@ -20,28 +24,20 @@ export interface AuditExportPage {
   nextCursor: string | null;
 }
 
-const invalidCursor = () => new HiveError('invalid_cursor', 'The cursor is not valid', { status: 400 });
-
 /**
- * The numeric id after a cursor; 0 for the first page. Throws a 400 HiveError for a malformed cursor.
- * Studio issues `{ id }` cursors (collectors store them); the suite's `{ i }` form is read too.
+ * The audit row id a cursor resumes after; 0 for the first page. The shared parser reads Studio's
+ * `{ id }` form and the suite's `{ i }` form; Studio's table is ordered by a numeric id alone, so a
+ * string id or a time-ordered `{ t, i }` cursor is refused like any malformed one (400 invalid_cursor).
  */
-export function cursorPosition(after: string | undefined): number {
-  if (after === undefined || after === '') return 0;
-  const position = decodeCursor(after);
-  let id: unknown;
-  if (Object.keys(position).length === 1 && 'id' in position) id = position.id;
-  else {
-    const shared = decodeAuditCursor(after);
-    if (shared && shared.at === undefined) id = shared.id;
-  }
-  if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 0) throw invalidCursor();
-  return id;
+function afterId(position: AuditCursorPosition | undefined): number {
+  if (position === undefined) return 0;
+  if (typeof position.id !== 'number' || position.at !== undefined) throw new HiveError('invalid_cursor', 'The cursor is not valid', { status: 400 });
+  return position.id;
 }
 
-/** The cursor that resumes after the audit row `id`. */
-export function encodeAuditPosition(id: number): string {
-  return encodeCursor({ id });
+/** Studio's cursor: base64url JSON `{ id }` of the last row read (`eyJpZCI6N30` for row 7). */
+function encodeStudioCursor(position: AuditCursorPosition): string {
+  return encodeCursor({ id: position.id });
 }
 
 /** Flat scalars only: arrays of scalars are joined, other arrays become a count, objects and content keys are dropped. */
@@ -102,16 +98,16 @@ export function exportAuditPage(
   query: URLSearchParams | Readonly<Record<string, string | undefined>>,
   onDropped?: (count: number) => void,
 ): AuditExportPage {
-  const { after, limit } = parseFeedQuery(query, { defaultLimit: AUDIT_EXPORT_DEFAULT_LIMIT, maxLimit: AUDIT_EXPORT_MAX_LIMIT });
-  const entries = audit.listAfter(cursorPosition(after), limit);
+  const { after, limit } = parseAuditExportQuery(query, { defaultLimit: AUDIT_EXPORT_DEFAULT_LIMIT, maxLimit: AUDIT_EXPORT_MAX_LIMIT });
+  const entries = audit.listAfter(afterId(after), limit);
   const taskRefs = audit.taskAgentRefs(entries.filter(entry => entry.target_type === 'task').map(entry => entry.target_id));
   const page = auditExportPage(entries, {
     limit,
     // Studio's schema type allows explicit undefined on optional fields; the record never holds one.
     toRecord: entry => toAuditRecord(entry, taskRefs) as SharedAuditRecord,
     position: entry => ({ id: entry.id }),
+    encodeCursor: encodeStudioCursor,
     ...(onDropped ? { onDropped } : {}),
   });
-  const last = entries.at(-1);
-  return { data: page.data as HiveAuditRecord[], nextCursor: last ? encodeAuditPosition(last.id) : null };
+  return { data: page.data as HiveAuditRecord[], nextCursor: page.nextCursor };
 }
