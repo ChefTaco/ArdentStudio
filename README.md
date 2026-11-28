@@ -15,12 +15,14 @@ A project has three areas:
 3. **Agent Studio**: agent tuning, previews, development records and **Deliverable Review**
    (verified deliverable revisions, anchored comments, revision requests, decisions and exports).
 
-The current release, 0.8.0, covers projects, reference files with HiveMem knowledge sync,
+The current release, 0.9.0, covers projects, reference files with HiveMem knowledge sync,
 templates and portable agent definitions, team assignment, agents through Magnus (Agent Studio
 drafts, streaming previews, apply, development records and New Agent), the conversation room with
 its conductor (workflows, execution references, task recovery and lineage, resumable artifact
 imports), Deliverable Review, optional per-project membership, purge of archived projects, the
-Emberpath client key relay for Emberpath-alias agents (Magnus 3.5.0), the live project event stream and the suite audit export (`GET /api/ardentstudio/v1/audit/export`).
+Emberpath client key relay for Emberpath-alias agents (Magnus 3.5.0), the live project event stream
+and the suite audit export (`GET /api/ardentstudio/v1/audit/export`). Since 0.9.0 the Oathweave
+service token, Magnus event streams and the audit export use the shared `@hivemagnus/hive-common` kit.
 [CHANGELOG.md](CHANGELOG.md) lists what each release changed.
 
 ## Requirements

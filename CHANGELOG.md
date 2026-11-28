@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## [0.9.0] - 2026-11-28
+
 ### Upgrade notes
 
 - `ARDENT_STUDIO_OATHWEAVE_TOKEN_URL` must be `https:`. Studio used to accept an `http:` token URL on a
