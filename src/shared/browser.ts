@@ -1841,7 +1841,7 @@ export const auditExportQuerySchema = z.object({
 });
 export const auditExportResponseSchema = z.object({
   data: z.array(hiveAuditRecordSchema),
-  /** The last record's cursor whenever `data` is not empty, even on the last page; null only when `data` is empty (caught up). Send it as `after` to read on. */
+  /** The last row's cursor whenever the page read rows, even on the last page; null only when nothing was read (caught up). `data` can be empty with a cursor when every row read was left out as invalid. Send it as `after` to read on. */
   nextCursor: z.string().nullable(),
 });
 
@@ -2008,7 +2008,7 @@ export const ardentStudioBrowserRoutes: readonly ArdentStudioBrowserRoute[] = [
 
   // Audit
   { method: 'GET', path: '/audit/export', query: auditExportQuerySchema, response: auditExportResponseSchema, permissions: AUDIT_READ, orPermission: 'ardentstudio:agents:admin', accept: 'any', idempotent: false,
-    note: 'Every audit record, oldest first, as HiveAuditRecord v1, keyset-paged on the record id. Accepts an Oathweave service token with ardentstudio:audit:read (no account link needed; native-issuer service tokens too when OATHWEAVE_NATIVE_ISSUERS lists the issuer), or a linked person with ardentstudio:audit:read or ardentstudio:agents:admin. 400 for a malformed cursor or limit. nextCursor is the last record\'s cursor whenever data is not empty, and null only when data is empty (caught up).' },
+    note: 'Every audit record, oldest first, as HiveAuditRecord v1, keyset-paged on the record id. Accepts an Oathweave service token with ardentstudio:audit:read (no account link needed; native-issuer service tokens too when OATHWEAVE_NATIVE_ISSUERS lists the issuer), or a linked person with ardentstudio:audit:read or ardentstudio:agents:admin. 400 for a malformed cursor or limit. nextCursor is the last row\'s cursor whenever the page read rows, and null only when nothing was read (caught up). A row that would not be a valid record is left out and the cursor moves past it, so data can be empty with a non-null cursor: read on from it.' },
 
   // Stream
   {

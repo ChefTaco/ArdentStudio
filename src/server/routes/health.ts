@@ -39,44 +39,54 @@ export function healthRoutes(register: ReturnType<typeof createRouter>, deps: Ap
   // Liveness never touches dependencies. Its body stays Studio's published `{status:'ok'}`.
   register('GET', '/health/live', () => ({ body: { status: 'ok' } }));
 
+  // Requests that arrive while a readiness run is in progress share it (as hive-common's
+  // createHealth() does since 0.7.0), so concurrent probes of this unauthenticated route never
+  // multiply the load on Magnus and HiveMem.
+  let running: Promise<void> | undefined;
+  const refresh = async (): Promise<void> => {
+    // One Magnus listing serves both the magnus and the agents checks.
+    const listing = deps.agents.list();
+    listing.catch(() => undefined);
+    const report = await readiness({
+      timeoutMs: CHECK_TIMEOUT_MS,
+      exposeErrors: false,
+      checks: [
+        { name: 'database', check: guarded('database', () => { deps.store.db.prepare('SELECT 1').get(); }) },
+        { name: 'magnus', check: guarded('magnus', async () => {
+          const list = await listing;
+          if (list.magnus.state !== 'ok') throw new Error(list.magnus.error ?? 'unavailable');
+        }) },
+        { name: 'hivemem', check: guarded('hivemem', async () => { await deps.hivemem.health(); }) },
+        // Ardent Project Studio requires at least one reachable Ardent agent.
+        { name: 'agents', check: async () => {
+          const list = await listing;
+          const available = list.magnus.state === 'ok' ? list.available_count : 0;
+          return { ok: available > 0, details: { available } };
+        } },
+      ],
+    });
+    const { checks } = report.body;
+    const agents = checks['agents'];
+    const available = typeof agents?.details?.['available'] === 'number' ? agents.details['available'] : 0;
+    const ready = report.status === 200;
+    cached = { at: Date.now(), ready, body: {
+      status: ready ? 'ready' : 'not_ready',
+      checks: {
+        database: toCheck('database', checks['database']),
+        magnus: toCheck('magnus', checks['magnus']),
+        hivemem: toCheck('hivemem', checks['hivemem']),
+        agents: { status: agents?.status === 'up' ? 'ok' : 'unavailable', available },
+      },
+    } };
+  };
+
   register('GET', '/health/ready', async c => {
     if (!cached || Date.now() - cached.at > CACHE_MS) {
-      // One Magnus listing serves both the magnus and the agents checks.
-      const listing = deps.agents.list();
-      listing.catch(() => undefined);
-      const report = await readiness({
-        timeoutMs: CHECK_TIMEOUT_MS,
-        exposeErrors: false,
-        checks: [
-          { name: 'database', check: guarded('database', () => { deps.store.db.prepare('SELECT 1').get(); }) },
-          { name: 'magnus', check: guarded('magnus', async () => {
-            const list = await listing;
-            if (list.magnus.state !== 'ok') throw new Error(list.magnus.error ?? 'unavailable');
-          }) },
-          { name: 'hivemem', check: guarded('hivemem', async () => { await deps.hivemem.health(); }) },
-          // Ardent Project Studio requires at least one reachable Ardent agent.
-          { name: 'agents', check: async () => {
-            const list = await listing;
-            const available = list.magnus.state === 'ok' ? list.available_count : 0;
-            return { ok: available > 0, details: { available } };
-          } },
-        ],
-      });
-      const { checks } = report.body;
-      const agents = checks['agents'];
-      const available = typeof agents?.details?.['available'] === 'number' ? agents.details['available'] : 0;
-      const ready = report.status === 200;
-      cached = { at: Date.now(), ready, body: {
-        status: ready ? 'ready' : 'not_ready',
-        checks: {
-          database: toCheck('database', checks['database']),
-          magnus: toCheck('magnus', checks['magnus']),
-          hivemem: toCheck('hivemem', checks['hivemem']),
-          agents: { status: agents?.status === 'up' ? 'ok' : 'unavailable', available },
-        },
-      } };
+      running ??= refresh().finally(() => { running = undefined; });
+      await running;
     }
+    const result = cached!;
     c.header('cache-control', 'no-store');
-    return c.json(cached.body, cached.ready ? 200 : 503);
+    return c.json(result.body, result.ready ? 200 : 503);
   });
 }

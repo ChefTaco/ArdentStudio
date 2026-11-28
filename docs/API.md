@@ -626,8 +626,11 @@ cannot send the bearer token).
 every audit row Studio stores, oldest first, keyset-paged on the row's monotonic id. `after` is the
 opaque `nextCursor` of the previous page (omit it for the start); `limit` is 1 to 200 (default
 100, larger values are clamped). A page holds records strictly after the cursor. Whenever a page
-has records, `nextCursor` is the last record's cursor, even on the last page, so a collector can
-store it and poll again later; it is `null` only when `data` is empty, meaning caught up. A malformed cursor or limit answers `400 VALIDATION_ERROR`.
+read rows, `nextCursor` is the last row's cursor, even on the last page, so a collector can
+store it and poll again later; it is `null` only when nothing was read, meaning caught up. A row whose
+record would not be valid HiveAuditRecord v1 is left out (and logged as a count), and the cursor still
+moves past it, so a page can be empty with a non-null cursor: read on from it. A malformed cursor or
+limit answers `400 VALIDATION_ERROR`.
 
 Each record (`hiveAuditRecordSchema` in `src/shared/browser.ts`, the suite-wide v1 shape):
 
@@ -636,11 +639,11 @@ Each record (`hiveAuditRecordSchema` in `src/shared/browser.ts`, the suite-wide 
 | `id` | `ardentstudio:audit:<row id>`, stable |
 | `product` | `ardentstudio` |
 | `occurredAt` | RFC 3339 UTC |
-| `action` | The recorded action, for example `project.create`, `team.publish`, `agent.apply`, `review.export` |
+| `action` | The recorded action, for example `project.create`, `team.publish`, `agent.apply`, `review.export`; characters outside `[a-z0-9_]` in a segment become `_` (`template.import-definition` is exported as `template.import_definition`) |
 | `outcome` | `success` (Studio audits completed mutations only) |
 | `actor` | `user` (Oathweave subject and issuer, `displayName` the Studio user), `system`, or `service` |
 | `target` | The audited object's type and id (`project`, `task`, `agent`, `link`, `file`, …); omitted when empty |
 | `subject` | Omitted unless the record is about an agent: `agentRef` and `nodeId` when the record is about an agent: an `agent` target, a `task` that ran on an agent, or an `agent_ref` in the details |
-| `details` | Flat scalars, redacted with the suite log redaction, at most 4 KB. Lists of values are joined with commas, other lists become `<key>_count`, nested objects are dropped |
+| `details` | Flat scalars, redacted with the suite log redaction, at most 4 KB, strings at most 512 characters. Lists of values are joined with commas, other lists become `<key>_count`, nested objects are dropped |
 
 Permissions: see [Oathweave](OATHWEAVE.md#audit-export).

@@ -66,6 +66,22 @@ describe('configuration', () => {
     expect(issues({ ...base, OATHWEAVE_ISSUER: 'http://127.0.0.1' })).toContain('OATHWEAVE_ISSUER');
   });
 
+  it('refuses a plain HTTP token URL, also on loopback and with the plaintext opt-in', () => {
+    for (const env of [
+      { ARDENT_STUDIO_OATHWEAVE_TOKEN_URL: 'http://identity.example.com/api/v1/oauth/token' },
+      { ARDENT_STUDIO_OATHWEAVE_TOKEN_URL: 'http://127.0.0.1:4200/api/v1/oauth/token' },
+      { ARDENT_STUDIO_OATHWEAVE_TOKEN_URL: 'http://oathweave:4200/api/v1/oauth/token', ARDENT_STUDIO_ALLOW_PLAINTEXT_SERVICES: 'true' },
+    ]) {
+      try {
+        loadConfig({ ...base, ...env });
+        expect.fail('should throw');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ConfigError);
+        expect((error as ConfigError).issues).toEqual([{ name: 'ARDENT_STUDIO_OATHWEAVE_TOKEN_URL', message: expect.stringMatching(/^must use https: the client secret is sent to it/) }]);
+      }
+    }
+  });
+
   it('validates identity links against the issuer and rejects duplicates', () => {
     expect(issues({ ...base, ARDENT_STUDIO_OATHWEAVE_IDENTITIES_JSON: '[{"issuer":"https://other.example.com","subject":"s","localUserId":"u"}]' }))
       .toEqual(['ARDENT_STUDIO_OATHWEAVE_IDENTITIES_JSON']);

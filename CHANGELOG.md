@@ -6,6 +6,43 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Upgrade notes
+
+- `ARDENT_STUDIO_OATHWEAVE_TOKEN_URL` must be `https:`. Studio used to accept an `http:` token URL on a
+  loopback host or with `ARDENT_STUDIO_ALLOW_PLAINTEXT_SERVICES=true`; it now refuses to start with
+  `ARDENT_STUDIO_OATHWEAVE_TOKEN_URL must use https: the client secret is sent to it`. Point it at
+  Oathweave's HTTPS endpoint before upgrading (a Hive suite install already does). Other service URLs
+  keep their rules.
+- No migrations and no other setting changes; going back to 0.8.0 is safe. Audit export cursors stored
+  by a collector keep working.
+
+### Changed
+
+- `@hivemagnus/hive-common` is now `^0.10.0`.
+- The Oathweave service token client is the suite's shared provider (`/oathweave`
+  `createServiceTokenProvider()`), behind the same `ServiceTokenProvider` class and settings. Same cache,
+  refresh, 5 s failure backoff and error messages; the token response is now read with a 64 KiB bound, and a
+  `ServiceTokenError` is the shared `HiveError` (`auth_unavailable`, 503 with a `reason`). HTTP answers
+  for a failed token are unchanged (Studio's error handler treats it as before).
+- The audit export builds its records and pages with the suite's audit kit (`/audit` `auditDetails()`,
+  `auditAction()`, `auditRecordId()`, `auditExportPage()`), and validates every record strictly before
+  sending it. The cursor keeps Studio's `{ id }` form byte for byte; the suite's `{ i }` form is accepted
+  too. Differences a collector can see:
+  - A stored action with characters outside `[a-z0-9_]` in a segment is exported with `_`:
+    `template.import-definition` is now `template.import_definition`, which matches the published
+    record pattern (it did not before). The stored audit row is unchanged.
+  - A row that would not be a valid record is left out (Studio logs the count) and the cursor still
+    moves past it, so a page can be empty with a non-null `nextCursor`. `nextCursor` stays `null` only
+    when nothing was read.
+  - A detail string longer than 512 characters is cut to 512 characters including the closing `…`
+    (it used to keep 512 and add one).
+
+### Fixed
+
+- `GET /health/ready`: requests that arrive while a readiness run is in progress share it, as hive-common's
+  `createHealth()` does since 0.7.0. Before, each concurrent request past the 10 s cache started its own
+  Magnus listing and HiveMem check from this unauthenticated route.
+
 ## [0.8.0] - 2026-11-27
 
 ### Upgrade notes

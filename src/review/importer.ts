@@ -17,7 +17,7 @@ import { open, stat, truncate } from 'node:fs/promises';
 import { z } from 'zod';
 import { BlobIntegrityError, BlobTooLargeError, type BlobRecord, type BlobStore } from '../blobs/store.js';
 import { ARDENT_RUNTIME_LEVELS, ARDENT_UNSUPPORTED_CAPABILITY, MagnusError, type MagnusClient } from '../clients/magnus.js';
-import { ServiceTokenError } from '../clients/service-token.js';
+import { isServiceTokenError } from '../clients/service-token.js';
 import type { Conductor } from '../conductor/conductor.js';
 import type { ArtifactImport, Deliverable, DeliverableRendition } from '../db/repos/review.js';
 import type { StudioTask } from '../db/repos/tasks.js';
@@ -183,7 +183,7 @@ export class ArtifactImporter {
       const reason = error instanceof TransferError ? error.message
         : error instanceof BlobIntegrityError ? 'the received bytes do not match the registered SHA-256'
           : error instanceof BlobTooLargeError ? `it is larger than the ${this.options.blobs.maxBytes}-byte limit`
-            : error instanceof MagnusError || error instanceof ServiceTokenError ? `Magnus answered: ${error.message.slice(0, 200)}`
+            : error instanceof MagnusError || isServiceTokenError(error) ? `Magnus answered: ${error.message.slice(0, 200)}`
               : `the transfer failed (${error instanceof Error ? error.message.slice(0, 200) : 'unknown error'})`;
       if (permanent || attempts >= (this.options.maxAttempts ?? 5)) {
         await this.options.blobs.removePartial(row.id);

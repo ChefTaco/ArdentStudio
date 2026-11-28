@@ -64,7 +64,7 @@ export const ENV_CATALOG: ReadonlyArray<{ name: string; required: boolean; secre
   { name: 'OATHWEAVE_USERINFO_URL', required: true, secret: false, description: 'Oathweave userinfo URL (HTTPS), used for online session revocation.' },
   { name: 'OATHWEAVE_NATIVE_ISSUERS', required: false, secret: false, description: 'Optional comma-separated Oathweave native issuer ids (its JWT issuer name). Service tokens they sign are accepted on the audit export only; never for people.' },
   { name: 'ARDENT_STUDIO_OATHWEAVE_IDENTITIES_JSON', required: true, secret: false, description: 'JSON array of explicit account links: [{issuer, subject, localUserId, displayName?, permissions?}].' },
-  { name: 'ARDENT_STUDIO_OATHWEAVE_TOKEN_URL', required: true, secret: false, description: 'Oathweave OAuth token endpoint for the client_credentials grant.' },
+  { name: 'ARDENT_STUDIO_OATHWEAVE_TOKEN_URL', required: true, secret: false, description: 'Oathweave OAuth token endpoint (HTTPS) for the client_credentials grant.' },
   { name: 'ARDENT_STUDIO_MAGNUS_URL', required: true, secret: false, description: 'Magnus control API base URL (the origin that serves /api/v1).' },
   { name: 'ARDENT_STUDIO_MAGNUS_CLIENT_ID', required: true, secret: false, description: 'Oathweave machine client whose tokens carry the audience magnus.' },
   { name: 'ARDENT_STUDIO_MAGNUS_CLIENT_SECRET', required: true, secret: true, description: 'Secret of the Magnus machine client.' },
@@ -115,11 +115,11 @@ export function loadConfig(env: Env = process.env): Config {
     return parsed.data;
   };
   const allowPlaintext = value('ARDENT_STUDIO_ALLOW_PLAINTEXT_SERVICES') === 'true';
-  const url = (name: string, httpsOnly: boolean, exact = false): string => {
+  const url = (name: string, httpsOnly: boolean, exact = false, plaintextMessage?: string): string => {
     const raw = required(name);
     if (!raw) return raw;
     const problem = urlIssue(raw, { httpsOnly, allowPlaintext });
-    if (problem) issues.push({ name, message: problem });
+    if (problem) issues.push({ name, message: plaintextMessage && problem === 'must use https' && /^http:/i.test(raw) ? plaintextMessage : problem });
     return exact ? raw : trimTrailingSlashes(raw);
   };
 
@@ -134,7 +134,10 @@ export function loadConfig(env: Env = process.env): Config {
   const issuer = url('OATHWEAVE_ISSUER', true, true);
   const jwksUrl = url('OATHWEAVE_JWKS_URL', true);
   const userinfoUrl = url('OATHWEAVE_USERINFO_URL', true);
-  const tokenUrl = url('ARDENT_STUDIO_OATHWEAVE_TOKEN_URL', false);
+  // The client secret travels to the token endpoint, so it is https only, also on loopback and with
+  // ARDENT_STUDIO_ALLOW_PLAINTEXT_SERVICES (the shared service token provider refuses http too).
+  const tokenUrl = url('ARDENT_STUDIO_OATHWEAVE_TOKEN_URL', true, false,
+    'must use https: the client secret is sent to it (http is no longer accepted, not even on loopback or with ARDENT_STUDIO_ALLOW_PLAINTEXT_SERVICES)');
   const nativeIssuers = (value('OATHWEAVE_NATIVE_ISSUERS') ?? '').split(',').map(item => item.trim()).filter(Boolean);
   if (nativeIssuers.some(item => !OATHWEAVE_NATIVE_ISSUER_PATTERN.test(item))) {
     issues.push({ name: 'OATHWEAVE_NATIVE_ISSUERS', message: 'must be comma-separated Oathweave native issuer ids ([a-z][a-z0-9-], at most 64 each)' });

@@ -1,6 +1,7 @@
 import { encodeCursor } from '@hivemagnus/hive-common/events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { flattenDetails, toAuditRecord } from '../src/audit/export.js';
+import { encodeAuditCursor } from '@hivemagnus/hive-common/audit';
+import { exportAuditPage, flattenDetails, toAuditRecord } from '../src/audit/export.js';
 import { auditExportResponseSchema, hiveAuditRecordSchema, type HiveAuditRecord } from '../src/shared/browser.js';
 import { createProject, createTestContext, json, type TestContext } from './helpers.js';
 
@@ -108,6 +109,21 @@ describe('GET /audit/export', () => {
     }
   });
 
+  it('keeps the cursor wire format: issues and reads { id }, reads the suite { i } form too', async () => {
+    // A cursor a collector stored before: base64url of {"id":5}, written out byte for byte.
+    expect(encodeCursor({ id: 5 })).toBe('eyJpZCI6NX0');
+    const stored = await json(await page('?after=eyJpZCI6NX0&limit=2'));
+    expect(stored.data.map(native)).toEqual([6, 7]);
+    expect(stored.nextCursor).toBe('eyJpZCI6N30');
+    const shared = await json(await page(`?after=${encodeAuditCursor({ id: 5 })}&limit=2`));
+    expect(shared).toEqual(stored);
+    for (const bad of [encodeAuditCursor({ id: 5, at: '2026-11-12T10:00:00.000Z' }), encodeAuditCursor({ id: 'x' }), encodeCursor({ i: -1 })]) {
+      const response = await page(`?after=${encodeURIComponent(bad)}`);
+      expect(response.status, bad).toBe(400);
+      expect((await json(response)).error.code).toBe('VALIDATION_ERROR');
+    }
+  });
+
   it('authenticates: 401 without a token, 403 without the permission, service and admin accepted', async () => {
     expect((await page('', null)).status).toBe(401);
     expect((await page('', 'not-a-jwt')).status).toBe(401);
@@ -157,6 +173,26 @@ describe('GET /audit/export', () => {
   });
 });
 
+describe('exportAuditPage', () => {
+  it('skips and counts a row whose record is not valid, and moves the cursor past it', async () => {
+    const local = await createTestContext({ seed: false });
+    try {
+      local.store.tx(() => {
+        local.store.record(actor, 'project.update', { type: 'project', id: 'prj_1' });
+        local.store.record({ ...actor, subject: 'bad\u0000subject' }, 'project.update', { type: 'project', id: 'prj_2' });
+      });
+      const dropped: number[] = [];
+      const first = exportAuditPage(local.store.audit, { limit: '200' }, count => dropped.push(count));
+      expect(first.data.map(record => record.target?.id)).toEqual(['prj_1']);
+      expect(dropped).toEqual([1]);
+      expect(first.nextCursor).toBe(encodeCursor({ id: 2 }));
+      expect(exportAuditPage(local.store.audit, { after: first.nextCursor! })).toEqual({ data: [], nextCursor: null });
+    } finally {
+      local.close();
+    }
+  });
+});
+
 describe('toAuditRecord', () => {
   const entry = { id: 7, at: '2026-11-12T10:00:00.000Z', actor_user_id: 'system', actor_subject: null, actor_issuer: null, action: 'task.cancel', target_type: 'task', target_id: 'tsk_1', idempotency_key: 'secret-key-value', detail: { state: 'cancelled' } };
 
@@ -182,6 +218,11 @@ describe('toAuditRecord', () => {
   it('maps a service actor', () => {
     const record = toAuditRecord({ ...entry, actor_user_id: 'service:collector', actor_subject: 'collector', actor_issuer: 'https://identity.example.com' });
     expect(record.actor).toEqual({ type: 'service', id: 'collector', issuer: 'https://identity.example.com' });
+  });
+
+  it('maps a stored action onto the record pattern', () => {
+    expect(toAuditRecord({ ...entry, action: 'template.import-definition' }).action).toBe('template.import_definition');
+    expect(hiveAuditRecordSchema.parse(toAuditRecord({ ...entry, action: 'template.import-definition' })).action).toBe('template.import_definition');
   });
 
   it('caps details at 4 KB', () => {
