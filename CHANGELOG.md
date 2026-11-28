@@ -18,7 +18,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- `@hivemagnus/hive-common` is now `^0.11.0`.
+- `@hivemagnus/hive-common` is now `^0.11.1`.
 - Magnus event streams (task streams and New Agent operation streams) are read with the suite's
   parser (`/sse` `parseSseStream()`, 4 MiB per event, events with data only, as before); Studio's own
   parser (`src/clients/sse.ts`) is gone. The follower, the preview stream and the operation watcher keep
